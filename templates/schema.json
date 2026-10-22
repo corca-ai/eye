@@ -1,0 +1,104 @@
+{
+  "fields": [
+    {
+      "name": "schema_version",
+      "type": "int64",
+      "required": true
+    },
+    {
+      "name": "table_name",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "site_id",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "record_id",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "revision",
+      "type": "int64",
+      "required": true
+    },
+    {
+      "name": "occurred_at",
+      "type": "int64",
+      "required": true
+    },
+    {
+      "name": "received_at",
+      "type": "int64",
+      "required": true
+    },
+    {
+      "name": "subject_key",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "state_key",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "cid",
+      "type": "string",
+      "required": false
+    },
+    {
+      "name": "uid",
+      "type": "string",
+      "required": false
+    },
+    {
+      "name": "experiment_id",
+      "type": "string",
+      "required": false
+    },
+    {
+      "name": "arm_id",
+      "type": "string",
+      "required": false
+    },
+    {
+      "name": "goal_id",
+      "type": "string",
+      "required": false
+    },
+    {
+      "name": "assignment_id",
+      "type": "string",
+      "required": false
+    },
+    {
+      "name": "observation_id",
+      "type": "string",
+      "required": false
+    },
+    {
+      "name": "status",
+      "type": "string",
+      "required": false
+    },
+    {
+      "name": "value",
+      "type": "float64",
+      "required": false
+    },
+    {
+      "name": "attributes_json",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "payload_json",
+      "type": "string",
+      "required": true
+    }
+  ]
+}

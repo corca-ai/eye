@@ -1,0 +1,3 @@
+* text=auto eol=lf
+worker-configuration.d.ts linguist-generated=true
+src/runtime/environment.generated.ts linguist-generated=true

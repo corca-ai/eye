@@ -1,0 +1,1768 @@
+{
+  "model": "discounted empirical optimism v1; not a confidence bound",
+  "parameters": {
+    "days": 540,
+    "seeds": 4,
+    "daily_new_observations": 100,
+    "observation_days": 7,
+    "half_life_days": 7.0,
+    "exploration_floor": 0.02,
+    "bonus_multiplier": 2.0,
+    "pending_penalty": 1.0,
+    "bootstrap_quota": 8
+  },
+  "checks": [
+    "signed moments, decay, late revision without recounting",
+    "forgetting increases optimism; pending is not a zero reward",
+    "equal split then signed decay without renormalization",
+    "last touch before goal; half-open observation boundary",
+    "1000x unit scaling with initial scale: identical choices across all seeds",
+    "no new assignment to stopped arm"
+  ],
+  "results": {
+    "stationary": {
+      "discounted": {
+        "summary": {
+          "tail_60_best_share": {
+            "mean": 0.940625,
+            "min": 0.9319999999999999,
+            "max": 0.9533333333333334
+          },
+          "post_change_30_best_share": {
+            "mean": 0.9705,
+            "min": 0.961,
+            "max": 0.9846666666666667
+          },
+          "regret_per_assignment": {
+            "mean": 0.02978148148148147,
+            "min": 0.028044444444444438,
+            "max": 0.032585185185185175
+          },
+          "new_arm_first_window_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "stopped_arm_later_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "cancelled_observations": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "runs": [
+          {
+            "tail_60_best_share": 0.9401666666666667,
+            "post_change_30_best_share": 0.9673333333333334,
+            "regret_per_assignment": 0.030162962962962954,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "c27f2c290c12222277a67d88a29e50df1c08e24c3699660c37e197e555fc4c7f"
+          },
+          {
+            "tail_60_best_share": 0.9319999999999999,
+            "post_change_30_best_share": 0.961,
+            "regret_per_assignment": 0.032585185185185175,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "89ada2c61b09c6a450c4c1b4042c3d82411075c20e42aaa5fd9908565a66a762"
+          },
+          {
+            "tail_60_best_share": 0.9369999999999999,
+            "post_change_30_best_share": 0.969,
+            "regret_per_assignment": 0.028044444444444438,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "07e61b469f33bb6c6e59a53a2e8185b1dd01b54d39397b206bc3ea8fb3a0f614"
+          },
+          {
+            "tail_60_best_share": 0.9533333333333334,
+            "post_change_30_best_share": 0.9846666666666667,
+            "regret_per_assignment": 0.02833333333333332,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "36301b4cf6b4cebe8c8a867c4969b8e55ef3103be554b2175caf2204d541538d"
+          }
+        ]
+      },
+      "lifetime": {
+        "summary": {
+          "tail_60_best_share": {
+            "mean": 0.9900833333333333,
+            "min": 0.9895,
+            "max": 0.9906666666666667
+          },
+          "post_change_30_best_share": {
+            "mean": 0.9913333333333333,
+            "min": 0.9896666666666667,
+            "max": 0.9933333333333333
+          },
+          "regret_per_assignment": {
+            "mean": 0.006579629629629628,
+            "min": 0.0060222222222222205,
+            "max": 0.006844444444444443
+          },
+          "new_arm_first_window_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "stopped_arm_later_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "cancelled_observations": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "runs": [
+          {
+            "tail_60_best_share": 0.9898333333333333,
+            "post_change_30_best_share": 0.991,
+            "regret_per_assignment": 0.006844444444444443,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "ea8aaaf6ad89e6cc4dc2231d16609c36f2e929809064c114e1c8af4e205c18a3"
+          },
+          {
+            "tail_60_best_share": 0.9895,
+            "post_change_30_best_share": 0.9896666666666667,
+            "regret_per_assignment": 0.00662222222222222,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "5e686d5b9dd4a33d2fde53b3a95ea539f04cebe6947e8873d92d7c178c04d4d3"
+          },
+          {
+            "tail_60_best_share": 0.9903333333333333,
+            "post_change_30_best_share": 0.9933333333333333,
+            "regret_per_assignment": 0.006829629629629628,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "c2121827ad19b44119ff69dd7ac9a73131fd9ff1bf15494c1c318f94e7942e15"
+          },
+          {
+            "tail_60_best_share": 0.9906666666666667,
+            "post_change_30_best_share": 0.9913333333333333,
+            "regret_per_assignment": 0.0060222222222222205,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "dc85d52430ef491c423fe9f5a4fb81b5be486a644cdee2876c8f49c59e38de4e"
+          }
+        ]
+      },
+      "uniform": {
+        "summary": {
+          "tail_60_best_share": {
+            "mean": 0.5038333333333334,
+            "min": 0.49616666666666664,
+            "max": 0.5103333333333333
+          },
+          "post_change_30_best_share": {
+            "mean": 0.4975,
+            "min": 0.492,
+            "max": 0.508
+          },
+          "regret_per_assignment": {
+            "mean": 0.2002814814814814,
+            "min": 0.19954814814814809,
+            "max": 0.20154814814814806
+          },
+          "new_arm_first_window_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "stopped_arm_later_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "cancelled_observations": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "runs": [
+          {
+            "tail_60_best_share": 0.5025000000000001,
+            "post_change_30_best_share": 0.49533333333333335,
+            "regret_per_assignment": 0.20154814814814806,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "33fac8645710909270771eaab52c159abfcb737925901350289903d9d429baba"
+          },
+          {
+            "tail_60_best_share": 0.5103333333333333,
+            "post_change_30_best_share": 0.492,
+            "regret_per_assignment": 0.19980740740740732,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "5a6c6fbc093ef908d84e45baddbe65f0e054632888a9644c2b6c03335c9e845d"
+          },
+          {
+            "tail_60_best_share": 0.5063333333333333,
+            "post_change_30_best_share": 0.508,
+            "regret_per_assignment": 0.19954814814814809,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "ea882a2eff5d33315e5848669da6b23a94303d0c56b3679b5b48e6807ec8e000"
+          },
+          {
+            "tail_60_best_share": 0.49616666666666664,
+            "post_change_30_best_share": 0.4946666666666667,
+            "regret_per_assignment": 0.20022222222222216,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "9101f73e5d015d73e1d66e1fe2e1923337fa26f41a8d696b7c5f81a5a6af458c"
+          }
+        ]
+      }
+    },
+    "switching": {
+      "discounted": {
+        "summary": {
+          "tail_60_best_share": {
+            "mean": 0.9824999999999999,
+            "min": 0.9766666666666667,
+            "max": 0.9891666666666666
+          },
+          "post_change_30_best_share": {
+            "mean": 0.9216666666666666,
+            "min": 0.882,
+            "max": 0.9596666666666667
+          },
+          "regret_per_assignment": {
+            "mean": 0.03760185185185185,
+            "min": 0.03475925925925926,
+            "max": 0.04014814814814815
+          },
+          "new_arm_first_window_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "stopped_arm_later_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "cancelled_observations": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "runs": [
+          {
+            "tail_60_best_share": 0.9833333333333333,
+            "post_change_30_best_share": 0.946,
+            "regret_per_assignment": 0.03743518518518518,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "eb57ea32375efd7792a5510fd2152a9f9f32303bf2de16ff16f19709c6cefdf0"
+          },
+          {
+            "tail_60_best_share": 0.9808333333333333,
+            "post_change_30_best_share": 0.882,
+            "regret_per_assignment": 0.04014814814814815,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "76b78f1bec19c36940067d808dddf4f10cab6e1530b9ef149c2d588b4a64eb96"
+          },
+          {
+            "tail_60_best_share": 0.9891666666666666,
+            "post_change_30_best_share": 0.9596666666666667,
+            "regret_per_assignment": 0.03475925925925926,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "4d72e7961f39474b9766dd9d3087e4183397da72eef378924090b2669a9bdd8f"
+          },
+          {
+            "tail_60_best_share": 0.9766666666666667,
+            "post_change_30_best_share": 0.899,
+            "regret_per_assignment": 0.038064814814814815,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "b5c0a423fd52803105c3758b307ef69bcff4a3e50a73ab26f7203988bf19c8ed"
+          }
+        ]
+      },
+      "lifetime": {
+        "summary": {
+          "tail_60_best_share": {
+            "mean": 0.9900833333333333,
+            "min": 0.9895,
+            "max": 0.9906666666666667
+          },
+          "post_change_30_best_share": {
+            "mean": 0.010083333333333333,
+            "min": 0.008666666666666666,
+            "max": 0.011333333333333334
+          },
+          "regret_per_assignment": {
+            "mean": 0.22311574074074075,
+            "min": 0.18649074074074073,
+            "max": 0.2574166666666667
+          },
+          "new_arm_first_window_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "stopped_arm_later_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "cancelled_observations": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "runs": [
+          {
+            "tail_60_best_share": 0.9898333333333333,
+            "post_change_30_best_share": 0.009666666666666667,
+            "regret_per_assignment": 0.2574166666666667,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "afe7a86d92ef833da6ddce3e99cb9d9f22c2bbebb9f3426c97169d6774e6efd5"
+          },
+          {
+            "tail_60_best_share": 0.9895,
+            "post_change_30_best_share": 0.008666666666666666,
+            "regret_per_assignment": 0.24237037037037037,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "446e65d95c1351aefa0dc1eee2402a6af10486de213f9fbec7392f070b563cc6"
+          },
+          {
+            "tail_60_best_share": 0.9903333333333333,
+            "post_change_30_best_share": 0.010666666666666666,
+            "regret_per_assignment": 0.2061851851851852,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "7ecae936d2604581a03dd5969d8a89a967d789b3f942827db5f95793b3bbd77d"
+          },
+          {
+            "tail_60_best_share": 0.9906666666666667,
+            "post_change_30_best_share": 0.011333333333333334,
+            "regret_per_assignment": 0.18649074074074073,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "241443a4badee26577294e84266e3704247c9e5d8b377e0b293a98ad143c67bd"
+          }
+        ]
+      },
+      "uniform": {
+        "summary": {
+          "tail_60_best_share": {
+            "mean": 0.5038333333333334,
+            "min": 0.49616666666666664,
+            "max": 0.5103333333333333
+          },
+          "post_change_30_best_share": {
+            "mean": 0.5006666666666667,
+            "min": 0.496,
+            "max": 0.5046666666666667
+          },
+          "regret_per_assignment": {
+            "mean": 0.37387731481481484,
+            "min": 0.3720555555555556,
+            "max": 0.3774814814814815
+          },
+          "new_arm_first_window_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "stopped_arm_later_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "cancelled_observations": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "runs": [
+          {
+            "tail_60_best_share": 0.5025000000000001,
+            "post_change_30_best_share": 0.49833333333333335,
+            "regret_per_assignment": 0.37353703703703706,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "33fac8645710909270771eaab52c159abfcb737925901350289903d9d429baba"
+          },
+          {
+            "tail_60_best_share": 0.5103333333333333,
+            "post_change_30_best_share": 0.5036666666666667,
+            "regret_per_assignment": 0.3724351851851852,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "5a6c6fbc093ef908d84e45baddbe65f0e054632888a9644c2b6c03335c9e845d"
+          },
+          {
+            "tail_60_best_share": 0.5063333333333333,
+            "post_change_30_best_share": 0.496,
+            "regret_per_assignment": 0.3774814814814815,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "ea882a2eff5d33315e5848669da6b23a94303d0c56b3679b5b48e6807ec8e000"
+          },
+          {
+            "tail_60_best_share": 0.49616666666666664,
+            "post_change_30_best_share": 0.5046666666666667,
+            "regret_per_assignment": 0.3720555555555556,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "9101f73e5d015d73e1d66e1fe2e1923337fa26f41a8d696b7c5f81a5a6af458c"
+          }
+        ]
+      }
+    },
+    "new_and_stopped": {
+      "discounted": {
+        "summary": {
+          "tail_60_best_share": {
+            "mean": 0.9344166666666667,
+            "min": 0.9228333333333333,
+            "max": 0.9461666666666667
+          },
+          "post_change_30_best_share": {
+            "mean": 0.9850833333333333,
+            "min": 0.9833333333333333,
+            "max": 0.9866666666666667
+          },
+          "regret_per_assignment": {
+            "mean": 0.03295370370370369,
+            "min": 0.03062962962962962,
+            "max": 0.03462592592592592
+          },
+          "new_arm_first_window_assignments": {
+            "mean": 666.5,
+            "min": 653,
+            "max": 680
+          },
+          "stopped_arm_later_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "cancelled_observations": {
+            "mean": 575.25,
+            "min": 566,
+            "max": 582
+          }
+        },
+        "runs": [
+          {
+            "tail_60_best_share": 0.9228333333333333,
+            "post_change_30_best_share": 0.9856666666666667,
+            "regret_per_assignment": 0.0324074074074074,
+            "new_arm_first_window_assignments": 661,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 579,
+            "choice_digest": "2a34bee5aa8854ef0dba83b0a39faabd0155fab1fbd028c55c8b7fd2a3750112"
+          },
+          {
+            "tail_60_best_share": 0.9375,
+            "post_change_30_best_share": 0.9866666666666667,
+            "regret_per_assignment": 0.03415185185185184,
+            "new_arm_first_window_assignments": 680,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 574,
+            "choice_digest": "d7dc1039d5eeed137a7d6e255df7a6caa18399f5166154e8e67d380c1c053cf0"
+          },
+          {
+            "tail_60_best_share": 0.9311666666666667,
+            "post_change_30_best_share": 0.9833333333333333,
+            "regret_per_assignment": 0.03462592592592592,
+            "new_arm_first_window_assignments": 672,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 566,
+            "choice_digest": "2be315e710b7272b56e73005a1363900f69e62b5ad22d51b3bb0c1aadca1b116"
+          },
+          {
+            "tail_60_best_share": 0.9461666666666667,
+            "post_change_30_best_share": 0.9846666666666667,
+            "regret_per_assignment": 0.03062962962962962,
+            "new_arm_first_window_assignments": 653,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 582,
+            "choice_digest": "594f9886a15622bd7097ed23308698c203b3d097660e894b1c4e55b51abaebea"
+          }
+        ]
+      },
+      "lifetime": {
+        "summary": {
+          "tail_60_best_share": {
+            "mean": 0.9902083333333334,
+            "min": 0.9898333333333333,
+            "max": 0.9906666666666667
+          },
+          "post_change_30_best_share": {
+            "mean": 0.9871666666666666,
+            "min": 0.985,
+            "max": 0.9896666666666667
+          },
+          "regret_per_assignment": {
+            "mean": 0.008495370370370368,
+            "min": 0.00801111111111111,
+            "max": 0.008918518518518517
+          },
+          "new_arm_first_window_assignments": {
+            "mean": 691,
+            "min": 688,
+            "max": 694
+          },
+          "stopped_arm_later_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "cancelled_observations": {
+            "mean": 592.25,
+            "min": 586,
+            "max": 596
+          }
+        },
+        "runs": [
+          {
+            "tail_60_best_share": 0.9898333333333333,
+            "post_change_30_best_share": 0.9896666666666667,
+            "regret_per_assignment": 0.008429629629629629,
+            "new_arm_first_window_assignments": 692,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 596,
+            "choice_digest": "8cc96a27d9b3184ec20f983b4833e07a6cd99bf15e26ec7b2e859a24ea1746fe"
+          },
+          {
+            "tail_60_best_share": 0.9898333333333333,
+            "post_change_30_best_share": 0.9873333333333333,
+            "regret_per_assignment": 0.00862222222222222,
+            "new_arm_first_window_assignments": 688,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 594,
+            "choice_digest": "8883ca5995f92f0f646150811dca3ef0de416dd456172f9924c5a2bda7ae7eec"
+          },
+          {
+            "tail_60_best_share": 0.9904999999999999,
+            "post_change_30_best_share": 0.985,
+            "regret_per_assignment": 0.008918518518518517,
+            "new_arm_first_window_assignments": 690,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 593,
+            "choice_digest": "bade00af0f979d20e0a1eca53a80fae56b5f534444b881be2a4967159bdca8d9"
+          },
+          {
+            "tail_60_best_share": 0.9906666666666667,
+            "post_change_30_best_share": 0.9866666666666667,
+            "regret_per_assignment": 0.00801111111111111,
+            "new_arm_first_window_assignments": 694,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 586,
+            "choice_digest": "17ec5e7c20aa4cb3f6a3db6f1a0af0cd31c80da44787ac5da83c49ca3363f135"
+          }
+        ]
+      },
+      "uniform": {
+        "summary": {
+          "tail_60_best_share": {
+            "mean": 0.5038750000000001,
+            "min": 0.5023333333333333,
+            "max": 0.508
+          },
+          "post_change_30_best_share": {
+            "mean": 0.3268333333333333,
+            "min": 0.31633333333333336,
+            "max": 0.3363333333333333
+          },
+          "regret_per_assignment": {
+            "mean": 0.2936740740740741,
+            "min": 0.29311111111111116,
+            "max": 0.2941370370370371
+          },
+          "new_arm_first_window_assignments": {
+            "mean": 240.75,
+            "min": 228,
+            "max": 249
+          },
+          "stopped_arm_later_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "cancelled_observations": {
+            "mean": 200.25,
+            "min": 190,
+            "max": 209
+          }
+        },
+        "runs": [
+          {
+            "tail_60_best_share": 0.5025000000000001,
+            "post_change_30_best_share": 0.3363333333333333,
+            "regret_per_assignment": 0.2941370370370371,
+            "new_arm_first_window_assignments": 244,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 197,
+            "choice_digest": "7bf0b365b9ba2fa02479129c9050d792b3f05bf34b6519cfd51aafa964134ebb"
+          },
+          {
+            "tail_60_best_share": 0.5023333333333333,
+            "post_change_30_best_share": 0.31633333333333336,
+            "regret_per_assignment": 0.29369629629629634,
+            "new_arm_first_window_assignments": 249,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 205,
+            "choice_digest": "52f1cdcc10fa7273feec0ba6a47e1ccac9b054226aa172125dcdb3f96de853e1"
+          },
+          {
+            "tail_60_best_share": 0.508,
+            "post_change_30_best_share": 0.32466666666666666,
+            "regret_per_assignment": 0.29311111111111116,
+            "new_arm_first_window_assignments": 242,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 209,
+            "choice_digest": "a19748ba5067a50d843ede4ccad1dd3c23b1164dde702f12aa0ee21502de7de5"
+          },
+          {
+            "tail_60_best_share": 0.5026666666666667,
+            "post_change_30_best_share": 0.33,
+            "regret_per_assignment": 0.2937518518518519,
+            "new_arm_first_window_assignments": 228,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 190,
+            "choice_digest": "56bd202ac7d554f67d6da2d2b509559ebeb0ae1d9c221bf81fad828361065ab4"
+          }
+        ]
+      }
+    },
+    "sparse": {
+      "discounted": {
+        "summary": {
+          "tail_60_best_share": {
+            "mean": 0.8813333333333333,
+            "min": 0.8443333333333334,
+            "max": 0.911
+          },
+          "post_change_30_best_share": {
+            "mean": 0.8801666666666667,
+            "min": 0.8113333333333334,
+            "max": 0.9153333333333333
+          },
+          "regret_per_assignment": {
+            "mean": 0.256537037037037,
+            "min": 0.20066666666666666,
+            "max": 0.2954074074074074
+          },
+          "new_arm_first_window_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "stopped_arm_later_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "cancelled_observations": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "runs": [
+          {
+            "tail_60_best_share": 0.911,
+            "post_change_30_best_share": 0.913,
+            "regret_per_assignment": 0.20066666666666666,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "97453c998d4dd61fc6bb6284149804d7b17cfd61fb04cb29daca1919c65ccd23"
+          },
+          {
+            "tail_60_best_share": 0.8443333333333334,
+            "post_change_30_best_share": 0.9153333333333333,
+            "regret_per_assignment": 0.2867222222222222,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "06ff5477d134b3f188a8e09515be85f7f7f89c69b1ad734b2fbdbef14ddaca3b"
+          },
+          {
+            "tail_60_best_share": 0.8845,
+            "post_change_30_best_share": 0.881,
+            "regret_per_assignment": 0.2954074074074074,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "7c40b5e8f81dc1becfe147ff7240201cb76d5051786837b5c83183b2d5858239"
+          },
+          {
+            "tail_60_best_share": 0.8855,
+            "post_change_30_best_share": 0.8113333333333334,
+            "regret_per_assignment": 0.24335185185185185,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "1f2ec9a84d6668345ca0c754f26ed9f6ea9fa2139dfff1e8ad6049fb36eea6c9"
+          }
+        ]
+      },
+      "lifetime": {
+        "summary": {
+          "tail_60_best_share": {
+            "mean": 0.9904583333333333,
+            "min": 0.99,
+            "max": 0.9911666666666666
+          },
+          "post_change_30_best_share": {
+            "mean": 0.41691666666666666,
+            "min": 0.06633333333333334,
+            "max": 0.853
+          },
+          "regret_per_assignment": {
+            "mean": 0.15912962962962962,
+            "min": 0.06877777777777777,
+            "max": 0.2432037037037037
+          },
+          "new_arm_first_window_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "stopped_arm_later_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "cancelled_observations": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "runs": [
+          {
+            "tail_60_best_share": 0.9901666666666666,
+            "post_change_30_best_share": 0.853,
+            "regret_per_assignment": 0.06877777777777777,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "6d59cbdf123ba70e8f8006157b951276a64853c82074367b7a45abcd13c7d408"
+          },
+          {
+            "tail_60_best_share": 0.99,
+            "post_change_30_best_share": 0.169,
+            "regret_per_assignment": 0.16075925925925927,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "f419ce4e303b4a9eb29643ae46779d91b4c56d7b08da3f34d19dec830e35ae3d"
+          },
+          {
+            "tail_60_best_share": 0.9911666666666666,
+            "post_change_30_best_share": 0.5793333333333334,
+            "regret_per_assignment": 0.16377777777777777,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "9b79c1c2e1207e58286bceaddc3beead932a7bc6fc0901ebbfb40c6dfb8b026b"
+          },
+          {
+            "tail_60_best_share": 0.9904999999999999,
+            "post_change_30_best_share": 0.06633333333333334,
+            "regret_per_assignment": 0.2432037037037037,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "bfac06b54764165bdc06d6a1098fa0bfe284b5296af9c83fd602b888b9adad5b"
+          }
+        ]
+      },
+      "uniform": {
+        "summary": {
+          "tail_60_best_share": {
+            "mean": 0.49616666666666664,
+            "min": 0.4896666666666667,
+            "max": 0.5038333333333334
+          },
+          "post_change_30_best_share": {
+            "mean": 0.49933333333333335,
+            "min": 0.49533333333333335,
+            "max": 0.504
+          },
+          "regret_per_assignment": {
+            "mean": 0.7522453703703704,
+            "min": 0.745037037037037,
+            "max": 0.7558888888888889
+          },
+          "new_arm_first_window_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "stopped_arm_later_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "cancelled_observations": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "runs": [
+          {
+            "tail_60_best_share": 0.4975,
+            "post_change_30_best_share": 0.5016666666666667,
+            "regret_per_assignment": 0.7529259259259259,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "33fac8645710909270771eaab52c159abfcb737925901350289903d9d429baba"
+          },
+          {
+            "tail_60_best_share": 0.4896666666666667,
+            "post_change_30_best_share": 0.49633333333333335,
+            "regret_per_assignment": 0.7551296296296296,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "5a6c6fbc093ef908d84e45baddbe65f0e054632888a9644c2b6c03335c9e845d"
+          },
+          {
+            "tail_60_best_share": 0.49366666666666664,
+            "post_change_30_best_share": 0.504,
+            "regret_per_assignment": 0.745037037037037,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "ea882a2eff5d33315e5848669da6b23a94303d0c56b3679b5b48e6807ec8e000"
+          },
+          {
+            "tail_60_best_share": 0.5038333333333334,
+            "post_change_30_best_share": 0.49533333333333335,
+            "regret_per_assignment": 0.7558888888888889,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "9101f73e5d015d73e1d66e1fe2e1923337fa26f41a8d696b7c5f81a5a6af458c"
+          }
+        ]
+      }
+    },
+    "heavy_tail": {
+      "discounted": {
+        "summary": {
+          "tail_60_best_share": {
+            "mean": 0.96375,
+            "min": 0.9245,
+            "max": 0.9826666666666667
+          },
+          "post_change_30_best_share": {
+            "mean": 0.84525,
+            "min": 0.761,
+            "max": 0.9176666666666666
+          },
+          "regret_per_assignment": {
+            "mean": 0.1482824074074074,
+            "min": 0.11046296296296296,
+            "max": 0.22285185185185186
+          },
+          "new_arm_first_window_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "stopped_arm_later_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "cancelled_observations": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "runs": [
+          {
+            "tail_60_best_share": 0.9826666666666667,
+            "post_change_30_best_share": 0.82,
+            "regret_per_assignment": 0.11046296296296296,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "a6a0b032b4b12aed75e788eab6f222a66bb9f7d48a746f5dbdb9142e669b6c62"
+          },
+          {
+            "tail_60_best_share": 0.9741666666666666,
+            "post_change_30_best_share": 0.761,
+            "regret_per_assignment": 0.22285185185185186,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "7cc423ed634d9daf45a3f37878b6f97d38e75401eb9dc328ba3d61caa40e4e74"
+          },
+          {
+            "tail_60_best_share": 0.9245,
+            "post_change_30_best_share": 0.8823333333333333,
+            "regret_per_assignment": 0.13266666666666665,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "ea7c5fc24394e3d4cfac8921153eb1f8258f0408f7f24ffe0950c9b2bf886877"
+          },
+          {
+            "tail_60_best_share": 0.9736666666666667,
+            "post_change_30_best_share": 0.9176666666666666,
+            "regret_per_assignment": 0.12714814814814815,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "c2ea92160828372171a707ffcd8010543e1ae6343bdf041af1b31d19450e0762"
+          }
+        ]
+      },
+      "lifetime": {
+        "summary": {
+          "tail_60_best_share": {
+            "mean": 0.9904583333333333,
+            "min": 0.99,
+            "max": 0.9911666666666666
+          },
+          "post_change_30_best_share": {
+            "mean": 0.010916666666666667,
+            "min": 0.01,
+            "max": 0.012
+          },
+          "regret_per_assignment": {
+            "mean": 0.41292129629629626,
+            "min": 0.28683333333333333,
+            "max": 0.6462592592592592
+          },
+          "new_arm_first_window_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "stopped_arm_later_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "cancelled_observations": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "runs": [
+          {
+            "tail_60_best_share": 0.9901666666666666,
+            "post_change_30_best_share": 0.012,
+            "regret_per_assignment": 0.28683333333333333,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "d0cafb58089671b1925a49054433fd82ebfa68168abb0ff4bd0572269dfa8b7f"
+          },
+          {
+            "tail_60_best_share": 0.99,
+            "post_change_30_best_share": 0.01,
+            "regret_per_assignment": 0.4112777777777778,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "d0dbf9c9d03cb6e30978fc99eda014dcb946135d9564a3d2aaadc7ef464e4919"
+          },
+          {
+            "tail_60_best_share": 0.9911666666666666,
+            "post_change_30_best_share": 0.011333333333333334,
+            "regret_per_assignment": 0.6462592592592592,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "5068cbb4141d24fc660348b8b306ae11f1df37f8a4f8e94abe7f53a388d8f8db"
+          },
+          {
+            "tail_60_best_share": 0.9904999999999999,
+            "post_change_30_best_share": 0.010333333333333333,
+            "regret_per_assignment": 0.3073148148148148,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "1a66e40a4714b7f6ee6c2e8ae6ae6ea76b37ec19bfe6c09851842235f0c0c026"
+          }
+        ]
+      },
+      "uniform": {
+        "summary": {
+          "tail_60_best_share": {
+            "mean": 0.49616666666666664,
+            "min": 0.4896666666666667,
+            "max": 0.5038333333333334
+          },
+          "post_change_30_best_share": {
+            "mean": 0.49933333333333335,
+            "min": 0.49533333333333335,
+            "max": 0.504
+          },
+          "regret_per_assignment": {
+            "mean": 0.7522453703703704,
+            "min": 0.745037037037037,
+            "max": 0.7558888888888889
+          },
+          "new_arm_first_window_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "stopped_arm_later_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "cancelled_observations": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "runs": [
+          {
+            "tail_60_best_share": 0.4975,
+            "post_change_30_best_share": 0.5016666666666667,
+            "regret_per_assignment": 0.7529259259259259,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "33fac8645710909270771eaab52c159abfcb737925901350289903d9d429baba"
+          },
+          {
+            "tail_60_best_share": 0.4896666666666667,
+            "post_change_30_best_share": 0.49633333333333335,
+            "regret_per_assignment": 0.7551296296296296,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "5a6c6fbc093ef908d84e45baddbe65f0e054632888a9644c2b6c03335c9e845d"
+          },
+          {
+            "tail_60_best_share": 0.49366666666666664,
+            "post_change_30_best_share": 0.504,
+            "regret_per_assignment": 0.745037037037037,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "ea882a2eff5d33315e5848669da6b23a94303d0c56b3679b5b48e6807ec8e000"
+          },
+          {
+            "tail_60_best_share": 0.5038333333333334,
+            "post_change_30_best_share": 0.49533333333333335,
+            "regret_per_assignment": 0.7558888888888889,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "9101f73e5d015d73e1d66e1fe2e1923337fa26f41a8d696b7c5f81a5a6af458c"
+          }
+        ]
+      }
+    },
+    "low_traffic": {
+      "discounted": {
+        "summary": {
+          "tail_60_best_share": {
+            "mean": 0.8854166666666666,
+            "min": 0.8666666666666667,
+            "max": 0.90625
+          },
+          "post_change_30_best_share": {
+            "mean": 0.8989583333333333,
+            "min": 0.8791666666666667,
+            "max": 0.9166666666666666
+          },
+          "regret_per_assignment": {
+            "mean": 0.11116898148148148,
+            "min": 0.10625,
+            "max": 0.1167824074074074
+          },
+          "new_arm_first_window_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "stopped_arm_later_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "cancelled_observations": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "runs": [
+          {
+            "tail_60_best_share": 0.8875,
+            "post_change_30_best_share": 0.8791666666666667,
+            "regret_per_assignment": 0.1167824074074074,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "3a0b8e81f61a7430ef07a5140bbd95ca6975975adf251db07a9988a3207faaca"
+          },
+          {
+            "tail_60_best_share": 0.88125,
+            "post_change_30_best_share": 0.9125,
+            "regret_per_assignment": 0.10625,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "23b5451588d3ddc57f38604c53ed3cf32b593f678383c60e48d745fc0d4fb233"
+          },
+          {
+            "tail_60_best_share": 0.8666666666666667,
+            "post_change_30_best_share": 0.9166666666666666,
+            "regret_per_assignment": 0.11087962962962963,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "02d0c024506b737ead7af08ad828523f9b0e9b7e267e27f8102250d8a5904a59"
+          },
+          {
+            "tail_60_best_share": 0.90625,
+            "post_change_30_best_share": 0.8875,
+            "regret_per_assignment": 0.11076388888888888,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "d4a4053021d86093326fc8e42a449a3901c90690156a0a7870ac1643240d9990"
+          }
+        ]
+      },
+      "lifetime": {
+        "summary": {
+          "tail_60_best_share": {
+            "mean": 0.9880208333333333,
+            "min": 0.98125,
+            "max": 0.9958333333333333
+          },
+          "post_change_30_best_share": {
+            "mean": 0.3458333333333333,
+            "min": 0.10833333333333334,
+            "max": 0.5708333333333333
+          },
+          "regret_per_assignment": {
+            "mean": 0.06510416666666667,
+            "min": 0.05590277777777778,
+            "max": 0.08182870370370371
+          },
+          "new_arm_first_window_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "stopped_arm_later_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "cancelled_observations": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "runs": [
+          {
+            "tail_60_best_share": 0.98125,
+            "post_change_30_best_share": 0.5708333333333333,
+            "regret_per_assignment": 0.05590277777777778,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "02a54a0dc747412489c54833869c122e7d786a5dc12d906f89a5f57adf4f5fbe"
+          },
+          {
+            "tail_60_best_share": 0.9833333333333333,
+            "post_change_30_best_share": 0.3125,
+            "regret_per_assignment": 0.062037037037037036,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "3e4b99ae51fb89219fc14cf27c48a9dca403d3e1608d1ecbd1469f96d385cc0b"
+          },
+          {
+            "tail_60_best_share": 0.9958333333333333,
+            "post_change_30_best_share": 0.39166666666666666,
+            "regret_per_assignment": 0.060648148148148145,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "d7e287349f3577104af5aa52669731ca50c13e1dd180e90d56b8dd1927237645"
+          },
+          {
+            "tail_60_best_share": 0.9916666666666667,
+            "post_change_30_best_share": 0.10833333333333334,
+            "regret_per_assignment": 0.08182870370370371,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "0d1fb10494eeadc70e2eda8bd69b405f9456802fd9ab61a9e668809736315ca3"
+          }
+        ]
+      },
+      "uniform": {
+        "summary": {
+          "tail_60_best_share": {
+            "mean": 0.5026041666666666,
+            "min": 0.45625,
+            "max": 0.55625
+          },
+          "post_change_30_best_share": {
+            "mean": 0.5072916666666667,
+            "min": 0.4875,
+            "max": 0.5333333333333333
+          },
+          "regret_per_assignment": {
+            "mean": 0.37777777777777777,
+            "min": 0.371875,
+            "max": 0.38298611111111114
+          },
+          "new_arm_first_window_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "stopped_arm_later_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "cancelled_observations": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "runs": [
+          {
+            "tail_60_best_share": 0.45625,
+            "post_change_30_best_share": 0.49583333333333335,
+            "regret_per_assignment": 0.38287037037037036,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "db9754cd90ec773e7805c99a1dba8657768ecbacc10a0e9fc20b36727f3bc263"
+          },
+          {
+            "tail_60_best_share": 0.49375,
+            "post_change_30_best_share": 0.4875,
+            "regret_per_assignment": 0.38298611111111114,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "2e91888a80f55c22ed8650ea25a3867a573a3ce3d194cfcccbf4b104c1d31d18"
+          },
+          {
+            "tail_60_best_share": 0.5041666666666667,
+            "post_change_30_best_share": 0.5333333333333333,
+            "regret_per_assignment": 0.3733796296296296,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "7177bb9d8b5da04ec66a0e4c4c73d2b29d857fea945af33f76d55f30abef75d1"
+          },
+          {
+            "tail_60_best_share": 0.55625,
+            "post_change_30_best_share": 0.5125,
+            "regret_per_assignment": 0.371875,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "89c202812bc63b53fb419ac77e4bca06595bc9dc363de1c8bf4c98ba364901c8"
+          }
+        ]
+      }
+    },
+    "long_delay": {
+      "discounted": {
+        "summary": {
+          "tail_60_best_share": {
+            "mean": 0.9767916666666666,
+            "min": 0.9511666666666666,
+            "max": 0.9903333333333333
+          },
+          "post_change_30_best_share": {
+            "mean": 0.88175,
+            "min": 0.7723333333333333,
+            "max": 0.9256666666666666
+          },
+          "regret_per_assignment": {
+            "mean": 0.08223611111111111,
+            "min": 0.0749537037037037,
+            "max": 0.09303703703703704
+          },
+          "new_arm_first_window_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "stopped_arm_later_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "cancelled_observations": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "runs": [
+          {
+            "tail_60_best_share": 0.9826666666666667,
+            "post_change_30_best_share": 0.9256666666666666,
+            "regret_per_assignment": 0.0749537037037037,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "49c8c3ca8de5c31b34d13b137cb7b6352b1db2a297869ead7dd792e8574bba07"
+          },
+          {
+            "tail_60_best_share": 0.983,
+            "post_change_30_best_share": 0.9093333333333333,
+            "regret_per_assignment": 0.07946296296296296,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "1bedf7a7d0a514c356bde12f1cb2bc11f65d20cd583f01b2442c99ee1268ee7f"
+          },
+          {
+            "tail_60_best_share": 0.9903333333333333,
+            "post_change_30_best_share": 0.9196666666666666,
+            "regret_per_assignment": 0.08149074074074074,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "249ffce4ad370559ada6421345cee3743d3cbd0c9b70d0d181106cb41e9155d6"
+          },
+          {
+            "tail_60_best_share": 0.9511666666666666,
+            "post_change_30_best_share": 0.7723333333333333,
+            "regret_per_assignment": 0.09303703703703704,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "f2bb6a40542aa756adaf5a289b31609512b2d4d54da731e6cbbea0bbbb83871c"
+          }
+        ]
+      },
+      "lifetime": {
+        "summary": {
+          "tail_60_best_share": {
+            "mean": 0.651625,
+            "min": 0.26766666666666666,
+            "max": 0.9296666666666666
+          },
+          "post_change_30_best_share": {
+            "mean": 0.00975,
+            "min": 0.008,
+            "max": 0.011
+          },
+          "regret_per_assignment": {
+            "mean": 0.4306134259259259,
+            "min": 0.3864074074074074,
+            "max": 0.481787037037037
+          },
+          "new_arm_first_window_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "stopped_arm_later_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "cancelled_observations": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "runs": [
+          {
+            "tail_60_best_share": 0.26766666666666666,
+            "post_change_30_best_share": 0.008,
+            "regret_per_assignment": 0.481787037037037,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "252ad6d79e82e230a457a64610e42a183df61cda98bbe610302d95ff5d9c5f3d"
+          },
+          {
+            "tail_60_best_share": 0.48133333333333334,
+            "post_change_30_best_share": 0.01,
+            "regret_per_assignment": 0.4578148148148148,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "875448da1d238e70ee32820dc941dec481432e15628120352199b56047b2fa8b"
+          },
+          {
+            "tail_60_best_share": 0.9278333333333333,
+            "post_change_30_best_share": 0.01,
+            "regret_per_assignment": 0.3864074074074074,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "98d804ded301d5e2681d1622fc1bd30a0b07cd306737006d02d03273f3c8460a"
+          },
+          {
+            "tail_60_best_share": 0.9296666666666666,
+            "post_change_30_best_share": 0.011,
+            "regret_per_assignment": 0.39644444444444443,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "248205b12ecb211b646383e2d76ceade4c3779f09d06f06a664f06f53390ef7a"
+          }
+        ]
+      },
+      "uniform": {
+        "summary": {
+          "tail_60_best_share": {
+            "mean": 0.5038333333333334,
+            "min": 0.49616666666666664,
+            "max": 0.5103333333333333
+          },
+          "post_change_30_best_share": {
+            "mean": 0.5009166666666667,
+            "min": 0.4916666666666667,
+            "max": 0.5096666666666667
+          },
+          "regret_per_assignment": {
+            "mean": 0.37387731481481484,
+            "min": 0.3720555555555556,
+            "max": 0.3774814814814815
+          },
+          "new_arm_first_window_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "stopped_arm_later_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "cancelled_observations": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "runs": [
+          {
+            "tail_60_best_share": 0.5025000000000001,
+            "post_change_30_best_share": 0.503,
+            "regret_per_assignment": 0.37353703703703706,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "33fac8645710909270771eaab52c159abfcb737925901350289903d9d429baba"
+          },
+          {
+            "tail_60_best_share": 0.5103333333333333,
+            "post_change_30_best_share": 0.5096666666666667,
+            "regret_per_assignment": 0.3724351851851852,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "5a6c6fbc093ef908d84e45baddbe65f0e054632888a9644c2b6c03335c9e845d"
+          },
+          {
+            "tail_60_best_share": 0.5063333333333333,
+            "post_change_30_best_share": 0.4916666666666667,
+            "regret_per_assignment": 0.3774814814814815,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "ea882a2eff5d33315e5848669da6b23a94303d0c56b3679b5b48e6807ec8e000"
+          },
+          {
+            "tail_60_best_share": 0.49616666666666664,
+            "post_change_30_best_share": 0.49933333333333335,
+            "regret_per_assignment": 0.3720555555555556,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "9101f73e5d015d73e1d66e1fe2e1923337fa26f41a8d696b7c5f81a5a6af458c"
+          }
+        ]
+      }
+    },
+    "unit_scale": {
+      "discounted": {
+        "summary": {
+          "tail_60_best_share": {
+            "mean": 0.940625,
+            "min": 0.9319999999999999,
+            "max": 0.9533333333333334
+          },
+          "post_change_30_best_share": {
+            "mean": 0.9705,
+            "min": 0.961,
+            "max": 0.9846666666666667
+          },
+          "regret_per_assignment": {
+            "mean": 0.02978148148148147,
+            "min": 0.028044444444444438,
+            "max": 0.032585185185185175
+          },
+          "new_arm_first_window_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "stopped_arm_later_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "cancelled_observations": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "runs": [
+          {
+            "tail_60_best_share": 0.9401666666666667,
+            "post_change_30_best_share": 0.9673333333333334,
+            "regret_per_assignment": 0.030162962962962954,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "c27f2c290c12222277a67d88a29e50df1c08e24c3699660c37e197e555fc4c7f"
+          },
+          {
+            "tail_60_best_share": 0.9319999999999999,
+            "post_change_30_best_share": 0.961,
+            "regret_per_assignment": 0.032585185185185175,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "89ada2c61b09c6a450c4c1b4042c3d82411075c20e42aaa5fd9908565a66a762"
+          },
+          {
+            "tail_60_best_share": 0.9369999999999999,
+            "post_change_30_best_share": 0.969,
+            "regret_per_assignment": 0.028044444444444438,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "07e61b469f33bb6c6e59a53a2e8185b1dd01b54d39397b206bc3ea8fb3a0f614"
+          },
+          {
+            "tail_60_best_share": 0.9533333333333334,
+            "post_change_30_best_share": 0.9846666666666667,
+            "regret_per_assignment": 0.02833333333333332,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "36301b4cf6b4cebe8c8a867c4969b8e55ef3103be554b2175caf2204d541538d"
+          }
+        ]
+      },
+      "lifetime": {
+        "summary": {
+          "tail_60_best_share": {
+            "mean": 0.9900833333333333,
+            "min": 0.9895,
+            "max": 0.9906666666666667
+          },
+          "post_change_30_best_share": {
+            "mean": 0.9913333333333333,
+            "min": 0.9896666666666667,
+            "max": 0.9933333333333333
+          },
+          "regret_per_assignment": {
+            "mean": 0.006579629629629628,
+            "min": 0.0060222222222222205,
+            "max": 0.006844444444444443
+          },
+          "new_arm_first_window_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "stopped_arm_later_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "cancelled_observations": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "runs": [
+          {
+            "tail_60_best_share": 0.9898333333333333,
+            "post_change_30_best_share": 0.991,
+            "regret_per_assignment": 0.006844444444444443,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "ea8aaaf6ad89e6cc4dc2231d16609c36f2e929809064c114e1c8af4e205c18a3"
+          },
+          {
+            "tail_60_best_share": 0.9895,
+            "post_change_30_best_share": 0.9896666666666667,
+            "regret_per_assignment": 0.00662222222222222,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "5e686d5b9dd4a33d2fde53b3a95ea539f04cebe6947e8873d92d7c178c04d4d3"
+          },
+          {
+            "tail_60_best_share": 0.9903333333333333,
+            "post_change_30_best_share": 0.9933333333333333,
+            "regret_per_assignment": 0.006829629629629628,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "c2121827ad19b44119ff69dd7ac9a73131fd9ff1bf15494c1c318f94e7942e15"
+          },
+          {
+            "tail_60_best_share": 0.9906666666666667,
+            "post_change_30_best_share": 0.9913333333333333,
+            "regret_per_assignment": 0.0060222222222222205,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "dc85d52430ef491c423fe9f5a4fb81b5be486a644cdee2876c8f49c59e38de4e"
+          }
+        ]
+      },
+      "uniform": {
+        "summary": {
+          "tail_60_best_share": {
+            "mean": 0.5038333333333334,
+            "min": 0.49616666666666664,
+            "max": 0.5103333333333333
+          },
+          "post_change_30_best_share": {
+            "mean": 0.4975,
+            "min": 0.492,
+            "max": 0.508
+          },
+          "regret_per_assignment": {
+            "mean": 0.2002814814814814,
+            "min": 0.19954814814814809,
+            "max": 0.20154814814814806
+          },
+          "new_arm_first_window_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "stopped_arm_later_assignments": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          },
+          "cancelled_observations": {
+            "mean": 0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "runs": [
+          {
+            "tail_60_best_share": 0.5025000000000001,
+            "post_change_30_best_share": 0.49533333333333335,
+            "regret_per_assignment": 0.20154814814814806,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "33fac8645710909270771eaab52c159abfcb737925901350289903d9d429baba"
+          },
+          {
+            "tail_60_best_share": 0.5103333333333333,
+            "post_change_30_best_share": 0.492,
+            "regret_per_assignment": 0.19980740740740732,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "5a6c6fbc093ef908d84e45baddbe65f0e054632888a9644c2b6c03335c9e845d"
+          },
+          {
+            "tail_60_best_share": 0.5063333333333333,
+            "post_change_30_best_share": 0.508,
+            "regret_per_assignment": 0.19954814814814809,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "ea882a2eff5d33315e5848669da6b23a94303d0c56b3679b5b48e6807ec8e000"
+          },
+          {
+            "tail_60_best_share": 0.49616666666666664,
+            "post_change_30_best_share": 0.4946666666666667,
+            "regret_per_assignment": 0.20022222222222216,
+            "new_arm_first_window_assignments": 0,
+            "stopped_arm_later_assignments": 0,
+            "cancelled_observations": 0,
+            "choice_digest": "9101f73e5d015d73e1d66e1fe2e1923337fa26f41a8d696b7c5f81a5a6af458c"
+          }
+        ]
+      }
+    }
+  }
+}

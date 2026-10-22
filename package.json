@@ -1,0 +1,65 @@
+{
+  "name": "@eye/workers",
+  "version": "0.1.0",
+  "description": "Self-hosted web analytics and persistent non-stationary bandits for Cloudflare Workers",
+  "type": "module",
+  "private": true,
+  "sideEffects": false,
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:core": "vitest run --project core",
+    "test:workers": "vitest run --project workers",
+    "types": "wrangler types && node scripts/generate-public-env.mjs",
+    "build": "tsc -p tsconfig.build.json",
+    "check": "npm run typecheck && npm test && npm run build",
+    "benchmark": "npm run build && node scripts/benchmark-core.mjs",
+    "check:package": "npm run build && node scripts/check-package.mjs",
+    "prepack": "npm run build"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./worker": {
+      "types": "./dist/worker.d.ts",
+      "import": "./dist/worker.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "templates",
+    "scripts/eye.mjs",
+    "DESIGN.md",
+    "TECHNICAL_DESIGN.md",
+    "docs",
+    "examples/host.ts",
+    "scripts/simulate_bandit.py",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.4.6",
+    "@cloudflare/workers-types": "^5.20261022.1",
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5",
+    "wrangler": "^4.151.3"
+  },
+  "bin": {
+    "eye": "scripts/eye.mjs"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/corca-ai/eye.git"
+  },
+  "homepage": "https://github.com/corca-ai/eye#readme",
+  "bugs": {
+    "url": "https://github.com/corca-ai/eye/issues"
+  }
+}
