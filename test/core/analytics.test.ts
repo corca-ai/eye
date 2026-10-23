@@ -4,7 +4,7 @@ import { analyticsRecord } from '../../src/analytics/records.js';
 import type { AnalyticsRecord } from '../../src/analytics/records.js';
 import { AnalyticsSQL, compileFilter, TABLES } from '../../src/analytics/sql.js';
 import { BasinAnalytics } from '../../src/analytics/query.js';
-import { exportBatches, EXPORT_BATCH_BYTES, validateExport } from '../../src/analytics/export.js';
+import { exportBatches, exportRecords, EXPORT_BATCH_BYTES, validateExport } from '../../src/analytics/export.js';
 import type { Filter, TimelineQuery } from '../../src/analytics/types.js';
 
 const now = 1_800_000_000_000, from = now - 100_000, to = now - 1000;
@@ -151,4 +151,58 @@ describe('Basin boundary', () => {
     for (const batch of batches) expect(new TextEncoder().encode(JSON.stringify(batch.map(r => r.record))).byteLength).toBeLessThanOrEqual(EXPORT_BATCH_BYTES);
     expect(() => validateExport(row('credits', 'bad', { value: Infinity }))).toThrow('analytics value');
   });
+});
+
+it('returns arm cohorts by time, real traffic shares, policy history and mixed attribute types', async () => {
+  const records = [
+    observation('window', 'complete', 10), observation('zero', 'complete', 0),
+    row('decisions', 'selected-a', { experiment_id: 'exp', arm_id: 'a', payload_json: JSON.stringify({ reason: 'selected', assignment: { generation: 1 } }) }),
+    row('decisions', 'selected-b', { experiment_id: 'exp', arm_id: 'b', payload_json: JSON.stringify({ reason: 'selected', assignment: { generation: 1 } }) }),
+    row('decisions', 'held-a', { experiment_id: 'exp', arm_id: 'a', payload_json: JSON.stringify({ reason: 'held', assignment: { generation: 1 } }) }),
+    row('events', 'exposure-a', { experiment_id: 'exp', arm_id: 'a', payload_json: JSON.stringify({ kind: 'exposure', assignment: { generation: 1 } }) }),
+    row('policies', 'policy-a', { experiment_id: 'exp', arm_id: 'a', payload_json: JSON.stringify({ generation: 1, probability: 0.75, meanReward: 10, score: 1.2, scoreScale: 10, reason: 'published', status: 'active' }) }),
+    ...['string', 'number', 'null'].map(type => row('attribute_keys', `plan-${type}`, { payload_json: JSON.stringify({ key: 'plan', type, source: 'event' }) })),
+  ];
+  // Retries must not inflate exposure/assignment counts.
+  const db = database([...records, records[2]!, records[5]!]);
+  try {
+    const api = new BasinAnalytics(config, 'site', db.request, () => now);
+    const report = await api.armSeries({ experimentId: 'exp', from, to, bucketMs: 1000 });
+    expect(report.rows[0]).toMatchObject({ completed: 2, totalValue: 10, meanValue: 5, bucketStart: Math.floor((from + 100) / 1000) * 1000 });
+    expect((await api.traffic({ experimentId: 'exp', from, to, bucketMs: 1000 })).rows).toEqual([
+      { bucketStart: Math.floor((from + 100) / 1000) * 1000, armId: 'a', generation: 1, assignments: 1, exposures: 1, assignmentShare: 0.5, exposureShare: 1 },
+      { bucketStart: Math.floor((from + 100) / 1000) * 1000, armId: 'b', generation: 1, assignments: 1, exposures: 0, assignmentShare: 0.5, exposureShare: 0 },
+    ]);
+    expect((await api.policies({ experimentId: 'exp', from, to })).rows[0]).toMatchObject({ probability: 0.75, reason: 'published' });
+    expect((await api.attributeKeys({ from, to })).rows.map(r => r.type).sort()).toEqual(['null', 'number', 'string']);
+  } finally { db.close(); }
+});
+
+it('joins post-login events to an adopted observation without joining unrelated pre-login events', async () => {
+  const db = database([
+    observation('source-window', 'complete', 20, { state_key: 'source' }),
+    row('identity_links', 'merge', { status: 'merged', occurred_at: from + 200, payload_json: JSON.stringify({ sourceStateKey: 'source', targetStateKey: 'uid' }) }),
+    row('events', 'after', { state_key: 'uid', occurred_at: from + 300, payload_json: JSON.stringify({ kind: 'track', name: 'after' }) }),
+    row('events', 'before', { state_key: 'uid', occurred_at: from + 150, payload_json: JSON.stringify({ kind: 'track', name: 'before' }) }),
+  ]);
+  try {
+    expect(db.run(sql().arms({ experimentId: 'exp', from, to, hasEvent: { name: 'after' } }).sql)[0]?.completed).toBe(1);
+    expect(db.run(sql().arms({ experimentId: 'exp', from, to, hasEvent: { name: 'before' } }).sql)).toEqual([]);
+  } finally { db.close(); }
+});
+
+
+it('discovers a daily attribute in an hourly query even when the earlier duplicate won export deduplication', async () => {
+  const day = Math.floor(now / 86_400_000) * 86_400_000 - 86_400_000;
+  const records = exportRecords([9, 10].map(hour => ({ record: row('events', `hour-${hour}`, {
+    occurred_at: day + hour * 3_600_000, attributes_json: '{"plan":"paid"}',
+  }) })));
+  expect(records.filter(r => r.table_name === 'attribute_keys')).toHaveLength(1);
+  const db = database(records);
+  try {
+    const api = new BasinAnalytics(config, 'site', db.request, () => now);
+    const result = await api.attributeKeys({ from: day + 10 * 3_600_000, to: day + 11 * 3_600_000 });
+    expect(result.rows[0]).toMatchObject({ key: 'plan', type: 'string', source: 'event' });
+    expect(result.coverage).toEqual({ basis: 'utc_day', from: day, to: day + 86_400_000 });
+  } finally { db.close(); }
 });

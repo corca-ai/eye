@@ -46,7 +46,19 @@ export interface AttributeValueRow { value: Scalar; events: number; latestReceiv
 export interface AnalyticsPage<T> { rows: T[]; meta: AnalyticsMeta }
 export interface ArmReport extends AnalyticsPage<ArmRow> { cohortBasis: 'observation_start' }
 export interface TimelinePage extends AnalyticsPage<TimelineRow> { nextCursor: string | null }
+export interface ArmSeriesQuery extends ArmQuery { bucketMs: number }
+export interface ArmSeriesRow extends ArmRow { bucketStart: number }
+export interface TrafficQuery extends QueryRange { experimentId: string; bucketMs: number }
+export interface TrafficRow { bucketStart: number; armId: string; generation: number; assignments: number; exposures: number; assignmentShare: number | null; exposureShare: number | null }
+export interface PolicyQuery extends QueryRange { experimentId: string; armId?: string }
+export interface PolicyHistoryRow { occurredAt: number; recordId: string; generation: number; armId: string; probability: number; meanReward: number | null; score: number | null; scoreScale: number; reason: string; status: string }
+export interface AttributeKeyRow { key: string; type: 'string' | 'number' | 'boolean' | 'null'; source: 'event' | 'user'; latestReceivedAt: number }
+export interface AttributeKeyReport extends AnalyticsPage<AttributeKeyRow> { coverage: { basis: 'utc_day'; from: number; to: number } }
 export interface AnalyticsAPI {
+  armSeries(query: ArmSeriesQuery): Promise<AnalyticsPage<ArmSeriesRow>>;
+  traffic(query: TrafficQuery): Promise<AnalyticsPage<TrafficRow>>;
+  policies(query: PolicyQuery): Promise<AnalyticsPage<PolicyHistoryRow>>;
+  attributeKeys(query: QueryRange): Promise<AttributeKeyReport>;
   arms(query: ArmQuery): Promise<ArmReport>;
   timeline(query: TimelineQuery): Promise<TimelinePage>;
   goals(query: GoalQuery): Promise<AnalyticsPage<GoalRow>>;

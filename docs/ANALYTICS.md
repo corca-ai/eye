@@ -8,7 +8,9 @@
 
 모든 테이블은 site별 record ID의 최신 revision을 선택한 뒤 상태·속성 조건을 적용한다. complete를 먼저 걸러 이후 interrupted 정정을 놓치지 않는다. 원본 goal 재전송은 한 번만 세며 credit을 사이트 합계에 다시 더하지 않는다.
 
-`meta`에는 `queriedAt`, `receivedBefore`, `consistency: 'eventual'`, `truncated`, `bytesScanned`가 있다. `receivedBefore`는 처리 시각 상한이지 수신 완료 watermark가 아니다. 행별 `latestReceivedAt`도 관측한 최댓값일 뿐이다. 파일 반영 지연과 테이블 간 반영 차이로 최근 결과가 바뀔 수 있다. 실시간 정책 상태는 별도의 `experiments.policy()`에서 읽는다.
+`meta`에는 `queriedAt`, `receivedBefore`, `consistency: 'eventual'`, `truncated`, `bytesScanned`가 있다. `receivedBefore`는 처리 시각 상한이지 수신 완료 watermark가 아니다. 행별 `latestReceivedAt`도 관측한 최댓값일 뿐이다. 파일 반영 지연과 테이블 간 반영 차이로 최근 결과가 바뀔 수 있다. 현재 정책 상태는 별도의 `experiments.policy()`에서 읽는다. 정책 응답의 `meanReward`는 원래 가치 단위이며 `score`는 공통 `scoreScale`로 나눈 비교용 점수다.
+
+일반 `track`의 `subject_key`는 공급된 cid·uid 기준이며 원본 신원을 보존한다. 로그인 인계 전후의 관측 연결은 `subject_key`의 일치가 아니라 물리 상태 위치인 `state_key`를 사용한다. 일반 로그는 Queue→Stream으로 직접 전송하고 학습 자료는 Subject outbox를 거치므로 테이블 간 가시성 시각은 다를 수 있다.
 
 ## Arm 비교
 
@@ -30,7 +32,7 @@ cohort 기간은 관측 시작 시각이며 속성은 최초 실제 노출에서
 
 `eq: null`은 키가 존재하고 명시적으로 null인 값에 일치한다. 없는 키는 `missing`으로 선택한다. `ne`는 eq의 부정이므로 없는 키·다른 타입도 포함할 수 있다. 그룹과 속성값 조회에서는 없는 키·null·다른 타입이 null 그룹으로 합쳐진다. 필터는 최대 64개 노드·깊이 8, `in`은 최대 100개 값이다.
 
-`attributeValues({ from, to, field, filter?, limit? })`는 원본 이벤트 속성의 값별 빈도다. 속성 키를 자동 수집하는 사전은 아직 제공하지 않는다. 키 목록은 호스트 스키마나 타임라인의 원본 속성에서 구성할 수 있다.
+`attributeValues({ from, to, field, filter?, limit? })`는 원본 이벤트 속성의 값별 빈도다. `attributeKeys({ from, to, limit? })`는 수집된 키·타입·출처(event/user) 목록을 제공한다. 같은 키의 여러 타입과 명시적 null을 구분하며 누락된 키를 추정하지 않는다. 요청 구간에 걸친 UTC 날짜 전체에서 키를 탐색하며 응답의 coverage가 실제 날짜 범위와 basis=utc_day를 명시한다. 좁은 시간 구간보다 넓은 날짜의 키가 포함될 수 있고, 발생 횟수나 정확한 시각 필터는 제공하지 않는다. 요청 자체는 최근 60일 제한을 지키지만 경계 날짜의 사전 메타데이터는 날짜 전체를 읽는다.
 
 ## Goal과 시계열
 
@@ -53,3 +55,19 @@ cid 조회는 해당 브라우저 이력이다. uid 조회는 그 uid가 기록�
 60일 조회 제한은 물리 삭제 정책이 아니다. 이전 데이터 정책은 합의대로 보류하며 R2에 자동 삭제 규칙을 설치하지 않는다.
 
 현재 SQL 의미는 SQLite에 Basin JSON 함수 계약을 적용해 검사하며 HTTP 경계도 검사한다. 실제 Basin planner·타입 반환·예산 제한·6천만 행 지연은 원격 검증이 필요하다. 기준 문서는 [조회 API](https://developers.cloudflare.com/basin-sql/query-data/), [지원 SQL과 제한](https://developers.cloudflare.com/basin-sql/reference/limitations-best-practices/), [JSON 함수](https://developers.cloudflare.com/basin-sql/sql-reference/scalar-functions/#json-functions)다.
+
+## 학습 정정 마감과 분석 값
+
+`correctionWindowMs`가 지난 관측은 학습 reward와 경계를 고정한다. 원본 사건 및 분석 credit은 계속 기록하며, credit payload의 `learningClosed`는 계산 시 해당 학습 정정 기한이 지났음을 표시한다. `learningEligible`와 `status=eligible`은 관측 구간·배정에 따른 귀속 가능성이지 기한 후 보상까지 학습했다는 보장이 아니다. 따라서 관측 reward에 기반한 전체 arm 결과와 최신 credit에 기반한 goal별 탐색 결과는 기한 이후 서로 다를 수 있다. 원본 사이트 goal 합계는 영향을 받지 않는다. 정정 기한이 지나 처음 발견한 과거 관측은 `interrupted`/`correction_expired`로 표시한다.
+
+진행 중 보상의 shard 전달은 생략하지만 분석용 관측의 최신 상태는 계속 내보낸다. 한 처리 묶음 안의 내부 중간 revision은 생략될 수 있다. 새 노출의 로컬 중복 테이블을 제거한 것은 분석 저장소의 원본 events 삭제가 아니다.
+
+## 시간별 arm 성과·트래픽·정책
+
+- `armSeries({ ...armQuery, bucketMs })`: 관측 시작 시각의 bucket별 `arms()` 결과다. goal별 0 분모·속성 필터·groupBy 계약을 그대로 유지한다.
+- `traffic({ experimentId, from, to, bucketMs, limit? })`: bucket·arm·generation별 `assignments`, `exposures`, `assignmentShare`, `exposureShare`다. assignments는 신규 selected 결정만 세고 held·인계 결정은 새 무작위 배정으로 세지 않는다. 노출은 실제 exposure 이벤트다. 비율의 분모는 같은 bucket·generation 전체 arm이며 0이면 null이다. 확률과 실제 노출 비율은 다르다.
+- `policies({ experimentId, from, to, armId?, limit? })`: 발행 시점별 arm 선택 확률·감쇠 평균·score·scoreScale·status·generation을 반환한다. 비활성 arm은 확률 0, 평균·점수 null이다. 이것은 최대 분당 한 번 생성하는 발행본 이력이며 모든 중앙 선택 순간의 통계 변화 이력은 아니다. 실제 신규 배정의 선택 확률은 decision payload에 보존한다. 정책 요청이 없던 기간을 보간하지 않는다. 결과가 잘리면 기간·arm 조건을 좁힌다.
+
+`policies`, `attribute_keys` 두 분석 테이블을 추가했다. 신규 설치는 일곱 sink를 만든다. 기존 설치는 같은 공통 스키마의 두 테이블/sink와 fanout 분기를 추가해야 한다. 기존 다섯 테이블은 유지한다. 실제 계정의 스키마·pipeline migration을 자동 실행하지 않는다.
+
+신원 인계 시 `identity_links`에 source/target state 연결을 기록한다. arm 집계는 연결된 상태 소유자를 중복 계산하지 않으며 `hasEvent`는 연결 시점 이후의 다른 상태 이벤트만 이어 붙인다. 로그인 이전의 서로 다른 기기 이벤트를 소급 연결하지 않는다.

@@ -7,10 +7,14 @@ export function parseAssignment(value: unknown): Assignment {
   const generation = timestamp(v.generation, 'generation');
   const probability = number(v.probability, 'probability');
   invariant(generation >= 1 && probability > 0 && probability <= 1, 'invalid_input', 'Invalid assignment generation or probability');
+  const rawSettings = record(v.settings, 'settings');
+  const parsedSettings = settings({ ...rawSettings, correctionWindowMs: rawSettings.correctionWindowMs === undefined ? RETENTION_MS : rawSettings.correctionWindowMs });
+  // Preserve legacy assignment serialization; never retrofit a shorter deadline.
+  const { correctionWindowMs, ...legacySettings } = parsedSettings;
   return {
     assignmentId: id(v.assignmentId, 'assignmentId'), experimentId: id(v.experimentId, 'experimentId'),
     armId: id(v.armId, 'armId'), generation, assignedAt: timestamp(v.assignedAt, 'assignedAt'),
-    policyRevision: timestamp(v.policyRevision, 'policyRevision'), probability, settings: settings(v.settings),
+    policyRevision: timestamp(v.policyRevision, 'policyRevision'), probability, settings: rawSettings.correctionWindowMs === undefined ? legacySettings : parsedSettings,
   };
 }
 export function parseEvent(value: unknown): EyeEvent {

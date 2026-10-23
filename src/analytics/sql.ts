@@ -5,7 +5,7 @@ import type { ArmQuery, AttributeValuesQuery, GoalQuery, QueryRange, SeriesQuery
 
 export interface QueryPlan { sql: string; limit: number; receivedBefore: number; fingerprint: string }
 export interface Cursor { fingerprint: string; receivedBefore: number; at: number; table: string; id: string }
-export const TABLES: readonly AnalyticsTable[] = ['events', 'observations', 'credits', 'decisions', 'identity_links'];
+export const TABLES: readonly AnalyticsTable[] = ['events', 'observations', 'credits', 'decisions', 'identity_links', 'policies', 'attribute_keys'];
 
 export function literal(value: string | number | boolean | null): string {
   if (value === null) return 'NULL';
@@ -82,28 +82,32 @@ export class AnalyticsSQL {
     return `${alias} AS (SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY record_id ORDER BY revision DESC, received_at DESC) AS _revision_rank
 FROM ${this.namespace}."${table}" WHERE site_id = ${literal(this.siteId)} AND occurred_at >= ${from} AND occurred_at < ${to} AND received_at <= ${receivedBefore}${extra}) ranked WHERE _revision_rank = 1)`;
   }
-  arms(q: ArmQuery): QueryPlan {
+  arms(q: ArmQuery, bucketMs?: number): QueryPlan {
+    if (bucketMs !== undefined) invariant(Number.isSafeInteger(bucketMs) && bucketMs > 0, 'invalid_input', 'bucketMs must be positive integer milliseconds');
     const limit = range(q, this.now), experiment = literal(id(q.experimentId, 'experimentId'));
     invariant(q.generation === undefined || (Number.isSafeInteger(q.generation) && q.generation >= 1), 'invalid_input', 'generation must be a positive integer');
     const groups = q.groupBy ?? [];
     invariant(Array.isArray(groups) && groups.length <= 3, 'invalid_input', 'At most 3 groupBy fields are supported');
     const fields = groups.map((f, i) => `${field(f, 'o').sql} AS group_${i}`);
-    const dimensions = ['arm_id', 'generation', 'window_ms', ...groups.map((_, i) => `group_${i}`)];
+    const dimensions = [...(bucketMs === undefined ? [] : ['bucket_start']), 'arm_id', 'generation', 'window_ms', ...groups.map((_, i) => `group_${i}`)];
     const ctes = [this.latest('observations', 'observations_latest', q.from, q.to, this.now, ` AND experiment_id = ${experiment}${q.armId === undefined ? '' : ` AND arm_id = ${literal(id(q.armId, 'armId'))}`}${q.generation === undefined ? '' : ` AND json_get_int(payload_json, 'generation') = ${q.generation}`}`)];
-    let reward = 'o.value', join = '', hasEvent = '';
+    ctes.push(this.latest('identity_links', 'identity_latest', 0, this.now + 1, this.now));
+    ctes.push(`state_merges AS (SELECT json_get_str(payload_json, 'sourceStateKey') AS source_key,
+json_get_str(payload_json, 'targetStateKey') AS target_key, occurred_at AS joined_at FROM identity_latest WHERE status = 'merged')`);
+    let reward = 'o.value', join = ' LEFT JOIN state_merges om ON om.source_key = o.state_key', hasEvent = '';
     if (q.goalId !== undefined) {
       ctes.push(this.latest('credits', 'credits_latest', q.from, this.now + 1, this.now, ` AND experiment_id = ${experiment}`));
       ctes.push(`goal_rewards AS (SELECT observation_id, SUM(value) AS reward FROM credits_latest WHERE status = 'eligible' AND goal_id = ${literal(id(q.goalId, 'goalId'))} GROUP BY observation_id)`);
-      reward = 'COALESCE(g.reward, 0)'; join = ' LEFT JOIN goal_rewards g ON g.observation_id = o.observation_id';
+      reward = 'COALESCE(g.reward, 0)'; join += ' LEFT JOIN goal_rewards g ON g.observation_id = o.observation_id';
     }
     if (q.hasEvent !== undefined) {
       const event = record(q.hasEvent, 'hasEvent');
       ctes.push(this.latest('events', 'events_latest', q.from, this.now + 1, this.now));
       // Immutable assignment id is not sufficient: an assignment can have multiple observation windows.
-      hasEvent = ` AND EXISTS (SELECT 1 FROM events_latest e WHERE e.state_key = o.state_key AND e.occurred_at >= o.occurred_at AND e.occurred_at < json_get_int(o.payload_json, 'endAt') AND json_get_str(e.payload_json, 'kind') = 'track' AND json_get_str(e.payload_json, 'name') = ${literal(id(event.name, 'event name'))}${event.filter === undefined ? '' : ` AND ${compileFilter(event.filter, 'e')}`})`;
+      hasEvent = ` AND EXISTS (SELECT 1 FROM events_latest e LEFT JOIN state_merges em ON em.source_key = e.state_key WHERE (e.state_key = o.state_key OR (COALESCE(em.target_key, e.state_key) = COALESCE(om.target_key, o.state_key) AND e.occurred_at >= COALESCE(em.joined_at, 0) AND e.occurred_at >= COALESCE(om.joined_at, 0))) AND e.occurred_at >= o.occurred_at AND e.occurred_at < json_get_int(o.payload_json, 'endAt') AND json_get_str(e.payload_json, 'kind') = 'track' AND json_get_str(e.payload_json, 'name') = ${literal(id(event.name, 'event name'))}${event.filter === undefined ? '' : ` AND ${compileFilter(event.filter, 'e')}`})`;
     }
-    ctes.push(`cohort AS (SELECT o.arm_id, json_get_int(o.payload_json, 'generation') AS generation,
-json_get_int(o.payload_json, 'endAt') - o.occurred_at AS window_ms, o.status, o.state_key, o.received_at,
+    ctes.push(`cohort AS (SELECT ${bucketMs === undefined ? '' : `CAST(FLOOR(o.occurred_at / ${bucketMs}.0) * ${bucketMs} AS BIGINT) AS bucket_start, `}o.arm_id, json_get_int(o.payload_json, 'generation') AS generation,
+json_get_int(o.payload_json, 'endAt') - o.occurred_at AS window_ms, o.status, COALESCE(om.target_key, o.state_key) AS state_key, o.received_at,
 CASE WHEN o.status = 'complete' THEN ${reward} ELSE 0 END AS reward${fields.length ? `, ${fields.join(', ')}` : ''}
 FROM observations_latest o${join} WHERE TRUE${q.filter === undefined ? '' : ` AND ${compileFilter(q.filter, 'o')}`}${hasEvent})`);
     const sql = `WITH ${ctes.join(',\n')}
@@ -126,11 +130,11 @@ FROM cohort GROUP BY ${dimensions.join(', ')} ORDER BY ${dimensions.join(', ')} 
     // An interval can begin before the 60-day event horizon and still be active now.
     const ctes = [this.latest('identity_links', 'links', 0, q.to, receivedBefore)];
     const linked = key === 'uid' && q.includeLinked !== false;
-    for (const table of TABLES.filter(t => t !== 'identity_links')) {
+    for (const table of TABLES.filter(t => t !== 'identity_links' && t !== 'policies' && t !== 'attribute_keys')) {
       // Subject membership is applied after revision deduplication; revisions may change identity metadata.
       ctes.push(this.latest(table, `${table}_latest`, q.from, q.to, receivedBefore));
     }
-    ctes.push(`all_records AS (${TABLES.map(table => `SELECT * FROM ${table === 'identity_links' ? 'links' : `${table}_latest`}`).join(' UNION ALL ')})`);
+    ctes.push(`all_records AS (${TABLES.filter(t => t !== 'policies' && t !== 'attribute_keys').map(table => `SELECT * FROM ${table === 'identity_links' ? 'links' : `${table}_latest`}`).join(' UNION ALL ')})`);
     const after = cursor ? ` AND (r.occurred_at > ${cursor.at} OR (r.occurred_at = ${cursor.at} AND (r.table_name > ${literal(cursor.table)} OR (r.table_name = ${literal(cursor.table)} AND r.record_id > ${literal(cursor.id)}))))` : '';
     const sql = `WITH ${ctes.join(',\n')} SELECT r.* FROM all_records r WHERE r.occurred_at >= ${q.from} AND r.occurred_at < ${q.to}
 AND (r.${key} = ${value}${linked ? ` OR (r.uid IS NULL AND EXISTS (SELECT 1 FROM links l WHERE l.status = 'active' AND l.uid = ${value} AND l.cid = r.cid AND r.occurred_at >= l.occurred_at AND (json_get_int(l.payload_json, 'linkedUntil') IS NULL OR r.occurred_at < json_get_int(l.payload_json, 'linkedUntil'))))` : ''})${after}
@@ -150,6 +154,34 @@ ORDER BY r.occurred_at, r.table_name, r.record_id LIMIT ${limit + 1}`;
 SELECT ${select}, COUNT(*) AS events, SUM(e.value) AS total_value, MAX(e.received_at) AS latest_received_at
 FROM events_latest e WHERE e.status = 'accepted' AND json_get_str(e.payload_json, 'kind') = 'goal'${q.goalId === undefined ? '' : ` AND e.goal_id = ${literal(id(q.goalId, 'goalId'))}`}${q.filter === undefined ? '' : ` AND ${compileFilter(q.filter, 'e')}`}
 GROUP BY ${dimensions} ORDER BY ${bucketMs === undefined ? 'e.goal_id' : 'bucket_start, e.goal_id'} LIMIT ${limit + 1}`, limit, receivedBefore: this.now, fingerprint: fingerprint(this.siteId, 'goals', q) };
+  }
+  traffic(q: import('./types.js').TrafficQuery): QueryPlan {
+    const limit = range(q, this.now), experiment = literal(id(q.experimentId, 'experimentId'));
+    invariant(Number.isSafeInteger(q.bucketMs) && q.bucketMs > 0, 'invalid_input', 'bucketMs must be positive integer milliseconds');
+    const ctes = [this.latest('events', 'events_latest', q.from, q.to, this.now, ` AND experiment_id = ${experiment}`),
+      this.latest('decisions', 'decisions_latest', q.from, q.to, this.now, ` AND experiment_id = ${experiment}`)];
+    const dimension = `CAST(FLOOR(occurred_at / ${q.bucketMs}.0) * ${q.bucketMs} AS BIGINT) AS bucket_start, arm_id, json_get_int(json_get_json(payload_json, 'assignment'), 'generation') AS generation`;
+    const sql = `WITH ${ctes.join(',')}, traffic AS (
+SELECT ${dimension}, 1 AS assignments, 0 AS exposures FROM decisions_latest WHERE json_get_str(payload_json, 'reason') = 'selected'
+UNION ALL SELECT ${dimension}, 0 AS assignments, 1 AS exposures FROM events_latest WHERE json_get_str(payload_json, 'kind') = 'exposure'
+), totals AS (SELECT bucket_start, arm_id, generation, SUM(assignments) AS assignments, SUM(exposures) AS exposures FROM traffic GROUP BY bucket_start, arm_id, generation)
+SELECT *, assignments * 1.0 / NULLIF(SUM(assignments) OVER (PARTITION BY bucket_start, generation), 0) AS assignment_share,
+exposures * 1.0 / NULLIF(SUM(exposures) OVER (PARTITION BY bucket_start, generation), 0) AS exposure_share
+FROM totals ORDER BY bucket_start, generation, arm_id LIMIT ${limit + 1}`;
+    return { sql, limit, receivedBefore: this.now, fingerprint: fingerprint(this.siteId, 'traffic', q) };
+  }
+  policies(q: import('./types.js').PolicyQuery): QueryPlan {
+    const limit = range(q, this.now);
+    return { sql: `WITH ${this.latest('policies', 'policies_latest', q.from, q.to, this.now, ` AND experiment_id = ${literal(id(q.experimentId, 'experimentId'))}`)}
+SELECT * FROM policies_latest${q.armId === undefined ? '' : ` WHERE arm_id = ${literal(id(q.armId, 'armId'))}`} ORDER BY occurred_at, record_id LIMIT ${limit + 1}`, limit, receivedBefore: this.now, fingerprint: fingerprint(this.siteId, 'policies', q) };
+  }
+  attributeKeys(q: QueryRange): QueryPlan {
+    const limit = range(q, this.now);
+    return { sql: `WITH ${this.latest('attribute_keys', 'keys_latest', Math.floor(q.from / 86_400_000) * 86_400_000, Math.ceil(q.to / 86_400_000) * 86_400_000, this.now)}
+SELECT json_get_str(payload_json, 'key') AS attribute_key, json_get_str(payload_json, 'type') AS attribute_type,
+json_get_str(payload_json, 'source') AS attribute_source, MAX(received_at) AS latest_received_at
+FROM keys_latest GROUP BY json_get_str(payload_json, 'key'), json_get_str(payload_json, 'type'), json_get_str(payload_json, 'source')
+ORDER BY attribute_key, attribute_type, attribute_source LIMIT ${limit + 1}`, limit, receivedBefore: this.now, fingerprint: fingerprint(this.siteId, 'attributeKeys', q) };
   }
   attributeValues(q: AttributeValuesQuery): QueryPlan {
     const limit = range(q, this.now), attribute = field(q.field, 'e').sql;

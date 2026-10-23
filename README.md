@@ -10,6 +10,8 @@
 - [항목별 구현 상태와 검증](docs/IMPLEMENTATION.md)
 - [설계 시뮬레이션](docs/SIMULATION.md)
 - [분석 API 계약](docs/ANALYTICS.md)
+- [비용 추정](docs/COST.md)과 [최적화 검증](docs/PERFORMANCE.md)
+- [빠른 배정과 세션 연동](docs/FAST-DECISIONS.md)
 - [호스트 연동 예제](examples/host.ts)
 
 ## 설치
@@ -67,7 +69,10 @@ if (setCookie) response.headers.append('Set-Cookie', setCookie);
 요청마다 클라이언트를 생성하고, 호스트가 실제 적용한 arm과 업무 이벤트를 알린다.
 
 ```ts
-const eye = createEye({ service: env.EYE, ctx, siteId: 'shop', onError: console.error });
+const eye = createEye({ service: env.EYE, ctx, siteId: 'shop', onError: console.error,
+  decisions: { secret: env.EYE_DECISION_SECRET, tokens: session.decisionTokens,
+    onPrepared: (experimentId, token) => session.setDecisionToken(experimentId, token) },
+});
 const subject = uid === undefined ? { cid } : { cid, uid };
 const decision = await eye.decide({ subject, experimentId: 'checkout' });
 if (decision.status === 'assigned') {
@@ -78,7 +83,7 @@ eye.track({ subject, name: 'page_view', attributes: { path: '/checkout' } });
 eye.goal({ subject, eventId: 'purchase:order-123', goalId: 'purchase', value: 50_000 });
 ```
 
-`decide`는 배정 일관성을 위해 RPC를 기다린다. `unavailable`·`no_active_arm`이면 호스트가 기본 화면을 선택하고 가짜 노출을 기록하지 않는다. 수집 함수는 동기적으로 `{ accepted, eventId }` 또는 검증 오류를 반환하고 전송은 요청의 `ctx.waitUntil()`에서 처리한다. `accepted`는 로컬 검증 성공이다. Queue 수신 확인이 필요한 작업에서는 `await eye.flush()`를 사용한다. `onError`는 비동기 전송 오류를 받는다.
+`decide`는 준비된 서명 상태와 정책을 로컬에서 검사하며 원격 응답을 기다리지 않는다. `session`은 호스트의 서버 세션이다. 콜드·미준비 요청은 미참여로 반환하고 `onPrepared`로 다음 요청을 준비한다. `prepare()`는 명시적으로 중앙 준비를 기다리며, 기존 중앙 배정 API는 `decideConsistent()`다. Secret·세션 통합과 최신성 계약은 [빠른 배정](docs/FAST-DECISIONS.md)을 따른다. `unavailable`·`no_active_arm`이면 호스트가 기본 화면을 선택하고 가짜 노출을 기록하지 않는다. 수집 함수는 동기적으로 `{ accepted: true, eventId }` 또는 `{ accepted: false, error }`를 반환하고 전송은 요청의 `ctx.waitUntil()`에서 처리한다. `accepted`는 로컬 검증 성공이다. Queue 수신 확인이 필요한 작업에서는 `await eye.flush()`를 사용한다. `onError`는 비동기 전송 오류를 받는다.
 
 재시도에는 동일한 event ID·subject·payload를 전달한다. 로그인했다고 이전 goal을 새 uid로 다시 보내지 않는다. `identify({ subject: { cid, uid } })`, `logout({ subject: { cid } })`로 신원 전환을 알린다.
 
@@ -105,9 +110,13 @@ const timeline = await eye.analytics.timeline({ from, to, subject: { uid }, limi
 const daily = await eye.analytics.series({ from, to, bucketMs: 86_400_000 });
 ```
 
-`experiments.update/resumeArm/get/list/policy`, `goals.pause/resume/delete/get/list`도 제공한다. 설정 변경은 새 학습 세대를 시작하며 기존 관측 설정과 arm의 최소 유지 기간을 보존한다. arm 중지는 다음 조회부터 최소 유지보다 우선한다.
+`experiments.update/pause/resume/delete/resumeArm/deleteArm/get/list/policy`, `goals.pause/resume/delete/get/list`도 제공한다. 설정 변경은 새 학습 세대를 시작하며 기존 관측 설정과 arm의 최소 유지 기간을 보존한다. arm·실험 중지는 현재 중앙 조회에서 최소 유지보다 우선하며 로컬 경로에는 최대 5분의 정책 나이를 허용한다. 삭제는 영구 비활성화이고 ID를 재사용하지 않는다.
 
-분석은 최근 60일의 `arms`, `timeline`, `goals`, `series`, `attributeValues`를 제공한다. 결과는 최종 일관성이며 수신 시각의 최댓값을 전체 데이터 수신 완료 시각으로 해석하면 안 된다. 평균 차이는 탐색용이고 인과적 uplift가 아니다. 상세 계약은 [분석 문서](docs/ANALYTICS.md)를 참고한다.
+분석은 최근 60일의 `arms`, `armSeries`, `traffic`, `policies`, `timeline`, `goals`, `series`, `attributeValues`, `attributeKeys`를 제공한다. 결과는 최종 일관성이며 수신 시각의 최댓값을 전체 데이터 수신 완료 시각으로 해석하면 안 된다. 평균 차이는 탐색용이고 인과적 uplift가 아니다. 상세 계약은 [분석 문서](docs/ANALYTICS.md)를 참고한다.
+
+## 학습 정정 기한
+
+실험 settings의 `correctionWindowMs`는 관측 종료 후 학습 정정을 허용하는 기간이다. 신규 실험 기본 7일이며 `allowedLatenessMs` 이상, 60일 이하로 설정한다. 최초 완료를 기다리는 `allowedLatenessMs`와는 다르다. 기한을 넘긴 이벤트도 60일 분석·타임라인에는 남지만 확정된 학습 보상은 바꾸지 않는다. 기존 배정은 생성 당시 설정을 유지하며 필드가 없는 이전 배정은 기존 60일 동작을 따른다. 상세 동작과 쓰기 측정은 [최적화 검증](docs/PERFORMANCE.md)을 참고한다.
 
 ## 라이선스
 

@@ -8,6 +8,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   attributionHalfLifeMs: DAY_MS,
   learningHalfLifeMs: 14 * DAY_MS,
   allowedLatenessMs: 3_600_000,
+  correctionWindowMs: 7 * DAY_MS,
   explorationFloor: 0.02,
   rewardScale: 1,
   bonusMultiplier: 2,
@@ -57,19 +58,22 @@ export function settings(value: unknown): ExperimentSettings {
     invariant(key === 'minHoldMs' || Object.hasOwn(DEFAULT_SETTINGS, key), 'invalid_input', `Unknown setting: ${key}`);
   }
   const read = (key: keyof typeof DEFAULT_SETTINGS) => number(v[key] === undefined ? DEFAULT_SETTINGS[key] : v[key], key);
+  const correctionWindowMs = read('correctionWindowMs');
   const result: ExperimentSettings = {
     minHoldMs: number(v.minHoldMs, 'minHoldMs'),
     observationWindowMs: read('observationWindowMs'), attributionHalfLifeMs: read('attributionHalfLifeMs'),
     learningHalfLifeMs: read('learningHalfLifeMs'), allowedLatenessMs: read('allowedLatenessMs'),
+    correctionWindowMs,
     explorationFloor: read('explorationFloor'), rewardScale: read('rewardScale'),
     bonusMultiplier: read('bonusMultiplier'), pendingPenalty: read('pendingPenalty'),
     bootstrapQuota: read('bootstrapQuota'), reservationTtlMs: read('reservationTtlMs'),
   };
   for (const [key, n] of Object.entries(result)) {
-    const zeroAllowed = key === 'minHoldMs' || key === 'allowedLatenessMs';
+    const zeroAllowed = key === 'minHoldMs' || key === 'allowedLatenessMs' || key === 'correctionWindowMs';
     invariant(zeroAllowed ? n >= 0 : n > 0, 'invalid_input', `${key} must be ${zeroAllowed ? 'nonnegative' : 'positive'}`);
     if (key.endsWith('Ms')) invariant(Number.isSafeInteger(n), 'invalid_input', `${key} must be integer milliseconds`);
   }
+  invariant(correctionWindowMs >= result.allowedLatenessMs && correctionWindowMs <= RETENTION_MS, 'invalid_input', 'correctionWindowMs must be between allowedLatenessMs and 60 days');
   invariant(result.explorationFloor <= 1, 'invalid_input', 'explorationFloor must be at most 1');
   invariant(result.observationWindowMs + result.allowedLatenessMs <= RETENTION_MS, 'invalid_input', 'observationWindowMs + allowedLatenessMs must not exceed 60 days');
   invariant(Number.isSafeInteger(result.bootstrapQuota), 'invalid_input', 'bootstrapQuota must be an integer');

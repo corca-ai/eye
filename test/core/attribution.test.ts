@@ -80,3 +80,20 @@ describe('public input boundaries', () => {
     ]).size).toBe(4);
   });
 });
+
+
+describe('learning correction settings', () => {
+  it('defaults new experiments to seven days and validates the closure delay', () => {
+    expect(settings({ minHoldMs: 0 }).correctionWindowMs).toBe(7 * 86_400_000);
+    expect(settings({ minHoldMs: 0, allowedLatenessMs: 0, correctionWindowMs: 0 }).correctionWindowMs).toBe(0);
+    expect(() => settings({ minHoldMs: 0, allowedLatenessMs: 100, correctionWindowMs: 99 })).toThrow();
+    expect(() => settings({ minHoldMs: 0, correctionWindowMs: 61 * 86_400_000 })).toThrow();
+    expect(() => settings({ minHoldMs: 0, correctionWindowMs: null })).toThrow();
+  });
+  it('does not silently retrofit a new deadline onto legacy assignment payloads', () => {
+    const { correctionWindowMs: _deadline, ...legacy } = config;
+    const old = { ...assignment('legacy'), settings: legacy };
+    const event = parseEvent({ kind: 'exposure', eventId: 'legacy', occurredAt: 0, subject: { cid: 'c' }, assignment: old });
+    expect(event.kind === 'exposure' && event.assignment).toEqual(old);
+  });
+});

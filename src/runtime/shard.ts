@@ -45,21 +45,26 @@ export class ObservationShard extends StoredObject {
     return this.atomic(() => {
       const known = this.kv.get<ShardIdentity>('identity');
       invariant(!known || JSON.stringify(known) === JSON.stringify(identity), 'conflict', 'Statistics shard identity mismatch');
-      this.kv.put('identity', identity);
+      if (!known) this.kv.put('identity', identity);
       const oldRow = this.sql.exec<ObservationRow>('SELECT revision, counted, data FROM observations WHERE id = ?', observation.observationId).toArray()[0];
       if (oldRow && oldRow.revision >= observation.revision) return false;
       const old = oldRow ? storedJson<Observation>(oldRow.data) : undefined;
       if (old) invariant(old.generation === observation.generation && old.armId === observation.armId && old.endAt === observation.endAt, 'conflict', 'Observation identity and time range cannot change on revision');
       const now = Date.now(), settleAt = observation.endAt + config.allowedLatenessMs;
-      const key = `moment:${observation.generation}:${JSON.stringify(observation.armId)}`;
-      let moments = ageMoments(this.kv.get<Moments>(key) ?? emptyMoments(now), now, config.learningHalfLifeMs);
-      const weight = decayFactor(Math.max(0, now - observation.endAt), config.learningHalfLifeMs);
-      if (old?.status === 'complete') moments = removeSample(moments, old.reward, weight);
-      if (observation.status === 'complete') moments = addSample(moments, observation.reward, weight);
+      // Pending rewards are not learned samples. Age moments on publish/read, and
+      // persist them only when a completed contribution is added or retracted.
+      if (old?.status === 'complete' || observation.status === 'complete') {
+        const key = `moment:${observation.generation}:${JSON.stringify(observation.armId)}`;
+        let moments = ageMoments(this.kv.get<Moments>(key) ?? emptyMoments(now), now, config.learningHalfLifeMs);
+        const weight = decayFactor(Math.max(0, now - observation.endAt), config.learningHalfLifeMs);
+        if (old?.status === 'complete') moments = removeSample(moments, old.reward, weight);
+        if (observation.status === 'complete') moments = addSample(moments, observation.reward, weight);
+        this.kv.put(key, moments);
+      }
       const counted = observation.status === 'pending' && settleAt > now ? 1 : 0;
       this.changePending(observation, counted - (oldRow?.counted ?? 0));
-      this.kv.put(key, moments);
-      this.kv.put(configKey, config);
+      // Generation settings are immutable. Recheck after awaits for concurrent fills.
+      if (!this.kv.get<ExperimentSettings>(configKey)) this.kv.put(configKey, config);
       this.markDirty(observation.generation);
       this.sql.exec('INSERT INTO observations VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET revision = excluded.revision, counted = excluded.counted, data = excluded.data', observation.observationId, observation.revision, observation.endAt + RETENTION_MS, settleAt, counted, JSON.stringify(observation));
       this.sql.exec('INSERT OR IGNORE INTO releases VALUES (?, ?)', observation.assignmentId, observation.generation);

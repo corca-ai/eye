@@ -1,5 +1,5 @@
 import { invariant } from '../core/errors.js';
-import type { AnalyticsRecord } from './records.js';
+import { attributeRecords, type AnalyticsRecord } from './records.js';
 import { TABLES } from './sql.js';
 
 /** Below the Stream's 5 MB request ceiling, including the enclosing JSON array. */
@@ -22,10 +22,22 @@ export function* exportBatches<T extends { record: AnalyticsRecord }>(rows: read
   let batch: T[] = [], bytes = 2;
   for (const row of rows) {
     validateExport(row.record);
-    const size = encoder.encode(JSON.stringify(row.record)).byteLength + 1;
+    const size = encoder.encode(JSON.stringify(exportRecords([row]))).byteLength;
     invariant(size + 2 <= EXPORT_BATCH_BYTES, 'invalid_input', 'Analytics record exceeds the Stream request limit');
     if (bytes + size > EXPORT_BATCH_BYTES) { yield batch; batch = []; bytes = 2; }
     batch.push(row); bytes += size;
   }
   if (batch.length > 0) yield batch;
+}
+
+export function exportRecords(rows: readonly { record: AnalyticsRecord }[]): AnalyticsRecord[] {
+  const result: AnalyticsRecord[] = [], keys = new Set<string>();
+  for (const { record } of rows) {
+    result.push(record);
+    for (const dictionary of attributeRecords(record)) {
+      const key = JSON.stringify([dictionary.site_id, dictionary.record_id]);
+      if (!keys.has(key)) { keys.add(key); validateExport(dictionary); result.push(dictionary); }
+    }
+  }
+  return result;
 }

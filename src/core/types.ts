@@ -2,7 +2,8 @@
 export type Attributes = Readonly<Record<string, string | number | boolean | null>>;
 export type Subject = { readonly cid: string; readonly uid?: string };
 export type GoalStatus = 'active' | 'paused' | 'deleted';
-export type ArmStatus = 'active' | 'paused';
+export type ArmStatus = 'active' | 'paused' | 'deleted';
+export type ExperimentStatus = ArmStatus;
 export type ObservationStatus = 'pending' | 'complete' | 'interrupted';
 
 export interface ExperimentSettings {
@@ -11,6 +12,8 @@ export interface ExperimentSettings {
   readonly attributionHalfLifeMs: number;
   readonly learningHalfLifeMs: number;
   readonly allowedLatenessMs: number;
+  /** Correction horizon after observation end. Absent only on legacy assignments (60 days). */
+  readonly correctionWindowMs?: number;
   readonly explorationFloor: number;
   readonly rewardScale: number;
   readonly bonusMultiplier: number;
@@ -24,6 +27,8 @@ export interface CreateExperiment {
   readonly settings: Pick<ExperimentSettings, 'minHoldMs'> & Partial<Omit<ExperimentSettings, 'minHoldMs'>>;
 }
 export interface Experiment {
+  /** Missing on legacy records means active. */
+  readonly status?: ExperimentStatus;
   readonly experimentId: string;
   readonly generation: number;
   readonly revision: number;
@@ -77,7 +82,7 @@ export interface Observation {
   readonly reward: number;
   readonly attributes: Attributes;
   readonly subject?: Subject;
-  readonly interruptReason?: 'identity' | 'arm_stopped' | 'configuration';
+  readonly interruptReason?: 'identity' | 'arm_stopped' | 'configuration' | 'correction_expired';
 }
 export interface Exposure {
   readonly eventId: string;
@@ -97,4 +102,6 @@ export interface Credit {
   readonly decayFactor: number;
   readonly value: number;
   readonly learningEligible: boolean;
+  /** Analytic attribution may change after the corresponding learning window is frozen. */
+  readonly learningClosed?: boolean;
 }

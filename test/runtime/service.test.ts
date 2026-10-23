@@ -3,8 +3,9 @@ import { createExecutionContext, createMessageBatch, getQueueResult, runInDurabl
 import { describe, expect, it, vi } from 'vitest';
 import { createEye, encodedSize, MAX_BATCH_BYTES } from '../../src/client.js';
 import { EyeWorker } from '../../src/runtime/service.js';
-import { subjectKey } from '../../src/core/validation.js';
+import { DAY_MS, experimentKey, subjectKey } from '../../src/core/validation.js';
 import { identityKey } from '../../src/runtime/identity.js';
+import type { SubjectObject } from '../../src/runtime/subject.js';
 import type { EventEnvelope, Observation } from '../../src/core/types.js';
 
 async function setup() {
@@ -22,6 +23,28 @@ async function consume(envelopes: EventEnvelope[]) {
 }
 
 describe('public client and Service Binding', () => {
+  it('preserves omitted correction deadlines through the public client when recreating legacy experiments', async () => {
+    const siteId = crypto.randomUUID(), ctx = createExecutionContext();
+    const eye = createEye({ siteId, ctx, service: exports.default });
+    for (const allowedLatenessMs of [0, 8 * DAY_MS]) {
+      const input = { experimentId: `legacy-${allowedLatenessMs}`, arms: ['a'], settings: { minHoldMs: 0, allowedLatenessMs } };
+      await eye.experiments.create({ ...input, settings: { ...input.settings, correctionWindowMs: 60 * DAY_MS } });
+      const stub = env.EXPERIMENTS.getByName(experimentKey(siteId, input.experimentId));
+      await runInDurableObject(stub, (_instance, state) => {
+        for (const key of ['definition', 'config']) {
+          const stored = state.storage.kv.get<{ settings: Record<string, unknown> }>(key)!;
+          delete stored.settings.correctionWindowMs;
+          state.storage.kv.put(key, stored);
+        }
+      });
+      const recreated = await eye.experiments.create(input);
+      expect(recreated.settings.correctionWindowMs).toBeUndefined();
+      expect(recreated.generation).toBe(1);
+    }
+    const created = await eye.experiments.create({ experimentId: 'new', arms: ['a'], settings: { minHoldMs: 0 } });
+    expect(created.settings.correctionWindowMs).toBe(7 * DAY_MS);
+    await waitOnExecutionContext(ctx);
+  });
   it('validates immediately and schedules one nonblocking batch for the request', async () => {
     const ctx = createExecutionContext(), service = new EyeWorker(ctx, env);
     let finish!: () => void;
@@ -57,12 +80,12 @@ describe('public client and Service Binding', () => {
   });
   it('uses uid preferences over conflicting cid holds and adopts a cid arm for a new uid', async () => {
     const s = await setup();
-    const anonymous = await s.eye.decide({ subject: { cid: 'browser' }, experimentId: 'checkout' });
+    const anonymous = await s.eye.decideConsistent({ subject: { cid: 'browser' }, experimentId: 'checkout' });
     if (anonymous.status !== 'assigned') throw new Error('Missing anonymous decision');
-    const adopted = await s.eye.decide({ subject: { cid: 'browser', uid: 'alice' }, experimentId: 'checkout' });
+    const adopted = await s.eye.decideConsistent({ subject: { cid: 'browser', uid: 'alice' }, experimentId: 'checkout' });
     if (adopted.status !== 'assigned') throw new Error('Missing uid decision');
     expect(adopted.assignment.assignmentId).toBe(anonymous.assignment.assignmentId);
-    const other = await s.eye.decide({ subject: { cid: 'second-browser', uid: 'alice' }, experimentId: 'checkout' });
+    const other = await s.eye.decideConsistent({ subject: { cid: 'second-browser', uid: 'alice' }, experimentId: 'checkout' });
     expect(other.status === 'assigned' && other.assignment.assignmentId).toBe(adopted.assignment.assignmentId);
     const anonymousHome = await env.IDENTITIES.getByName(identityKey(s.siteId, 'cid', 'browser')).anonymousHome(s.siteId, 'browser', Date.now());
     expect(await env.SUBJECTS.getByName(anonymousHome).peek('checkout')).toBeNull();
@@ -71,27 +94,27 @@ describe('public client and Service Binding', () => {
   it('keeps the existing uid arm when a browser holds a different active arm', async () => {
     const s = await setup();
     await s.eye.experiments.pauseArm('checkout', 'b');
-    const uidChoice = await s.eye.decide({ subject: { cid: 'first', uid: 'known' }, experimentId: 'checkout' });
+    const uidChoice = await s.eye.decideConsistent({ subject: { cid: 'first', uid: 'known' }, experimentId: 'checkout' });
     await s.eye.experiments.resumeArm('checkout', 'b');
     await s.eye.experiments.pauseArm('checkout', 'a');
-    const browserChoice = await s.eye.decide({ subject: { cid: 'conflict' }, experimentId: 'checkout' });
+    const browserChoice = await s.eye.decideConsistent({ subject: { cid: 'conflict' }, experimentId: 'checkout' });
     await s.eye.experiments.resumeArm('checkout', 'a');
     if (uidChoice.status !== 'assigned' || browserChoice.status !== 'assigned') throw new Error('Missing choices');
     expect(uidChoice.assignment.armId).toBe('a'); expect(browserChoice.assignment.armId).toBe('b');
-    const result = await s.eye.decide({ subject: { cid: 'conflict', uid: 'known' }, experimentId: 'checkout' });
+    const result = await s.eye.decideConsistent({ subject: { cid: 'conflict', uid: 'known' }, experimentId: 'checkout' });
     expect(result.status === 'assigned' && result.assignment.assignmentId).toBe(uidChoice.assignment.assignmentId);
     await waitOnExecutionContext(s.ctx);
   });
   it('preserves an anonymous observation when a new uid adopts the same arm, so signup reward is learned', async () => {
     const s = await setup();
     await s.eye.experiments.update('checkout', { observationWindowMs: 100 });
-    const anonymous = await s.eye.decide({ subject: { cid: 'signup-browser' }, experimentId: 'checkout' });
+    const anonymous = await s.eye.decideConsistent({ subject: { cid: 'signup-browser' }, experimentId: 'checkout' });
     if (anonymous.status !== 'assigned') throw new Error('Missing anonymous assignment');
     await consume([{ siteId: s.siteId, receivedAt: Date.now(), event: {
       kind: 'exposure', eventId: 'signup-shown', subject: { cid: 'signup-browser' },
       assignment: anonymous.assignment, occurredAt: anonymous.assignment.assignedAt,
     } }]);
-    const loggedIn = await s.eye.decide({ subject: { cid: 'signup-browser', uid: 'new-account' }, experimentId: 'checkout' });
+    const loggedIn = await s.eye.decideConsistent({ subject: { cid: 'signup-browser', uid: 'new-account' }, experimentId: 'checkout' });
     expect(loggedIn.status === 'assigned' && loggedIn.assignment.armId).toBe(anonymous.assignment.armId);
     // Event time belongs inside the observation independently of RPC/test runner latency.
     // Using Date.now() here made busy machines legitimately produce outside-window credit.
@@ -107,11 +130,11 @@ describe('public client and Service Binding', () => {
   it('routes a delayed anonymous exposure to the same observation home after login', async () => {
     const s = await setup();
     await s.eye.experiments.update('checkout', { observationWindowMs: 100 });
-    const before = await s.eye.decide({ subject: { cid: 'delayed-browser' }, experimentId: 'checkout' });
+    const before = await s.eye.decideConsistent({ subject: { cid: 'delayed-browser' }, experimentId: 'checkout' });
     if (before.status !== 'assigned') throw new Error('Missing decision');
     const at = Date.now();
     // Keep the exposure in the SDK until the identity transition has completed.
-    await s.eye.decide({ subject: { cid: 'delayed-browser', uid: 'joined' }, experimentId: 'checkout' });
+    await s.eye.decideConsistent({ subject: { cid: 'delayed-browser', uid: 'joined' }, experimentId: 'checkout' });
     expect(s.eye.expose({ subject: { cid: 'delayed-browser' }, decision: before, eventId: 'late-shown', occurredAt: at }).accepted).toBe(true);
     expect(s.eye.goal({ subject: { cid: 'delayed-browser', uid: 'joined' }, goalId: 'purchase', eventId: 'late-signup', occurredAt: at, value: 44 }).accepted).toBe(true);
     await s.eye.flush(); await waitOnExecutionContext(s.ctx);
@@ -119,7 +142,7 @@ describe('public client and Service Binding', () => {
   });
   it('delivers exposure and goal through the actual local Queue into the learning ledger', async () => {
     const s = await setup(), subject = { cid: 'browser', uid: 'user' };
-    const decision = await s.eye.decide({ subject, experimentId: 'checkout' });
+    const decision = await s.eye.decideConsistent({ subject, experimentId: 'checkout' });
     if (decision.status !== 'assigned') throw new Error('Missing decision');
     const at = Date.now();
     expect(s.eye.expose({ subject, decision, eventId: 'shown', occurredAt: at }).accepted).toBe(true);
@@ -153,4 +176,163 @@ describe('identity event consumption', () => {
     ]);
     expect((await consume(events)).retryMessages).toEqual([]);
   });
+});
+
+describe('queued analytics logs', () => {
+  it('sends ready logs without waiting for a blocked learning RPC in the same batch', async () => {
+    const s = await setup(), at = Date.now();
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const slow = env.SUBJECTS.getByName(subjectKey(s.siteId, { cid: 'slow' }));
+    await runInDurableObject(slow, instance => {
+      // Restrict the gate to this event; alarms/other objects share the prototype.
+      const prototype = Object.getPrototypeOf(instance) as SubjectObject;
+      const original = prototype.ingest;
+      vi.spyOn(prototype, 'ingest').mockImplementation(async function (this: SubjectObject, ...args) {
+        if (args[0].siteId === s.siteId && args[0].event.eventId === 'slow-goal') await gate;
+        return original.apply(this, args);
+      });
+    });
+    const send = vi.spyOn(env.ANALYTICS, 'send').mockResolvedValue();
+    const processing = consume([
+      { siteId: s.siteId, receivedAt: at, event: { kind: 'goal', eventId: 'slow-goal', occurredAt: at, subject: { cid: 'slow' }, goalId: 'purchase', value: 1 } },
+      { siteId: s.siteId, receivedAt: at, event: { kind: 'track', eventId: 'ready-log', occurredAt: at, subject: { cid: 'ready' }, name: 'page' } },
+    ]);
+    try {
+      await expect.poll(() => send.mock.calls.flatMap(([records]) => records).some(r => r.site_id === s.siteId && r.record_id === 'ready-log'), { timeout: 1000 }).toBe(true);
+    } finally {
+      release(); await processing;
+      send.mockRestore();
+      await runInDurableObject(slow, instance => { vi.mocked((Object.getPrototypeOf(instance) as SubjectObject).ingest).mockRestore(); });
+      await waitOnExecutionContext(s.ctx);
+    }
+  });
+  it('establishes a uid home on its first track and shares it with later decisions', async () => {
+    const s = await setup(), at = Date.now(), subject = { cid: 'new-browser', uid: 'first-track-user' };
+    const send = vi.spyOn(env.ANALYTICS, 'send').mockResolvedValue();
+    try {
+      await consume([{ siteId: s.siteId, receivedAt: at, event: { kind: 'track', eventId: 'first-log', occurredAt: at, subject, name: 'landing' } }]);
+      const record = send.mock.calls.flatMap(([records]) => records).find(r => r.site_id === s.siteId && r.table_name === 'events')!;
+      const decision = await s.eye.decideConsistent({ subject, experimentId: 'checkout' });
+      if (decision.status !== 'assigned' || !decision.routingKey) throw new Error('Missing decision');
+      expect(record.uid).toBe(subject.uid);
+      expect(record.state_key).toBe(env.SUBJECTS.idFromName(decision.routingKey).toString());
+    } finally { send.mockRestore(); await waitOnExecutionContext(s.ctx); }
+  });
+  it('rejects an oversized queued envelope without poisoning valid logs in the batch', async () => {
+    const siteId = crypto.randomUUID(), at = Date.now();
+    const send = vi.spyOn(env.ANALYTICS, 'send').mockResolvedValue();
+    try {
+      const make = (eventId: string, text: string): EventEnvelope => ({ siteId, receivedAt: at,
+        event: { kind: 'track', eventId, occurredAt: at, subject: { cid: 'input' }, name: 'page', attributes: { text } },
+      });
+      expect((await consume([make('too-large', 'a'.repeat(100_000)), make('valid', 'small')])).retryMessages).toEqual([]);
+      expect(send.mock.calls.flatMap(([records]) => records.filter(r => r.site_id === siteId && r.table_name === 'events').map(r => r.record_id))).toEqual(['valid']);
+    } finally { send.mockRestore(); }
+  });
+  it('exports a batch directly with stable event IDs, source identity and the learning cohort key', async () => {
+    const siteId = crypto.randomUUID(), now = Date.now(), subject = { cid: 'logs' };
+    const send = vi.spyOn(env.ANALYTICS, 'send').mockResolvedValue();
+    try {
+      const envelopes: EventEnvelope[] = Array.from({ length: 100 }, (_, i) => ({ siteId, receivedAt: now,
+        event: { kind: 'track', eventId: `event:${i}`, occurredAt: now, subject, name: 'page', attributes: { category: 'books' } },
+      }));
+      expect((await consume(envelopes)).retryMessages).toEqual([]);
+      const calls = () => send.mock.calls.map(([records]) => records).filter(records => records.some(r => r.site_id === siteId));
+      expect(calls()).toHaveLength(1);
+      const records = calls()[0]!.filter(r => r.table_name === 'events');
+      expect(records).toHaveLength(100);
+      expect(new Set(records.map(r => r.record_id))).toEqual(new Set(envelopes.map(e => e.event.eventId)));
+      for (const record of records) expect(record).toMatchObject({
+        site_id: siteId, cid: subject.cid, uid: null, revision: 1, received_at: now, occurred_at: now,
+        state_key: env.SUBJECTS.idFromName(subjectKey(siteId, subject)).toString(),
+        attributes_json: '{"category":"books"}', status: 'accepted',
+      });
+      // At-least-once delivery preserves the key used by analytics deduplication.
+      await consume([envelopes[0]!]);
+      expect(calls()[1]![0]).toEqual(records.find(r => r.record_id === 'event:0'));
+    } finally { send.mockRestore(); }
+  });
+  it('retries only logs whose Stream send failed while learning succeeds in the same batch', async () => {
+    const s = await setup(), subject = { cid: 'mixed' };
+    const decision = await s.eye.decideConsistent({ subject, experimentId: 'checkout' });
+    if (decision.status !== 'assigned') throw new Error('Missing decision');
+    const at = Date.now();
+    const send = vi.spyOn(env.ANALYTICS, 'send').mockRejectedValue(new Error('Stream unavailable'));
+    try {
+      const ctx = createExecutionContext(), worker = new EyeWorker(ctx, env);
+      const envelopes: EventEnvelope[] = [
+        { siteId: s.siteId, receivedAt: at, event: { kind: 'track', eventId: 'log', occurredAt: at, subject, name: 'page' } },
+        { siteId: s.siteId, receivedAt: at, event: { kind: 'exposure', eventId: 'seen', occurredAt: at, subject, assignment: decision.assignment, routingKey: decision.routingKey ?? subjectKey(s.siteId, subject) } },
+        { siteId: s.siteId, receivedAt: at, event: { kind: 'goal', eventId: 'paid', occurredAt: at, subject, goalId: 'purchase', value: 42 } },
+      ];
+      const batch = createMessageBatch('eye-events', envelopes.map((body, i) => ({ id: `msg:${i}`, timestamp: at, attempts: 1, body })));
+      await worker.queue(batch);
+      const result = await getQueueResult(batch, ctx);
+      expect(result.retryMessages.map(m => m.msgId)).toEqual(['msg:0']);
+      const target = env.SUBJECTS.getByName(decision.routingKey ?? subjectKey(s.siteId, subject));
+      const rewards = await runInDurableObject(target, (_instance, state) => state.storage.sql.exec<{ data: string }>('SELECT data FROM observations').toArray().map(r => (JSON.parse(r.data) as Observation).reward));
+      expect(rewards).toEqual([42]);
+    } finally { send.mockRestore(); await waitOnExecutionContext(s.ctx); }
+  });
+  it('keeps successful byte-sized groups acknowledged when another group fails', async () => {
+    const siteId = crypto.randomUUID(), at = Date.now();
+    let failed = false;
+    const send = vi.spyOn(env.ANALYTICS, 'send').mockImplementation(async records => {
+      if (!records.some(r => r.site_id === siteId)) return;
+      if (!failed) { failed = true; throw new Error('temporary'); }
+    });
+    try {
+      const ctx = createExecutionContext(), worker = new EyeWorker(ctx, env);
+      const batch = createMessageBatch('eye-events', Array.from({ length: 100 }, (_, i) => ({
+        id: `large:${i}`, timestamp: at, attempts: 1,
+        body: { siteId, receivedAt: at, event: { kind: 'track', eventId: `large:${i}`, occurredAt: at, subject: { cid: 'large' }, name: 'large', attributes: { text: 'a'.repeat(70_000) } } },
+      })));
+      await worker.queue(batch);
+      const result = await getQueueResult(batch, ctx);
+      const calls = send.mock.calls.map(([records]) => records).filter(records => records.some(r => r.site_id === siteId));
+      expect(calls.length).toBeGreaterThan(1);
+      for (const records of calls) expect(encodedSize(records)).toBeLessThanOrEqual(4_500_000);
+      expect(new Set(result.retryMessages.map(m => m.msgId))).toEqual(new Set(calls[0]!.filter(r => r.table_name === 'events').map(r => r.record_id)));
+      expect(result.retryMessages.length).toBeLessThan(100);
+    } finally { send.mockRestore(); }
+  });
+  it('retains the anonymous cohort key after uid adoption without rewriting the source identity', async () => {
+    const s = await setup(), subject = { cid: 'before' };
+    const anonymous = await s.eye.decideConsistent({ subject, experimentId: 'checkout' });
+    if (anonymous.status !== 'assigned') throw new Error('Missing decision');
+    const at = anonymous.assignment.assignedAt;
+    // Ensure the anonymous event is strictly before the login epoch boundary.
+    await new Promise(resolve => setTimeout(resolve, 2));
+    await s.eye.decideConsistent({ subject: { ...subject, uid: 'account' }, experimentId: 'checkout' });
+    const send = vi.spyOn(env.ANALYTICS, 'send').mockResolvedValue();
+    try {
+      await consume([{ siteId: s.siteId, receivedAt: Date.now(), event: { kind: 'track', eventId: 'late-log', occurredAt: at, subject, name: 'page' } }]);
+      const record = send.mock.calls.flatMap(([records]) => records).find(r => r.site_id === s.siteId && r.table_name === 'events')!;
+      expect(record.uid).toBeNull();
+      expect(record.subject_key).toBe(subjectKey(s.siteId, subject));
+      expect(record.state_key).toBe(env.SUBJECTS.idFromName(anonymous.routingKey ?? subjectKey(s.siteId, subject)).toString());
+    } finally { send.mockRestore(); await waitOnExecutionContext(s.ctx); }
+  });
+});
+
+
+it('coalesces adjacent same-time goals and retries valid neighbours individually after an ID conflict', async () => {
+  const { siteId, eye, ctx } = await setup(), subject = { cid: 'grouped-goals' };
+  const decision = await eye.decideConsistent({ subject, experimentId: 'checkout' });
+  if (decision.status !== 'assigned') throw new Error('Missing assignment');
+  const at = Date.now();
+  const exposure: EventEnvelope = { siteId, receivedAt: at, event: { kind: 'exposure', eventId: 'e', occurredAt: at, subject, assignment: decision.assignment, routingKey: decision.routingKey! } };
+  await consume([exposure]);
+  const goal = (eventId: string, value: number): EventEnvelope => ({ siteId, receivedAt: at, event: { kind: 'goal', eventId, occurredAt: at, subject, goalId: 'purchase', value } });
+  const target = env.SUBJECTS.getByName(decision.routingKey!);
+  const before = await runInDurableObject(target, (_instance, state) => JSON.parse(state.storage.sql.exec<{ data: string }>('SELECT data FROM observations').one().data) as Observation);
+  const batch = Array.from({ length: 10 }, (_, i) => goal(`g${i}`, 1));
+  expect((await consume(batch)).retryMessages).toEqual([]);
+  const after = await runInDurableObject(target, (_instance, state) => JSON.parse(state.storage.sql.exec<{ data: string }>('SELECT data FROM observations').one().data) as Observation);
+  expect(after.reward).toBe(10); expect(after.revision).toBe(before.revision + 1);
+  expect((await consume([goal('valid', 5), goal('g0', 99)])).retryMessages).toEqual([]);
+  const final = await runInDurableObject(target, (_instance, state) => JSON.parse(state.storage.sql.exec<{ data: string }>('SELECT data FROM observations').one().data) as Observation);
+  expect(final.reward).toBe(15);
+  await waitOnExecutionContext(ctx);
 });

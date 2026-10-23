@@ -43,7 +43,8 @@ describe('subject assignments and learning ledger', () => {
     await send('a'); await send('z');
     const original = (await observations(user))[0]!;
     await user.claimOwner(siteId, { ...anonymous, uid: 'after-login' });
-    await runInDurableObject(user, async instance => {
+    await runInDurableObject(user, async (instance, state) => {
+      await state.storage.deleteAlarm();
       const clock = vi.spyOn(Date, 'now').mockReturnValue(at + 20_000);
       try { await instance.ingest({ siteId, receivedAt: at + 20_000, event: { kind: 'exposure', eventId: 'm', occurredAt: at, subject: anonymous, assignment: decision.assignment } }); }
       finally { clock.mockRestore(); }

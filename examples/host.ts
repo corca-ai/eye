@@ -1,11 +1,20 @@
-import { createEye, getOrCreateCid } from '@eye/workers';
+import { createEye, getOrCreateCid, DecisionCache } from '@eye/workers';
 import type { EyeService } from '@eye/workers';
 
-interface HostEnv { EYE: EyeService }
+interface HostEnv { EYE: EyeService; EYE_DECISION_SECRET: string }
+// Reuse only policy data across requests. Each session owns its signed assignment tokens.
+const policies = new DecisionCache();
+interface HostSession {
+  decisionTokens: Record<string, string>;
+  setDecisionToken(experimentId: string, token: string): Promise<void>;
+}
 
 /** The host supplies its own authenticated uid, when available. */
-export async function handlePage(request: Request, env: HostEnv, ctx: ExecutionContext, uid?: string): Promise<Response> {
-  const eye = createEye({ service: env.EYE, ctx, siteId: 'shop', onError: error => console.error('Eye delivery failed', error) });
+export async function handlePage(request: Request, env: HostEnv, ctx: ExecutionContext, session: HostSession, uid?: string): Promise<Response> {
+  const eye = createEye({ service: env.EYE, ctx, siteId: 'shop',
+    decisions: { secret: env.EYE_DECISION_SECRET, cache: policies, tokens: session.decisionTokens,
+      onPrepared: (experimentId, token) => session.setDecisionToken(experimentId, token) },
+    onError: error => console.error('Eye delivery failed', error) });
   const cookie = getOrCreateCid(request);
   const subject = { cid: cookie.cid, ...(uid === undefined ? {} : { uid }) };
   const decision = await eye.decide({ subject, experimentId: 'checkout' });

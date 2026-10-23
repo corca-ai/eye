@@ -54,9 +54,9 @@ function goalRow(row: Row): GoalRow {
 }
 function timelineRow(row: Row): TimelineRow {
   const table = text(row, 'table_name');
-  invariant(TABLES.some(t => t === table), 'unavailable', 'Unknown analytics table');
+  invariant(table === 'events' || table === 'observations' || table === 'credits' || table === 'decisions' || table === 'identity_links', 'unavailable', 'Unknown analytics table');
   return {
-    table: table as AnalyticsTable, recordId: text(row, 'record_id'), revision: numeric(row, 'revision'),
+    table, recordId: text(row, 'record_id'), revision: numeric(row, 'revision'),
     occurredAt: numeric(row, 'occurred_at'), receivedAt: numeric(row, 'received_at'),
     cid: nullableText(row, 'cid'), uid: nullableText(row, 'uid'), subjectKey: text(row, 'subject_key'),
     experimentId: nullableText(row, 'experiment_id'), armId: nullableText(row, 'arm_id'), goalId: nullableText(row, 'goal_id'),
@@ -105,14 +105,44 @@ export class BasinAnalytics implements AnalyticsAPI {
       bytesScanned: metrics.bytes_scanned === undefined ? null : numeric(metrics, 'bytes_scanned'),
     } };
   }
-  async arms(query: ArmQuery): Promise<ArmReport> {
-    const result = await this.execute(this.sql().arms(query));
-    return { cohortBasis: 'observation_start', meta: result.meta, rows: result.rows.map(row => ({
+  private async armReport(query: ArmQuery, bucketMs?: number) {
+    const result = await this.execute(this.sql().arms(query, bucketMs));
+    return { cohortBasis: 'observation_start' as const, meta: result.meta, rows: result.rows.map(row => ({
+      ...(bucketMs === undefined ? {} : { bucketStart: numeric(row, 'bucket_start') }),
       armId: text(row, 'arm_id'), generation: numeric(row, 'generation'), observationWindowMs: numeric(row, 'window_ms'),
       groups: (query.groupBy ?? []).map((_, i) => scalar(row[`group_${i}`])), completed: numeric(row, 'completed'), pending: numeric(row, 'pending'),
       interrupted: numeric(row, 'interrupted'), subjects: numeric(row, 'subjects'), totalValue: numeric(row, 'total_value'),
       meanValue: row.mean_value === null ? null : numeric(row, 'mean_value'), latestReceivedAt: numeric(row, 'latest_received_at'),
     })) };
+  }
+  async arms(query: ArmQuery): Promise<ArmReport> { return this.armReport(query); }
+  async armSeries(query: import('./types.js').ArmSeriesQuery) {
+    invariant(Number.isSafeInteger(query.bucketMs) && query.bucketMs > 0, 'invalid_input', 'bucketMs must be positive integer milliseconds');
+    const result = await this.armReport(query, query.bucketMs);
+    return { ...result, rows: result.rows.map(row => ({ ...row, bucketStart: row.bucketStart! })) };
+  }
+  async traffic(query: import('./types.js').TrafficQuery) {
+    const result = await this.execute(this.sql().traffic(query));
+    return { meta: result.meta, rows: result.rows.map(row => ({ bucketStart: numeric(row, 'bucket_start'), armId: text(row, 'arm_id'),
+      generation: numeric(row, 'generation'), assignments: numeric(row, 'assignments'), exposures: numeric(row, 'exposures'),
+      assignmentShare: row.assignment_share === null ? null : numeric(row, 'assignment_share'), exposureShare: row.exposure_share === null ? null : numeric(row, 'exposure_share') })) };
+  }
+  async policies(query: import('./types.js').PolicyQuery) {
+    const result = await this.execute(this.sql().policies(query));
+    return { meta: result.meta, rows: result.rows.map(row => {
+      const payload = jsonObject(row, 'payload_json');
+      return { occurredAt: numeric(row, 'occurred_at'), recordId: text(row, 'record_id'), armId: text(row, 'arm_id'), generation: numeric(payload, 'generation'),
+        probability: numeric(payload, 'probability'), meanReward: payload.meanReward === null ? null : numeric(payload, 'meanReward'), score: payload.score === null ? null : numeric(payload, 'score'), scoreScale: numeric(payload, 'scoreScale'), reason: text(payload, 'reason'), status: text(payload, 'status') };
+    }) };
+  }
+  async attributeKeys(query: import('./types.js').QueryRange): ReturnType<AnalyticsAPI['attributeKeys']> {
+    const result = await this.execute(this.sql().attributeKeys(query));
+    return { coverage: { basis: 'utc_day', from: Math.floor(query.from / 86_400_000) * 86_400_000, to: Math.ceil(query.to / 86_400_000) * 86_400_000 }, meta: result.meta, rows: result.rows.map(row => {
+      const type = text(row, 'attribute_type'), source = text(row, 'attribute_source');
+      invariant(type === 'string' || type === 'number' || type === 'boolean' || type === 'null', 'unavailable', 'Invalid attribute type');
+      invariant(source === 'event' || source === 'user', 'unavailable', 'Invalid attribute source');
+      return { key: text(row, 'attribute_key'), type, source, latestReceivedAt: numeric(row, 'latest_received_at') };
+    }) };
   }
   async timeline(query: TimelineQuery): Promise<TimelinePage> {
     const plan = this.sql().timeline(query), result = await this.execute(plan), rows = result.rows.map(timelineRow), last = rows.at(-1);

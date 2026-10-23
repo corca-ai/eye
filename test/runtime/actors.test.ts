@@ -102,3 +102,18 @@ describe('goal lifecycle', () => {
     });
   });
 });
+
+it('preserves idempotent creation of an experiment stored before correctionWindowMs existed', async () => {
+  const { stub } = actor();
+  const input = { experimentId: 'checkout', arms: ['a'], settings: config };
+  await stub.create(input);
+  await runInDurableObject(stub, (instance, state) => {
+    const definition = state.storage.kv.get<{ settings: Record<string, unknown> }>('definition')!;
+    delete definition.settings.correctionWindowMs;
+    state.storage.kv.put('definition', definition);
+    const stored = state.storage.kv.get<{ settings: Record<string, unknown> }>('config')!;
+    delete stored.settings.correctionWindowMs;
+    state.storage.kv.put('config', stored);
+    expect(instance.create(input).settings.correctionWindowMs).toBeUndefined();
+  });
+});

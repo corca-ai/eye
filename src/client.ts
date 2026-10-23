@@ -1,7 +1,8 @@
+import { decisionRuntime, type DecisionOptions } from './decisions.js';
 import { EyeError, invariant } from './core/errors.js';
 import type { ErrorCode } from './core/errors.js';
 import { parseCreateExperiment, parseEnvelope } from './core/events.js';
-import { id, subject as parseSubject } from './core/validation.js';
+import { id, record, RETENTION_MS, subject as parseSubject } from './core/validation.js';
 import type { Attributes, CreateExperiment, EventEnvelope, ExperimentSettings, GoalEvent, IdentityEvent, Subject, TrackEvent } from './core/types.js';
 import type { AssignedDecision, EyeService } from './transport.js';
 import type { AnalyticsAPI } from './analytics/types.js';
@@ -12,6 +13,7 @@ const encoder = new TextEncoder();
 export type EventInput<T> = Omit<T, 'kind' | 'eventId' | 'occurredAt'> & { eventId?: string; occurredAt?: number };
 export type Submission = { accepted: true; eventId: string } | { accepted: false; error: { code: ErrorCode; message: string } };
 export interface EyeOptions {
+  decisions?: DecisionOptions;
   service: EyeService;
   ctx: Pick<ExecutionContext, 'waitUntil'>;
   siteId: string;
@@ -67,7 +69,9 @@ export function createEye(options: EyeOptions) {
     }
   };
   const base = <T extends { eventId?: string; occurredAt?: number }>(input: T) => ({ ...input, eventId: input.eventId ?? crypto.randomUUID(), occurredAt: input.occurredAt ?? Date.now() });
+  const decisions = decisionRuntime(service, options.ctx, siteId, options.decisions, report);
   return {
+    prepare: (input: { subject: Subject; experimentId: string }) => decisions.prepare(parseSubject(input.subject), id(input.experimentId, 'experimentId')),
     /** accepted means local validation passed; it is not a durable delivery acknowledgement. */
     track: (input: EventInput<TrackEvent>): Submission => submit(() => ({ ...base(input), kind: 'track' })),
     goal: (input: EventInput<GoalEvent>): Submission => submit(() => ({ ...base(input), kind: 'goal' })),
@@ -77,10 +81,15 @@ export function createEye(options: EyeOptions) {
     }),
     identify: (input: EventInput<IdentityEvent> & { subject: Subject & { uid: string } }): Submission => submit(() => ({ ...base(input), kind: 'identify' })),
     logout: (input: EventInput<IdentityEvent>): Submission => submit(() => ({ ...base(input), kind: 'logout' })),
-    decide: (input: { subject: Subject; experimentId: string }) => service.decide(siteId, parseSubject(input.subject), id(input.experimentId, 'experimentId')),
+    decide: (input: { subject: Subject; experimentId: string }) => decisions.decide(parseSubject(input.subject), id(input.experimentId, 'experimentId')),
+    decideConsistent: (input: { subject: Subject; experimentId: string }) => service.decide(siteId, parseSubject(input.subject), id(input.experimentId, 'experimentId')),
     /** Optional for jobs/tests that need to await Queue ingestion. Normal request handlers need not await this. */
     flush,
     analytics: {
+      attributeKeys: query => service.analyticsAttributeKeys(siteId, query),
+      policies: query => service.analyticsPolicies(siteId, query),
+      traffic: query => service.analyticsTraffic(siteId, query),
+      armSeries: query => service.analyticsArmSeries(siteId, query),
       arms: query => service.analyticsArms(siteId, query),
       timeline: query => service.analyticsTimeline(siteId, query),
       goals: query => service.analyticsGoals(siteId, query),
@@ -88,13 +97,26 @@ export function createEye(options: EyeOptions) {
       attributeValues: query => service.analyticsAttributeValues(siteId, query),
     } satisfies AnalyticsAPI,
     experiments: {
-      create: (input: CreateExperiment) => service.createExperiment(siteId, parseCreateExperiment(input)),
+      create: (input: CreateExperiment) => {
+        const raw = record(input, 'experiment'), rawSettings = record(raw.settings, 'settings');
+        // Only the Experiment DO knows whether this is a new or legacy definition.
+        // Validate without turning an omitted deadline into an explicit new default.
+        const omitted = rawSettings.correctionWindowMs === undefined;
+        const parsed = parseCreateExperiment(omitted
+          ? { ...raw, settings: { ...rawSettings, correctionWindowMs: RETENTION_MS } } : input);
+        const { correctionWindowMs: _deadline, ...withoutDeadline } = parsed.settings;
+        return service.createExperiment(siteId, omitted ? { ...parsed, settings: withoutDeadline } : parsed);
+      },
       get: (experimentId: string) => service.getExperiment(siteId, id(experimentId, 'experimentId')),
       list: (options: { after?: string; limit?: number } = {}) => service.listExperiments(siteId, options.after, options.limit),
       update: (experimentId: string, input: Partial<ExperimentSettings>) => service.updateExperiment(siteId, id(experimentId, 'experimentId'), input),
       addArm: (experimentId: string, armId: string) => service.addArm(siteId, id(experimentId, 'experimentId'), id(armId, 'armId')),
       pauseArm: (experimentId: string, armId: string) => service.setArmStatus(siteId, id(experimentId, 'experimentId'), id(armId, 'armId'), 'paused'),
       resumeArm: (experimentId: string, armId: string) => service.setArmStatus(siteId, id(experimentId, 'experimentId'), id(armId, 'armId'), 'active'),
+      pause: (experimentId: string) => service.setExperimentStatus(siteId, id(experimentId, 'experimentId'), 'paused'),
+      resume: (experimentId: string) => service.setExperimentStatus(siteId, id(experimentId, 'experimentId'), 'active'),
+      delete: (experimentId: string) => service.setExperimentStatus(siteId, id(experimentId, 'experimentId'), 'deleted'),
+      deleteArm: (experimentId: string, armId: string) => service.setArmStatus(siteId, id(experimentId, 'experimentId'), id(armId, 'armId'), 'deleted'),
       policy: (experimentId: string) => service.getPolicy(siteId, id(experimentId, 'experimentId')),
     },
     goals: {
