@@ -6,16 +6,18 @@
   "private": true,
   "sideEffects": false,
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "node node_modules/typescript/bin/tsc --noEmit",
     "test": "vitest run",
     "test:core": "vitest run --project core",
     "test:workers": "vitest run --project workers",
     "types": "wrangler types && node scripts/generate-public-env.mjs",
-    "build": "tsc -p tsconfig.build.json",
-    "check": "npm run typecheck && npm test && npm run build",
+    "build": "node node_modules/typescript/bin/tsc -p tsconfig.build.json",
+    "check": "npm run typecheck && npm test && npm run build && npm run docs:check",
     "benchmark": "npm run build && node scripts/benchmark-core.mjs",
     "check:package": "npm run build && node scripts/check-package.mjs",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "docs:api": "node scripts/generate-api-docs.mjs",
+    "docs:check": "node scripts/generate-api-docs.mjs --check"
   },
   "exports": {
     ".": {
@@ -47,6 +49,7 @@
     "@cloudflare/workers-types": "^5.20261022.1",
     "@types/node": "^26.6.5",
     "typescript": "^7.0.2",
+    "typescript-docs": "npm:typescript@6.0.3",
     "vitest": "^5.0.5",
     "wrangler": "^4.151.3"
   },

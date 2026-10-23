@@ -12,7 +12,7 @@ export interface CidCookie {
   readonly setCookie: string | null;
 }
 
-/** Optional server-side cookie helper. The service decides when to call it. */
+/** cid가 없거나 잘못됐으면 UUID와 Set-Cookie를 만든다. 기존 쿠키면 setCookie=null. Path=/, HttpOnly, SameSite=Lax, HTTPS에서 Secure를 사용한다. */
 export function getOrCreateCid(request: Request, options: CidCookieOptions = {}): CidCookie {
   const name = options.name ?? 'cid';
   const maxAge = options.maxAgeSeconds ?? 31_536_000;

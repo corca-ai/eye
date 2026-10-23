@@ -38,7 +38,7 @@ void report;
     types: ['@cloudflare/workers-types'], strict: true, exactOptionalPropertyTypes: true,
     skipLibCheck: false, noEmit: true,
   }, include: ['consumer.ts', 'node_modules/@eye/workers/examples/host.ts'] }));
-  await exec(join(root, 'node_modules/.bin/tsc'), ['-p', join(temporary, 'tsconfig.json')]);
+  await exec(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '-p', join(temporary, 'tsconfig.json')]);
   const installation = join(temporary, 'eye');
   await exec(process.execPath, [join(library, 'scripts/eye.mjs'), 'init', installation, '--account-id', 'a'.repeat(32)]);
   const deployed = await exec(process.execPath, [join(root, 'node_modules/wrangler/bin/wrangler.js'), 'deploy', '--dry-run', '--config', join(installation, 'wrangler.jsonc')]);

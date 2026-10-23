@@ -1,5 +1,7 @@
 # 분석 API 계약
 
+[연동 가이드](INTEGRATION.md) · [API 시그니처](api/client.md#eyeanalyticsarms) · [응답 타입](api/types.md#armreport) · [문서 안내](README.md)
+
 `createEye(...).analytics`는 서버 Service Binding을 통해 고객 계정의 Basin SQL을 호출한다. 토큰은 Eye Worker secret에만 둔다. UI와 공개 HTTP API는 호스트가 구성한다.
 
 ## 공통 규칙
@@ -71,3 +73,31 @@ cid 조회는 해당 브라우저 이력이다. uid 조회는 그 uid가 기록�
 `policies`, `attribute_keys` 두 분석 테이블을 추가했다. 신규 설치는 일곱 sink를 만든다. 기존 설치는 같은 공통 스키마의 두 테이블/sink와 fanout 분기를 추가해야 한다. 기존 다섯 테이블은 유지한다. 실제 계정의 스키마·pipeline migration을 자동 실행하지 않는다.
 
 신원 인계 시 `identity_links`에 source/target state 연결을 기록한다. arm 집계는 연결된 상태 소유자를 중복 계산하지 않으며 `hasEvent`는 연결 시점 이후의 다른 상태 이벤트만 이어 붙인다. 로그인 이전의 서로 다른 기기 이벤트를 소급 연결하지 않는다.
+
+## 사용자군 비교와 페이지 처리 예제
+
+아래 eye는 같은 siteId의 서버 클라이언트다. 속성 이름은 사이트에서 실제 수집한 값으로 바꾼다.
+
+```ts
+const to = Date.now(), from = to - 7 * 86_400_000;
+const report = await eye.analytics.arms({
+  experimentId: 'checkout', from, to,
+  groupBy: [{ key: 'device', type: 'string' }],
+  filter: { field: { key: 'locale', type: 'string' }, op: 'eq', value: 'ko' },
+  hasEvent: {
+    name: 'page_view',
+    filter: { field: { key: 'path', type: 'string' }, op: 'eq', value: '/checkout' },
+  },
+});
+// report.rows[i].groups[0]은 요청한 device 그룹 값이다.
+// 완료 관측이 없으면 meanValue는 null이며, meta.truncated이면 조건을 좁힌다.
+
+const first = await eye.analytics.timeline({ from, to, subject: { uid: 'user-123' } });
+if (first.nextCursor) {
+  const next = await eye.analytics.timeline({
+    from, to, subject: { uid: 'user-123' }, cursor: first.nextCursor,
+  });
+}
+```
+
+위 `filter/groupBy`는 첫 expose의 userAttributes, `hasEvent.filter`는 track의 attributes를 검사한다. `attributeValues`는 원본 사건 속성 빈도이므로 같은 키라도 관측 사용자군의 빈도와 일치할 필요가 없다. 상세 필드 타입은 [생성 레퍼런스](api/types.md#filter)를 따른다.

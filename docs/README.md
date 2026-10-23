@@ -1,32 +1,34 @@
 # 문서 안내
 
-처음 연동한다면 [프로젝트 README](../README.md)와 [호스트 예제](../examples/host.ts)부터 읽는다. 이 프로젝트는 개발 중이며 실제 Cloudflare 운영 환경에서의 검증은 남아 있다.
+## 사이트 연동
 
-| 문서 | 내용 |
+처음에는 **[연동 가이드](INTEGRATION.md)** 한 문서를 순서대로 읽는다. API를 찾을 때는 생성 레퍼런스, 동작을 깊게 확인할 때는 아래 계약 문서를 사용한다.
+
+| 문서 | 용도 |
 | --- | --- |
-| [요구사항](../DESIGN.md) | 합의한 동작, 제품 범위와 보상·신원 규칙 |
-| [기술 설계](../TECHNICAL_DESIGN.md) | 상태 모델, 선택 정책, 저장소와 이벤트 전달 |
-| [분석 API](ANALYTICS.md) | 조회·필터·집계 계약과 해석상의 한계 |
-| [최적화 검증](PERFORMANCE.md) | 일반 로그 전달과 관측 통계 쓰기 절감, 변경 전후 측정 |
-| [빠른 배정](FAST-DECISIONS.md) | SWR·서명된 세션 상태·준비 API·미참여 계측의 구현 계약 |
-| [요청 경로 계획](REQUEST-PATH-PLAN.md) | 최초 설계·리뷰 이력과 KV·로컬 신규 선택의 후속 단계 |
-| [비용 추정](COST.md) | 공식 단가, 하루 100만 이벤트 시나리오와 비용 민감도 |
-| [구현 상태](IMPLEMENTATION.md) | 현재 구현, 검증 증거와 남은 작업 |
-| [문서·구현 대조](DOC-CODE-AUDIT.md) | 수정한 불일치와 계약 결정이 필요한 미완료 범위 |
-| [코드 점검](REVIEW-2026-10-23.md) | 재현한 결함, 수정 내역과 남은 설계 차이 |
-| [시뮬레이션](SIMULATION.md) | 장기 비정상 환경에서의 정책 비교와 원본 결과 |
+| [연동 가이드](INTEGRATION.md) | 설치부터 첫 실험·골·결과 확인, 오류 처리와 문제 해결 |
+| [SDK API](api/client.md) | 소스에서 생성한 함수별 입력·반환값과 동작 설명 |
+| [타입과 파라미터](api/types.md) | 소스에서 생성한 설정 기본값·제약과 데이터 타입 |
+| [호스트 예제](../examples/host.ts) | 패키지 검사에서 타입 검증하는 실제 핸들러 |
+| [빠른 배정](FAST-DECISIONS.md) | 세션 토큰, SWR, 준비·미참여·유지 기간의 상세 계약 |
+| [분석 가이드](ANALYTICS.md) | 사용자군 비교·필터·시계열·타임라인과 응답 해석 |
+| [설치 템플릿](../templates/README.md) | 계정 리소스 구성, 토큰, 설치 재시도와 업데이트 |
 
-구현 여부는 설계 문서만으로 판단하지 않고 구현 상태를 함께 확인한다. 기존 uid에 없는 실험의 cid 상태 인계를 구현했고 실제 Cloudflare 통합·대규모 인계·성능 검증은 남아 있다.
+## 설계와 운영 근거
 
-## 저장소 개발
+| 문서 | 용도 |
+| --- | --- |
+| [구현 상태](IMPLEMENTATION.md) | 구현 범위·검증 증거와 남은 운영 검증 |
+| [요구사항](../DESIGN.md) | 제품 범위와 보상·신원 규칙, 합의 기록 |
+| [기술 설계](../TECHNICAL_DESIGN.md) | 내부 상태·선택 알고리즘·저장소 구조 |
+| [비용 추정](COST.md) | 사용량 가정과 비용 민감도; 최신 추가 기능은 추정 제외 항목 확인 |
+| [최적화 검증](PERFORMANCE.md) | 수집 경로·SQLite 쓰기 절감 측정 |
+| [시뮬레이션](SIMULATION.md) | 장기 비정상 환경의 정책 비교 |
 
-Node.js 22 이상과 npm을 사용한다. 루트에서 `npm ci` 후 `npm run check`와 `npm run check:package`를 실행한다. 두 명령은 실제 Cloudflare 리소스를 배포하지 않는다.
+다음은 과거 검토 기록이며 현재 연동 절차로 사용하지 않는다: [요청 경로 계획](REQUEST-PATH-PLAN.md), [문서·구현 대조](DOC-CODE-AUDIT.md), [코드 점검](REVIEW-2026-10-23.md).
 
-- `src/`: 공개 API, 정책 계산, Durable Objects와 분석 처리.
-- `test/`: 순수 로직 및 로컬 workerd 통합 검사.
-- `templates/`: 고객 계정에 설치할 Worker와 provisioning 구성.
-- `scripts/`: 설치 CLI, 타입 생성, 패키지 검증과 시뮬레이션.
+## 문서 유지보수
 
-`worker-configuration.d.ts`와 `src/runtime/environment.generated.ts`는 재현 가능한 타입 검사를 위해 버전 관리한다. 바인딩을 변경하면 `npm run types`로 함께 갱신한다. 루트 Wrangler 설정의 Stream ID는 로컬 검사용 placeholder다. 실제 설치 설정은 `eye init`으로 별도 디렉터리에 생성한다.
+API 설명은 `src/`의 JSDoc, 함수 시그니처와 타입을 원본으로 한다. `npm run docs:api`로 `docs/api/`를 갱신하고 `npm run docs:check`로 최신성을 검사한다. 생성 문서는 커밋·패키지에 포함하므로 별도 문서 서버 없이 읽을 수 있다. 호출 순서·업무 예제는 연동 가이드, 집계 의미는 분석 가이드에만 상세히 둔다.
 
-자격 증명은 환경 변수나 Cloudflare secrets로 공급한다. `.env*`, `.dev.vars*`, `.wrangler/`와 빌드 산출물은 버전 관리에서 제외한다. 실제 계정용으로 생성한 설치 디렉터리는 이 소스 저장소 밖에 둔다.
+저장소 검사 명령은 [README](../README.md#개발과-문서-갱신)에 있다. `src/`는 SDK·런타임, `test/`는 순수 로직·workerd 검사, `templates/`는 계정 설치 구성, `scripts/`는 도구다. 루트 Wrangler Stream ID는 로컬 검사용 placeholder이며 실제 설정은 `eye init`으로 만든다. 자격 증명은 환경 변수·secrets로 공급하고 실제 계정 설치 디렉터리는 소스 저장소 밖에 둔다.

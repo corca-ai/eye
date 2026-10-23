@@ -10,11 +10,15 @@ export interface PolicyArm {
 }
 export interface ArmEvaluation {
   readonly armId: string;
+  /** 시간 감쇠된 완료 표본 가중치 합. 정수 사용자 수가 아니다. */
   readonly weight: number;
+  /** 원래 가치 단위의 감쇠 평균. 해당 arm 자료가 없으면 전체 arm의 평균(전체도 없으면 0). */
   readonly meanReward: number;
+  /** 결과를 기다리는 유효 예약·관측 수. 완료 표본에 포함하지 않는다. */
   readonly pending: number;
   /** Compare scores in shared scoreScale units to avoid raw-score overflow. */
   readonly score: number;
+  /** 현재 신규 선택의 확률. 기존 배정 유지 요청의 실제 노출 비율과 다르다. */
   readonly probability: number;
 }
 export interface PolicyEvaluation {

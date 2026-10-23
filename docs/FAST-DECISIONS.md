@@ -1,5 +1,7 @@
 # 빠른 배정 API
 
+[연동 가이드](INTEGRATION.md) · [배정 API](api/client.md#eyedecide) · [옵션·기본값](api/types.md#decisionoptions) · [문서 안내](README.md)
+
 `decide()`는 원격 응답을 기다리지 않는다. HMAC 검증 등 로컬 CPU 작업만 기다리고, fresh 정책과 서명된 준비 상태가 있으면 같은 arm을 반환한다. 없으면 `unavailable`을 반환하고 기본 화면을 사용한다. 이 경우 가짜 노출을 기록하지 않는다.
 
 ## 호스트 연동

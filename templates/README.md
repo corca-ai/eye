@@ -19,3 +19,5 @@ Use `createEye({ service: env.EYE, ctx, siteId: "your-site" })` for each request
 For later code-only updates, run `wrangler deploy --config wrangler.jsonc`. Changes to a Stream/table schema or pipeline need a reviewed migration; re-running the provision script is not a schema migration mechanism.
 
 Fast `decide()` requires a host `decisions.secret` (at least 32 UTF-8 bytes) and signed tokens retained in the host session. Supply `onPrepared` to persist background preparations; clear tokens on authentication/session transitions. It skips cold/unprepared requests. `prepare()` is an explicit waiting preparation API; `decideConsistent()` retains the prior waiting central path. See the host example and `docs/FAST-DECISIONS.md` in the source repository.
+
+For the complete integration sequence, see the [integration guide](https://github.com/corca-ai/eye/blob/main/docs/INTEGRATION.md). Generated [SDK reference](https://github.com/corca-ai/eye/blob/main/docs/api/client.md) and [parameter reference](https://github.com/corca-ai/eye/blob/main/docs/api/types.md) describe the installed API.

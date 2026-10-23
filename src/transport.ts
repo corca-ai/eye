@@ -3,12 +3,14 @@ import type { GoalDefinition } from './runtime/site.js';
 import type { PolicyEvaluation } from './core/policy.js';
 import type { AnalyticsAPI } from './analytics/types.js';
 
+/** statsAsOf는 보유 shard snapshot들의 최소 시각이며 null은 snapshot 없음. 전체 데이터 수신 완료 watermark가 아니다. */
 export interface PolicySnapshot extends PolicyEvaluation {
   experimentId: string; generation: number; revision: number; statsAsOf: number | null;
 }
 export interface PublishedPolicy extends PolicySnapshot {
   publishedAt: number; sequence: number; status: ArmStatus; activeArms: string[];
 }
+/** reuseUntil은 배정 토큰 재사용 만료 Unix 밀리초. 명시적 prepare 결과에는 token도 추가된다. */
 export interface PreparedDecision { decision: Decision; reuseUntil: number; policy: PublishedPolicy }
 /** Structural RPC contract: hosts may name their Service Binding freely. */
 export interface EyeService {

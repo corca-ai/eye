@@ -1,13 +1,15 @@
 export type Scalar = string | number | boolean | null;
 export interface AttributeField { key: string; type: 'string' | 'number' | 'boolean' }
+/** 타입을 자동 변환하지 않는다. 최대 64노드·깊이 8, in 최대 100값. eq:null과 missing은 다르다. */
 export type Filter =
   | { and: readonly Filter[] } | { or: readonly Filter[] } | { not: Filter }
   | { field: AttributeField; op: 'eq' | 'ne'; value: Scalar }
   | { field: AttributeField; op: 'lt' | 'lte' | 'gt' | 'gte'; value: number }
   | { field: AttributeField; op: 'in'; value: readonly Scalar[] }
   | { field: AttributeField; op: 'exists' | 'missing' };
-/** All intervals are [from, to), in Unix milliseconds. */
+/** from/to는 최근 60일 안의 Unix 밀리초, [from, to). limit은 기본 100, 1~1000. */
 export interface QueryRange { from: number; to: number; limit?: number }
+/** filter/groupBy는 최초 노출 userAttributes, 기간은 관측 시작 시각 기준. groupBy 최대 3개. goalId는 분자만 제한한다. */
 export interface ArmQuery extends QueryRange {
   experimentId: string; armId?: string; generation?: number; goalId?: string; groupBy?: readonly AttributeField[]; filter?: Filter;
   /** Restrict to observations containing a matching track event, without duplicating the denominator. */
@@ -19,6 +21,7 @@ export interface TimelineQuery extends QueryRange {
   includeLinked?: boolean; cursor?: string;
 }
 export interface GoalQuery extends QueryRange { goalId?: string; filter?: Filter }
+/** bucketMs는 양의 정수 밀리초이며 Unix epoch 기준 UTC 경계로 묶는다. */
 export interface SeriesQuery extends GoalQuery { bucketMs: number }
 export interface AttributeValuesQuery extends QueryRange { field: AttributeField; filter?: Filter }
 export interface AnalyticsMeta {
@@ -43,6 +46,7 @@ export interface TimelineRow {
 export interface GoalRow { goalId: string; events: number; totalValue: number; latestReceivedAt: number }
 export interface SeriesRow extends GoalRow { bucketStart: number }
 export interface AttributeValueRow { value: Scalar; events: number; latestReceivedAt: number }
+/** rows는 집계 결과. meta.truncated이면 범위·조건을 좁힌다. 일반 집계에는 다음 페이지 cursor가 없다. */
 export interface AnalyticsPage<T> { rows: T[]; meta: AnalyticsMeta }
 export interface ArmReport extends AnalyticsPage<ArmRow> { cohortBasis: 'observation_start' }
 export interface TimelinePage extends AnalyticsPage<TimelineRow> { nextCursor: string | null }

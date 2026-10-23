@@ -14,14 +14,18 @@ export interface DecisionOptions {
   secret: string;
   /** State from a host session or signed cookie, keyed by experiment ID. */
   tokens?: Readonly<Record<string, string>>;
+  /** 서비스 바인딩별 모듈 범위 캐시. 생략하면 바인딩 객체 기준 내부 캐시를 사용한다. */
   cache?: DecisionCache;
+  /** 기본 60000ms, 양의 정수. 이후에는 오래된 정책을 재사용하면서 갱신한다. */
   freshMs?: number;
+  /** 기본 300000ms, freshMs 이상 정수. 발행 시각부터 이 나이를 넘으면 미참여한다. */
   maxAgeMs?: number;
+  /** 로컬 결정마다 동기 호출. 미참여율 측정용이며 느린 I/O를 여기서 기다리지 않는다. */
   onDecision?: (metric: DecisionMetric) => void;
   /** Persist through a server session; response headers cannot be changed after return. */
   onPrepared?: (experimentId: string, token: string) => Promise<void> | void;
 }
-/** Isolate-local policy cache only: no subjects, tokens, or cross-request I/O promises. */
+/** 정책만 저장하는 isolate 캐시. capacity 기본 1000, 양의 정수. 호스트는 생성 후 decisions.cache에 전달하며 read/begin/put은 SDK 내부 갱신용이다. */
 export class DecisionCache {
   private readonly entries = new Map<string, { policy?: PublishedPolicy; retryAt: number }>();
   constructor(private readonly capacity = 1000) { invariant(Number.isSafeInteger(capacity) && capacity > 0, 'invalid_input', 'Invalid policy cache capacity'); }

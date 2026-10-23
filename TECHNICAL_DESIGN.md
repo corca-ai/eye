@@ -43,16 +43,7 @@ KV는 필수 구성에서 제외한다. 중앙 준비는 Experiment DO의 현재
 
 다음은 API 계약의 개요다. 실행 가능한 연동 예제는 [호스트 예제](examples/host.ts), 분석 요청·응답은 [분석 계약](docs/ANALYTICS.md)을 따른다.
 
-```typescript
-const eye = createEye({ service: env.EYE, ctx, siteId });
-const subject = { cid, uid }; // uid는 서비스의 인증 결과
-
-const decision = await eye.decide({ subject, experimentId });
-// 서비스가 arm을 실제 적용한 시점에 호출
-if (decision.status === 'assigned') eye.expose({ subject, decision, occurredAt, userAttributes });
-eye.track({ subject, eventId, name, occurredAt, attributes });
-eye.goal({ subject, eventId, goalId, occurredAt, value, attributes });
-```
+실제 호스트 구성과 호출 순서는 [연동 가이드](docs/INTEGRATION.md), 전체 시그니처와 파라미터는 [자동 생성 API](docs/api/client.md)를 따른다.
 
 `prepare`와 `decideConsistent`는 배정 일관성 때문에 비동기 RPC 응답을 기다린다. 기본 `decide`는 로컬 검증 후 반환하며 미준비 상태는 미참여다. 로그 함수는 로컬 검증과 큐 등록 예약 후 반환하고 전송 완료를 요청 응답에서 기다리지 않는다. 서비스가 다른 경로로 이벤트를 수집했으면 그 경로에서 같은 함수들을 호출한다. `expose`는 DOM 가시성을 라이브러리가 판정한다는 뜻이 아니라 서비스가 실제 적용 사실을 알려주는 계약이다.
 
@@ -158,16 +149,7 @@ reservation은 idempotent ID를 가지며 첫 노출 전 기본 5분 만료를 �
 
 ### 설정의 의미
 
-| 설정 | 시작값 | 바꾸는 대상 |
-| --- | --- | --- |
-| minHoldMs | 실험 등록 시 지정 | 같은 arm을 최소 유지하는 시간 |
-| observationWindowMs | 7일 | 사용자 한 표본의 평가 기간 |
-| attributionHalfLifeMs | 1일 | 마지막 노출과 goal 사이 간격에 따른 보상 감쇠 |
-| learningHalfLifeMs | 14일 | 오래된 완료 표본을 잊는 속도 |
-| allowedLatenessMs | 1시간 | 관측 구간의 최초 완료를 기다리는 여유 |
-| correctionWindowMs | 7일 | 관측 종료 후 온라인 학습 정정 기한; 60일 원본 조회와 별개 |
-| explorationFloor | 총 2% | 신규 배정의 지속적 탐색 |
-| rewardScale | 1 가치 단위 | 데이터가 적을 때 보너스의 단위 척도 |
+설정별 기본값·제약은 [소스에서 생성한 ExperimentSettings](docs/api/types.md#experimentsettings)를 따른다. 아래 설명은 설정이 학습 상태에 미치는 영향이다.
 
 학습 반감기와 귀속 반감기는 독립적이다. 관측에는 해당 배정 생성 시점의 설정 버전을 고정한다. 같은 배정으로 다음 관측을 열어도 그 설정을 사용한다. 관측 기간·보상 계산 설정을 바꾸면 새 학습 세대를 시작해 서로 다른 의미의 표본을 같은 통계에 섞지 않는다. 기존 학습 상태와 이력은 조회용으로 보존한다. arm 추가·중지는 학습 세대를 초기화하지 않는다.
 
