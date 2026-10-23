@@ -29,7 +29,13 @@ async function setup(extra: Partial<ExperimentSettings> = {}) {
     event: { kind: 'exposure', eventId: id, occurredAt, subject, assignment: decision.assignment } });
   const goal = (id: string, value = 1, occurredAt = at, receivedAt = Date.now()): EventEnvelope => ({ siteId, receivedAt,
     event: { kind: 'goal', eventId: id, occurredAt, subject, goalId: 'value', value } });
-  return { siteId, subject, experimentId, experiment, user, at, expose, goal };
+  return { siteId, subject, experimentId, experiment, user, shard, at, expose, goal };
+}
+async function publishAt(shard: ReturnType<typeof env.OBSERVATIONS.getByName>, at: number) {
+  await runInDurableObject(shard, async instance => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(at);
+    try { await instance.publish(); } finally { clock.mockRestore(); }
+  });
 }
 async function rows(user: ReturnType<typeof env.SUBJECTS.getByName>) {
   return runInDurableObject(user, (_instance, state) => state.storage.sql.exec<{ data: string }>('SELECT data FROM observations ORDER BY start_at').toArray().map(r => JSON.parse(r.data) as Observation));
@@ -50,6 +56,7 @@ it('sends pending start once, persists local reward, then publishes final signed
     const clock = vi.spyOn(Date, 'now').mockReturnValue(s.at + 20_000);
     try { await instance.alarm(); } finally { clock.mockRestore(); }
   });
+  await publishAt(s.shard, s.at + 20_001);
   const policy = await runInDurableObject(s.experiment, instance => {
     const clock = vi.spyOn(Date, 'now').mockReturnValue(s.at + 20_001);
     try { return instance.getPolicy(); } finally { clock.mockRestore(); }
@@ -169,6 +176,7 @@ it('counts a delayed zero completion even if the alarm runs beyond the correctio
     const clock = vi.spyOn(Date, 'now').mockReturnValue(s.at + 20_000);
     try { await instance.alarm(); } finally { clock.mockRestore(); }
   });
+  await publishAt(s.shard, s.at + 20_001);
   const observation = (await rows(s.user))[0]!;
   expect(observation.status).toBe('complete'); expect(observation.reward).toBe(0);
   await runInDurableObject(s.experiment, instance => {

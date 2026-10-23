@@ -141,12 +141,7 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
   private async resolveHome(siteId: string, subject: Subject, at: number, link = true): Promise<string> {
     const browser = this.env.IDENTITIES.getByName(identityKey(siteId, 'cid', subject.cid));
     if (subject.uid === undefined) return browser.anonymousHome(siteId, subject.cid, at);
-    const candidate = await browser.takeForUid(siteId, subject.cid, subject.uid, at);
-    const home = await this.env.IDENTITIES.getByName(identityKey(siteId, 'uid', subject.uid)).uidHome(siteId, subject.uid, candidate);
-    await this.env.SUBJECTS.getByName(home).claimOwner(siteId, subject);
-    if (candidate && candidate !== home) {
-      await this.env.SUBJECTS.getByName(candidate).transferTo(siteId, subject, candidate, home, at);
-    }
+    const home = await browser.authenticatedHome(siteId, subject.cid, subject.uid, at);
     const linkedAt = Date.now();
     // Timeline metadata stays on a distinct browser object and never becomes the uid's mutable state.
     const timeline = JSON.stringify([siteId, 'identity-timeline', subject.cid]);

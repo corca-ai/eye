@@ -23,6 +23,7 @@ export interface ArmEvaluation {
 }
 export interface PolicyEvaluation {
   readonly scoreScale: number;
+  /** 통계를 함께 비교한 기준 Unix 밀리초. 내부 DO 시각 차이 때문에 응답자의 벽시계보다 앞설 수 있다. */
   readonly asOf: number;
   readonly arms: readonly ArmEvaluation[];
 }

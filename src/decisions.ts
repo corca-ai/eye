@@ -1,4 +1,5 @@
 import { invariant } from './core/errors.js';
+import { leaseRefreshAt } from './core/lease.js';
 import { parseAssignment } from './core/events.js';
 import { record, timestamp, subjectKey } from './core/validation.js';
 import type { Decision, Subject } from './core/types.js';
@@ -22,7 +23,7 @@ export interface DecisionOptions {
   maxAgeMs?: number;
   /** 로컬 결정마다 동기 호출. 미참여율 측정용이며 느린 I/O를 여기서 기다리지 않는다. */
   onDecision?: (metric: DecisionMetric) => void;
-  /** Persist through a server session; response headers cannot be changed after return. */
+  /** 미준비 상태와 만료가 가까운 토큰을 백그라운드에서 준비·갱신한다. 다음 요청이 읽을 서버 세션에 저장한다. 응답 반환 후 헤더는 수정할 수 없다. */
   onPrepared?: (experimentId: string, token: string) => Promise<void> | void;
 }
 /** 정책만 저장하는 isolate 캐시. capacity 기본 1000, 양의 정수. 호스트는 생성 후 decisions.cache에 전달하며 read/begin/put은 SDK 내부 갱신용이다. */
@@ -63,41 +64,55 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
   const key = (experimentId: string) => JSON.stringify([siteId, experimentId]);
   const localTokens = new Map<string, string>();
   const preparing = new Set<string>();
+  const pendingPreparations = new Set<string>();
   const background = (work: Promise<unknown>) => ctx.waitUntil(work.catch(report));
   const refresh = (experimentId: string) => {
     if (cache.begin(key(experimentId), Date.now())) background(service.getPublishedPolicy(siteId, experimentId).then(policy => { cache.put(key(experimentId), policy); }));
   };
-  const prepare = async (subject: Subject, experimentId: string): Promise<PreparedDecision & { token: string | null }> => {
+  const prepare = async (subject: Subject, experimentId: string, previousUntil?: number): Promise<PreparedDecision & { token: string | null }> => {
     invariant(options, 'invalid_input', 'Configure decisions.secret before preparing reusable state');
     const prepared = await service.prepareDecision(siteId, subject, experimentId);
     cache.put(key(experimentId), prepared.policy);
     if (prepared.decision.status !== 'assigned') return { ...prepared, token: null };
-    const payload = b64(encoder.encode(JSON.stringify({ siteId, subject: subjectKey(siteId, subject), experimentId, until: prepared.reuseUntil, decision: prepared.decision })));
+    const payload = b64(encoder.encode(JSON.stringify({ siteId, subject: subjectKey(siteId, subject), experimentId, until: prepared.reuseUntil, refreshAt: previousUntil === prepared.reuseUntil ? prepared.reuseUntil : leaseRefreshAt(Date.now(), prepared.reuseUntil), decision: prepared.decision })));
     const signature = b64(new Uint8Array(await crypto.subtle.sign('HMAC', await signingKey(options.secret), encoder.encode(payload))));
     const token = `${payload}.${signature}`;
     invariant(token.length <= 16_384, 'invalid_input', 'Prepared state exceeds 16 KiB; use server-side sessions');
     localTokens.set(experimentId, token);
     return { ...prepared, token };
   };
+  const prepareInBackground = (subject: Subject, experimentId: string, previousUntil?: number) => {
+    if (!options?.onPrepared || preparing.has(experimentId)) return;
+    preparing.add(experimentId);
+    pendingPreparations.add(experimentId);
+    const previous = localTokens.get(experimentId) ?? options.tokens?.[experimentId];
+    background(prepare(subject, experimentId, previousUntil).then(async result => {
+      if (result.token && result.token !== previous) await options.onPrepared!(experimentId, result.token);
+    }).catch(error => {
+      const policy = cache.read(key(experimentId));
+      if (!policy || Date.now() - policy.publishedAt >= fresh) refresh(experimentId);
+      throw error;
+    }).finally(() => { pendingPreparations.delete(experimentId); }));
+  };
   const decide = async (subject: Subject, experimentId: string): Promise<Decision> => {
     const now = Date.now(), policy = cache.read(key(experimentId));
     const age = policy ? now - policy.publishedAt : Infinity;
-    if (!policy || age >= fresh) refresh(experimentId);
+    const token = localTokens.get(experimentId) ?? options?.tokens?.[experimentId];
     const finish = (decision: Decision, reason: DecisionMetric['reason']) => {
+      // Preparation supplies the policy too. Existing tokens must still warm
+      // a missing/expired policy independently of a slow Subject/identity RPC.
+      const needsIndependentPolicy = token !== undefined && (!policy || age >= maxAge);
+      if ((!policy || age >= fresh) && (needsIndependentPolicy || !pendingPreparations.has(experimentId))) refresh(experimentId);
       try { options?.onDecision?.({ experimentId, outcome: decision.status === 'unavailable' ? 'skipped' : decision.status, reason, authenticated: subject.uid !== undefined, at: now }); } catch (error) { report(error); }
       return decision;
     };
     const skip = (reason: DecisionMetric['reason']) => {
-      if (options?.onPrepared && !preparing.has(experimentId)) {
-        preparing.add(experimentId);
-        background(prepare(subject, experimentId).then(async result => { if (result.token) await options.onPrepared!(experimentId, result.token); }));
-      }
+      prepareInBackground(subject, experimentId);
       return finish({ status: 'unavailable', experimentId }, reason);
     };
     if (!policy) return skip('cold');
     if (age < 0 || age >= maxAge) return skip('expired');
     if (policy.status !== 'active' || policy.activeArms.length === 0) return finish({ status: 'no_active_arm', experimentId }, 'inactive');
-    const token = localTokens.get(experimentId) ?? options?.tokens?.[experimentId];
     if (!options || !token) return skip('unprepared');
     try {
       invariant(token.length <= 16_384, 'invalid_input', 'State is too large');
@@ -105,10 +120,13 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
       invariant(parts.length === 2, 'invalid_input', 'Malformed state');
       invariant(await crypto.subtle.verify('HMAC', await signingKey(options.secret), unb64(parts[1]!), encoder.encode(parts[0]!)), 'invalid_input', 'Invalid state signature');
       const state = record(JSON.parse(new TextDecoder().decode(unb64(parts[0]!))), 'state');
-      invariant(state.siteId === siteId && state.subject === subjectKey(siteId, subject) && state.experimentId === experimentId && timestamp(state.until, 'until') > Date.now(), 'invalid_input', 'State scope or expiry mismatch');
+      const until = timestamp(state.until, 'until');
+      invariant(state.siteId === siteId && state.subject === subjectKey(siteId, subject) && state.experimentId === experimentId && until > Date.now(), 'invalid_input', 'State scope or expiry mismatch');
       const raw = record(state.decision, 'decision'), assignment = parseAssignment(raw.assignment);
       invariant(assignment.experimentId === experimentId && typeof raw.routingKey === 'string', 'invalid_input', 'Invalid prepared assignment');
       if (!policy.activeArms.includes(assignment.armId)) return skip('inactive');
+      const refreshAt = state.refreshAt === undefined ? until - fresh : timestamp(state.refreshAt, 'refreshAt');
+      if (Date.now() >= refreshAt) prepareInBackground(subject, experimentId, until);
       return finish({ status: 'assigned', assignment, routingKey: raw.routingKey, reason: 'held' }, age < fresh ? 'fresh' : 'stale');
     } catch { return skip('invalid_state'); }
   };

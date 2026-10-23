@@ -45,6 +45,21 @@ export class IdentityRegistry extends StoredObject {
       return home;
     });
   }
+  /** Reuse only completed ownership/transfer work for this exact browser epoch. */
+  async authenticatedHome(siteId: string, cid: string, uid: string, at: number): Promise<string> {
+    const candidate = this.takeForUid(siteId, cid, uid, at);
+    const ready = this.kv.get<{ uid: string; candidate: string | null; home: string }>('readyRoute');
+    if (ready?.uid === uid && ready.candidate === candidate) return ready.home;
+    const home = await this.env.IDENTITIES.getByName(identityKey(siteId, 'uid', uid)).uidHome(siteId, uid, candidate);
+    const subject = { cid, uid };
+    await this.env.SUBJECTS.getByName(home).claimOwner(siteId, subject);
+    if (candidate && candidate !== home) await this.env.SUBJECTS.getByName(candidate).transferTo(siteId, subject, candidate, home, at);
+    // A concurrent login/logout can change the current candidate during I/O.
+    // Keeping the candidate in the key makes a late completion safe to reuse:
+    // another epoch will miss and finish its own transfer before being cached.
+    this.kv.put('readyRoute', { uid, candidate, home });
+    return home;
+  }
   uidHome(siteId: string, uid: string, candidate: string | null = null): string {
     id(siteId, 'siteId'); id(uid, 'uid');
     const identity = identityKey(siteId, 'uid', uid), prior = this.kv.get<string>('identity');

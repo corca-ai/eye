@@ -1,6 +1,6 @@
 import { env, exports } from 'cloudflare:workers';
 import { createExecutionContext, evictDurableObject, runInDurableObject, waitOnExecutionContext } from 'cloudflare:test';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { createEye } from '../../src/client.js';
 import { experimentKey } from '../../src/core/validation.js';
 import type { Decision, EventEnvelope, Observation } from '../../src/core/types.js';
@@ -91,6 +91,101 @@ it('prepares reusable state without allowing an unacknowledged exposure to trigg
   await runInDurableObject(env.SUBJECTS.getByName(first.routingKey), (_instance, state) => {
     const observation = JSON.parse(state.storage.sql.exec<{ data: string }>('SELECT data FROM observations').one().data) as Observation;
     expect(observation.startAt).toBe(at); expect(observation.status).toBe('pending');
+  });
+  await waitOnExecutionContext(ctx);
+});
+
+it('releases the bootstrap safety gap when every issued lease fits the confirmed observation', async () => {
+  const siteId=crypto.randomUUID(),ctx=createExecutionContext();
+  const eye=createEye({siteId,ctx,service:exports.default,decisions:{secret:'test-decision-secret-longer-than-32-bytes'}});
+  await eye.experiments.create({experimentId:'short',arms:['a','b'],settings:{minHoldMs:0,observationWindowMs:10_000,allowedLatenessMs:0}});
+  const input={subject:{cid:'lease'},experimentId:'short'};
+  const first=assigned((await eye.prepare(input)).decision),target=env.SUBJECTS.getByName(first.routingKey);
+  const at=Date.now();
+  await target.ingest({siteId,receivedAt:Date.now(),event:{kind:'exposure',eventId:'first',occurredAt:at,subject:input.subject,assignment:first.assignment}});
+  await runInDurableObject(target,async(instance,state)=>{
+    await state.storage.deleteAlarm();
+    const clock=vi.spyOn(Date,'now').mockReturnValue(at+10_001);
+    try{
+      const next=await instance.prepareReuse(siteId,input.subject,'short');
+      expect(next.decision.status).toBe('assigned');
+      if(next.decision.status==='assigned')expect(next.decision.assignment.assignmentId).not.toBe(first.assignment.assignmentId);
+    }finally{clock.mockRestore();await state.storage.deleteAlarm();}
+  });
+  await waitOnExecutionContext(ctx);
+});
+
+it('keeps the safety pin when an outstanding lease can outlive the first confirmed window', async () => {
+  const siteId=crypto.randomUUID(),ctx=createExecutionContext();
+  const eye=createEye({siteId,ctx,service:exports.default,decisions:{secret:'test-decision-secret-longer-than-32-bytes'}});
+  await eye.experiments.create({experimentId:'queued',arms:['a'],settings:{minHoldMs:0,observationWindowMs:10_000,allowedLatenessMs:0}});
+  const input={subject:{cid:'queued'},experimentId:'queued'},first=assigned((await eye.prepare(input)).decision);
+  const target=env.SUBJECTS.getByName(first.routingKey),at=first.assignment.assignedAt;
+  await runInDurableObject(target,async(instance,state)=>{
+    await state.storage.deleteAlarm();let now=at+5000;
+    const clock=vi.spyOn(Date,'now').mockImplementation(()=>now);
+    try{
+      const extended=await instance.prepareReuse(siteId,input.subject,'queued');
+      expect(extended.reuseUntil).toBe(at+15_000);
+      now=at+6000;
+      await instance.ingest({siteId,receivedAt:now,event:{kind:'exposure',eventId:'delayed',occurredAt:at+1,subject:input.subject,assignment:first.assignment}});
+      now=at+11_000;
+      expect((await instance.prepareReuse(siteId,input.subject,'queued')).decision.status).toBe('unavailable');
+      expect(state.storage.kv.get<number>(`lease-pin:${first.assignment.assignmentId}`)).toBeGreaterThanOrEqual(at+25_000);
+    }finally{clock.mockRestore();await state.storage.deleteAlarm();}
+  });
+  await waitOnExecutionContext(ctx);
+});
+
+it('protects legacy signed tokens when a delayed exposure moves the window earlier after upgrade', async () => {
+  const siteId = crypto.randomUUID(), ctx = createExecutionContext();
+  const eye = createEye({ siteId, ctx, service: exports.default, decisions: { secret: 'test-decision-secret-longer-than-32-bytes' } });
+  const window = 3_600_000;
+  await eye.experiments.create({ experimentId: 'legacy', arms: ['a'], settings: { minHoldMs: 0, observationWindowMs: window } });
+  const input = { subject: { cid: 'legacy' }, experimentId: 'legacy' };
+  const first = assigned((await eye.prepare(input)).decision), target = env.SUBJECTS.getByName(first.routingKey);
+  const at = first.assignment.assignedAt;
+  await runInDurableObject(target, async (instance, state) => {
+    await state.storage.deleteAlarm();
+    let now = at + 120_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    try {
+      await instance.ingest({ siteId, receivedAt: now, event: { kind: 'exposure', eventId: 'reported-first', occurredAt: now, subject: input.subject, assignment: first.assignment } });
+      // HEAD could retain this bootstrap pin while issuing a later token
+      // ending at the confirmed window. There was no lease-until field.
+      state.storage.kv.put(`lease-pin:${first.assignment.assignmentId}`, at + window + 300_000);
+      state.storage.kv.delete(`lease-until:${first.assignment.assignmentId}`);
+      const legacyTokenUntil = at + window + 120_000;
+      now = at + window - 60_000;
+      await instance.ingest({ siteId, receivedAt: now, event: { kind: 'exposure', eventId: 'earlier-late', occurredAt: at + 60_000, subject: input.subject, assignment: first.assignment } });
+      expect(state.storage.kv.get<number>(`lease-pin:${first.assignment.assignmentId}`)).toBeGreaterThanOrEqual(legacyTokenUntil + window);
+      const migratedUntil = state.storage.kv.get<number>(`lease-until:${first.assignment.assignmentId}`);
+      expect(migratedUntil).toBeGreaterThanOrEqual(legacyTokenUntil);
+      now = at + window + 60_001;
+      const prepared = await instance.prepareReuse(siteId, input.subject, 'legacy');
+      expect(prepared.decision.status).toBe('unavailable');
+      expect(state.storage.kv.get(`lease-until:${first.assignment.assignmentId}`)).toBe(migratedUntil);
+    } finally { clock.mockRestore(); await state.storage.deleteAlarm(); }
+  });
+  await waitOnExecutionContext(ctx);
+});
+
+it('issues fifteen-minute leases but caps renewal at a confirmed observation end', async () => {
+  const siteId = crypto.randomUUID(), ctx = createExecutionContext();
+  const eye = createEye({ siteId, ctx, service: exports.default, decisions: { secret: 'test-decision-secret-longer-than-32-bytes' } });
+  await eye.experiments.create({ experimentId: 'long', arms: ['a'], settings: { minHoldMs: 0, observationWindowMs: 1_200_000 } });
+  const subject = { cid: 'long' }, first = assigned((await eye.prepare({ subject, experimentId: 'long' })).decision);
+  const at = first.assignment.assignedAt, target = env.SUBJECTS.getByName(first.routingKey);
+  await runInDurableObject(target, async (instance, state) => {
+    await state.storage.deleteAlarm();
+    let now = at + 1000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    try {
+      expect((await instance.prepareReuse(siteId, subject, 'long')).reuseUntil).toBe(now + 900_000);
+      await instance.ingest({ siteId, receivedAt: now, event: { kind: 'exposure', eventId: 'long-first', occurredAt: at, subject, assignment: first.assignment } });
+      now = at + 600_000;
+      expect((await instance.prepareReuse(siteId, subject, 'long')).reuseUntil).toBe(at + 1_200_000);
+    } finally { clock.mockRestore(); await state.storage.deleteAlarm(); }
   });
   await waitOnExecutionContext(ctx);
 });

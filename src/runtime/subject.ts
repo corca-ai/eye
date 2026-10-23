@@ -9,9 +9,10 @@ import { canReassign, closeObservation, interruptObservation } from '../core/obs
 import { projectExperiment, projectExposure } from '../core/projection.js';
 import type { AssignmentLifetime } from '../core/projection.js';
 import type { Assignment, Credit, Decision, EventEnvelope, Exposure, ExposureEvent, GoalEvent, Observation, Subject } from '../core/types.js';
-import { experimentKey, id, RETENTION_MS, subjectKey as makeSubjectKey } from '../core/validation.js';
+import { experimentKey, id, RETENTION_MS, subjectKey as makeSubjectKey, timestamp } from '../core/validation.js';
 import { StoredObject, storedJson } from './base.js';
 import { observationShard, shardKey } from './shard.js';
+import { MAX_DECISION_LEASE_MS } from '../core/lease.js';
 
 type DataRow = { data: string };
 type Intent = { revision: number; requestId: string; requestedAt: number };
@@ -92,7 +93,7 @@ export class SubjectObject extends StoredObject {
     return this.atomic(() => {
       for (const row of this.sql.exec<{ id: string }>('SELECT id FROM assignments')) this.sql.exec("INSERT OR IGNORE INTO origins VALUES ('assignment', ?, ?)", row.id, stateKey);
       for (const row of this.sql.exec<{ id: string }>('SELECT id FROM events UNION SELECT id FROM exposures')) this.sql.exec("INSERT OR IGNORE INTO origins VALUES ('event', ?, ?)", row.id, stateKey);
-      const transfer: SubjectTransfer = { source, stateKey, at, subject, pins: [...this.kv.list<number>({ prefix: 'lease-pin:' })].map(([key, value]) => ({ key, value })), states: [...this.kv.list<AssignmentState>({ prefix: 'experiment:' })].map(([, state]) => state) };
+      const transfer: SubjectTransfer = { source, stateKey, at, subject, pins: [...this.kv.list<number>({ prefix: 'lease-' })].map(([key, value]) => ({ key, value })), states: [...this.kv.list<AssignmentState>({ prefix: 'experiment:' })].map(([, state]) => state) };
       this.kv.put('redirect', { target, transfer });
       return transfer;
     });
@@ -224,8 +225,27 @@ export class SubjectObject extends StoredObject {
     return row ? storedJson<AssignmentLifetime>(row.data) : undefined;
   }
   private lastObservation(assignmentId: string): Observation | undefined {
-    const row = this.sql.exec<DataRow>('SELECT data FROM observations WHERE assignment_id = ? ORDER BY start_at DESC LIMIT 1', assignmentId).toArray()[0];
+    const row = this.sql.exec<DataRow>("SELECT data FROM observations WHERE assignment_id = ? AND status != 'interrupted' ORDER BY start_at DESC LIMIT 1", assignmentId).toArray()[0];
     return row ? storedJson<Observation>(row.data) : undefined;
+  }
+  private issuedLeaseUntil(assignment: Assignment): number {
+    const stored = this.kv.get<number>(`lease-until:${assignment.assignmentId}`);
+    if (stored !== undefined) return stored;
+    // Legacy pins may be a confirmed window end, not expiry + W. Every
+    // outstanding legacy token expires within five minutes of this migration.
+    const legacyPin = this.kv.get<number>(`lease-pin:${assignment.assignmentId}`);
+    return legacyPin === undefined ? 0 : Math.min(legacyPin, Date.now() + 300_000);
+  }
+  private refreshLeasePin(assignment: Assignment): void {
+    const key = `lease-pin:${assignment.assignmentId}`, before = this.kv.get<number>(key);
+    if (before === undefined && this.kv.get(`lease-until:${assignment.assignmentId}`) === undefined) return;
+    const until = this.issuedLeaseUntil(assignment), observation = this.lastObservation(assignment.assignmentId);
+    // Capture the migration bound once, before shortening the old pin.
+    if (this.kv.get(`lease-until:${assignment.assignmentId}`) === undefined) this.kv.put(`lease-until:${assignment.assignmentId}`, until);
+    // If all issued tokens expire inside the confirmed window, none can open
+    // a later window. Otherwise preserve the worst-case queued-exposure bound.
+    const pin = observation && until <= observation.endAt ? observation.endAt : until + assignment.settings.observationWindowMs;
+    if (before !== pin) this.kv.put(key, pin);
   }
   async decide(siteId: string, subject: Subject, experimentId: string, adopt?: Assignment): Promise<Decision> {
     const forwarding = await this.forwarded();
@@ -292,11 +312,10 @@ export class SubjectObject extends StoredObject {
     const observation = this.lastObservation(assignment.assignmentId);
     if (observation && observation.endAt <= now && now < (this.kv.get<number>(`lease-pin:${assignment.assignmentId}`) ?? 0)
       && assignment.assignedAt + assignment.settings.minHoldMs <= now) return { decision: { status: 'unavailable', experimentId }, reuseUntil: 0 };
-    const reuseUntil = Math.min(now + 300_000, observation?.status === 'pending' && observation.endAt > now ? observation.endAt : now + assignment.settings.observationWindowMs);
-    // A queued exposure can arrive after another device prepares. Pin the assignment
-    // through the latest possible window opened by this lease, without inventing an observation.
-    const pin = observation?.status === 'pending' && observation.endAt > now ? observation.endAt : reuseUntil + assignment.settings.observationWindowMs;
-    this.kv.put(`lease-pin:${assignment.assignmentId}`, Math.max(pin, this.kv.get<number>(`lease-pin:${assignment.assignmentId}`) ?? 0));
+    const reuseUntil = Math.min(now + MAX_DECISION_LEASE_MS, observation?.status === 'pending' && observation.endAt > now ? observation.endAt : now + assignment.settings.observationWindowMs);
+    const until = Math.max(reuseUntil, this.issuedLeaseUntil(assignment));
+    if (this.kv.get(`lease-until:${assignment.assignmentId}`) !== until) this.kv.put(`lease-until:${assignment.assignmentId}`, until);
+    this.refreshLeasePin(assignment);
     return { decision, reuseUntil };
   }
   async recordHeldDecision(siteId: string, subject: Subject, assignment: Assignment, at: number): Promise<void> {
@@ -359,7 +378,11 @@ export class SubjectObject extends StoredObject {
   }
   /** Anonymous browser object owns explicit login intervals; uid objects never become browser aliases. */
   async linkIdentity(input: EventEnvelope, automatic = false): Promise<void> {
-    const envelope = parseEnvelope(input, Date.now()), event = envelope.event;
+    // Automatic envelopes are generated by our service after input validation.
+    // Another DO's clock may trail that receipt; do not discard valid uid
+    // traffic by reclassifying a trusted server timestamp as external future data.
+    const now = automatic ? Math.max(Date.now(), timestamp(input.receivedAt, 'receivedAt')) : Date.now();
+    const envelope = parseEnvelope(input, now), event = envelope.event;
     invariant(event.kind === 'identify' || event.kind === 'logout', 'invalid_input', 'Expected identity event');
     const context = this.context(envelope.siteId, { cid: event.subject.cid });
     const uid = event.kind === 'identify' ? event.subject.uid! : null;
@@ -579,6 +602,7 @@ export class SubjectObject extends StoredObject {
     const lifetime = this.lifetime(observation.assignmentId);
     invariant(lifetime, 'conflict', 'Missing observation assignment');
     this.sql.exec('INSERT INTO observations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET status = excluded.status, revision = excluded.revision, data = excluded.data', observation.observationId, observation.experimentId, observation.assignmentId, observation.startAt, observation.endAt, observation.endAt + lifetime.assignment.settings.allowedLatenessMs, observation.status, observation.revision, JSON.stringify(observation));
+    this.refreshLeasePin(lifetime.assignment);
     // Pending reward changes are not learned samples: send only lifecycle transitions.
     if (!old || old.status !== observation.status || observation.status === 'complete') {
       this.effect(`observation:${observation.observationId}`, { kind: 'observation', observation });
@@ -605,38 +629,51 @@ export class SubjectObject extends StoredObject {
     if (!context) return;
     const rows = ['observation', 'release', 'export'].flatMap(kind => this.sql.exec<EffectRow>('SELECT id, revision, data FROM outbox WHERE kind = ? ORDER BY revision LIMIT 100', kind).toArray());
     const exported: { row: EffectRow; record: AnalyticsRecord }[] = [];
-    const shards = new Set<string>();
+    const learning: { row: EffectRow; effect: Exclude<Effect, { kind: 'export' }> }[] = [];
     for (const row of rows) {
       const effect = storedJson<Effect>(row.data);
-      if (effect.kind === 'export') { exported.push({ row, record: effect.record }); continue; }
-      if (effect.kind === 'observation') {
-        const key = shardKey(context.siteId, effect.observation.experimentId, observationShard(effect.observation.subjectKey));
-        let expired = effect.observation.endAt < Date.now() - RETENTION_MS;
-        if (!expired) {
-          try {
-            await this.env.OBSERVATIONS.getByName(key).apply(context.siteId, effect.observation);
-            shards.add(key);
-          } catch (error) {
-            // The retention boundary can pass during the RPC. Other failures remain retryable.
-            expired = typeof error === 'object' && error !== null && 'code' in error && error.code === 'outside_retention'
-              && effect.observation.endAt < Date.now() - RETENTION_MS;
-            if (!expired) throw error;
-          }
-        }
-        if (expired) {
-          await this.env.EXPERIMENTS.getByName(experimentKey(context.siteId, effect.observation.experimentId)).release(effect.observation.assignmentId);
-          console.warn(JSON.stringify({ component: 'eye', operation: 'learning_export', code: 'outside_retention' }));
-        }
-      } else await this.env.EXPERIMENTS.getByName(experimentKey(context.siteId, effect.experimentId)).release(effect.assignmentId);
-      this.sql.exec('DELETE FROM outbox WHERE id = ? AND revision = ?', row.id, row.revision);
+      if (effect.kind === 'export') exported.push({ row, record: effect.record });
+      else learning.push({ row, effect });
     }
-    // Publish statistics independently of the analytics sink's availability.
-    for (const key of shards) await this.env.OBSERVATIONS.getByName(key).publish();
-    if (exported.length > 0) {
-      for (const batch of exportBatches(exported)) {
-        await this.env.ANALYTICS.send(exportRecords(batch));
-        this.atomic(() => { for (const { row } of batch) this.sql.exec('DELETE FROM outbox WHERE id = ? AND revision = ?', row.id, row.revision); });
-      }
+    // A shard failure must not block raw analytics; each channel acknowledges
+    // only its own successful revisions. All I/O remains within this DO context.
+    const results = await Promise.allSettled([this.flushLearning(context, learning), this.flushExports(exported)]);
+    const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+    if (failed) throw failed.reason;
+  }
+  private async flushLearning(context: RecordContext, effects: readonly { row: EffectRow; effect: Exclude<Effect, { kind: 'export' }> }[]): Promise<void> {
+    const acknowledged: EffectRow[] = [];
+    let failed = false, failure: unknown;
+    for (const { row, effect } of effects) {
+      try {
+        if (effect.kind === 'observation') {
+          const key = shardKey(context.siteId, effect.observation.experimentId, observationShard(effect.observation.subjectKey));
+          let expired = effect.observation.endAt < Date.now() - RETENTION_MS;
+          if (!expired) {
+            try { await this.env.OBSERVATIONS.getByName(key).apply(context.siteId, effect.observation); }
+            catch (error) {
+              expired = typeof error === 'object' && error !== null && 'code' in error && error.code === 'outside_retention'
+                && effect.observation.endAt < Date.now() - RETENTION_MS;
+              if (!expired) throw error;
+            }
+          }
+          if (expired) {
+            await this.env.EXPERIMENTS.getByName(experimentKey(context.siteId, effect.observation.experimentId)).release(effect.observation.assignmentId);
+            console.warn(JSON.stringify({ component: 'eye', operation: 'learning_export', code: 'outside_retention' }));
+          }
+        } else await this.env.EXPERIMENTS.getByName(experimentKey(context.siteId, effect.experimentId)).release(effect.assignmentId);
+        acknowledged.push(row);
+      } catch (error) { failed = true; failure = error; }
+    }
+    // Avoid a separate replicated commit before each subsequent outgoing RPC.
+    this.atomic(() => { for (const row of acknowledged) this.sql.exec('DELETE FROM outbox WHERE id = ? AND revision = ?', row.id, row.revision); });
+    // Shards publish on their own coalescing alarm, never once per subject.
+    if (failed) throw failure;
+  }
+  private async flushExports(exported: readonly { row: EffectRow; record: AnalyticsRecord }[]): Promise<void> {
+    for (const batch of exportBatches(exported)) {
+      await this.env.ANALYTICS.send(exportRecords(batch));
+      this.atomic(() => { for (const { row } of batch) this.sql.exec('DELETE FROM outbox WHERE id = ? AND revision = ?', row.id, row.revision); });
     }
   }
   private async cleanupTransferred(): Promise<void> {
@@ -687,7 +724,11 @@ export class SubjectObject extends StoredObject {
       WHERE json_extract(a.data, '$.assignment.assignedAt') < ?
       AND NOT EXISTS (SELECT 1 FROM exposures e WHERE e.assignment_id = a.id)
       AND NOT EXISTS (SELECT 1 FROM observations o WHERE o.assignment_id = a.id) LIMIT 1000`, cutoff).toArray()) {
-      if (!active.has(row.id)) this.sql.exec('DELETE FROM assignments WHERE id = ?', row.id);
+      if (!active.has(row.id)) {
+        this.sql.exec('DELETE FROM assignments WHERE id = ?', row.id);
+        this.kv.delete(`lease-pin:${row.id}`);
+        this.kv.delete(`lease-until:${row.id}`);
+      }
     }
   }
   private nextMaintenance(): number | null {
@@ -706,10 +747,9 @@ export class SubjectObject extends StoredObject {
       identity === null ? Infinity : identity + RETENTION_MS + 1);
     return Number.isFinite(at) ? at : null;
   }
-  override async alarm(): Promise<void> {
-    this.alarmStarted();
+  override async alarm(): Promise<void> { await this.retryAlarm(() => this.runAlarm()); }
+  private async runAlarm(): Promise<void> {
     if (await this.forwarded()) { await this.cleanupTransferred(); return; }
-    await this.wakeAt(Date.now() + 10_000);
     if (await this.forwarded()) { await this.cleanupTransferred(); return; }
     const context = this.kv.get<RecordContext>('identity');
     if (context) this.atomic(() => {

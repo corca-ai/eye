@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { experimentKey } from '../../src/core/validation.js';
 import { observationShard, shardKey } from '../../src/runtime/shard.js';
 import type { Observation } from '../../src/core/types.js';
+import { addSample, emptyMoments } from '../../src/core/moments.js';
 
 function actor() {
   const site = crypto.randomUUID(), experimentId = 'checkout';
@@ -25,6 +26,21 @@ describe('experiment coordination in workerd', () => {
     await evictDurableObject(stub);
     expect(await stub.reserve(requests[0]!, Date.now())).toEqual(first);
     expect((await stub.getPolicy()).arms.reduce((n, a) => n + a.pending, 0)).toBe(20);
+  });
+  it('merges trusted cross-object snapshots on a common clock without growing future weights', async () => {
+    const { stub } = actor();
+    await stub.create({ experimentId: 'checkout', arms: ['a'], settings: { ...config, learningHalfLifeMs: 1000 } });
+    const now = Date.now(), ahead = now + 10_000;
+    await stub.acceptSnapshot({ generation: 1, shard: 0, sequence: 1, asOf: now,
+      moments: { a: addSample(emptyMoments(now), 100) }, pending: {}, releaseReservations: [] });
+    await stub.acceptSnapshot({ generation: 1, shard: 1, sequence: 1, asOf: ahead,
+      moments: { a: addSample(emptyMoments(ahead), 200) }, pending: {}, releaseReservations: [] });
+    const policy = await stub.getPolicy();
+    expect(policy.asOf).toBe(ahead);
+    expect(policy.arms[0]?.weight).toBeCloseTo(1 + 2 ** -10);
+    expect(policy.arms[0]?.meanReward).toBeCloseTo((200 + 100 * 2 ** -10) / (1 + 2 ** -10));
+    await evictDurableObject(stub);
+    expect((await stub.getPolicy()).arms[0]?.weight).toBeCloseTo(1 + 2 ** -10);
   });
   it('excludes stopped arms immediately and preserves prior statistics when adding arms', async () => {
     const { stub } = actor();

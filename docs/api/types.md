@@ -411,7 +411,7 @@ export type Decision = {
 
 ## DecisionMetric
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/decisions.ts#L7)
+[소스](https://github.com/corca-ai/eye/blob/main/src/decisions.ts#L8)
 
 ```ts
 export interface DecisionMetric {
@@ -427,7 +427,7 @@ export interface DecisionMetric {
 
 ## DecisionOptions
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/decisions.ts#L12)
+[소스](https://github.com/corca-ai/eye/blob/main/src/decisions.ts#L13)
 
 ```ts
 export interface DecisionOptions {
@@ -443,7 +443,7 @@ export interface DecisionOptions {
     maxAgeMs?: number;
     /** 로컬 결정마다 동기 호출. 미참여율 측정용이며 느린 I/O를 여기서 기다리지 않는다. */
     onDecision?: (metric: DecisionMetric) => void;
-    /** Persist through a server session; response headers cannot be changed after return. */
+    /** 미준비 상태와 만료가 가까운 토큰을 백그라운드에서 준비·갱신한다. 다음 요청이 읽을 서버 세션에 저장한다. 응답 반환 후 헤더는 수정할 수 없다. */
     onPrepared?: (experimentId: string, token: string) => Promise<void> | void;
 }
 ```
@@ -785,6 +785,7 @@ export type ObservationStatus = 'pending' | 'complete' | 'interrupted';
 ```ts
 export interface PolicyEvaluation {
     readonly scoreScale: number;
+    /** 통계를 함께 비교한 기준 Unix 밀리초. 내부 DO 시각 차이 때문에 응답자의 벽시계보다 앞설 수 있다. */
     readonly asOf: number;
     readonly arms: readonly ArmEvaluation[];
 }
@@ -847,7 +848,7 @@ export interface PolicySnapshot extends PolicyEvaluation {
 [소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L14)
 
 ```ts
-/** reuseUntil은 배정 토큰 재사용 만료 Unix 밀리초. 명시적 prepare 결과에는 token도 추가된다. */
+/** reuseUntil은 배정 토큰 재사용 만료 Unix 밀리초. 최대 15분이며 열린 관측의 종료를 넘지 않는다. 명시적 prepare 결과에는 token도 추가된다. */
 export interface PreparedDecision {
     decision: Decision;
     reuseUntil: number;

@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import { describe, expect, it, vi } from 'vitest';
+import { observationShard, shardKey } from '../../src/runtime/shard.js';
 import { experimentKey, subjectKey } from '../../src/core/validation.js';
 import type { Assignment, Credit, EventEnvelope, EyeEvent, Observation } from '../../src/core/types.js';
 
@@ -139,11 +140,22 @@ describe('subject assignments and learning ledger', () => {
     await s.user.flush();
     expect((await s.experiment.getPolicy()).arms.reduce((n, a) => n + a.pending, 0)).toBe(1);
   });
+  it('keeps the pending window after an earlier exposure interrupts a later projection', async () => {
+    const s=await setup({minHoldMs:0,observationWindowMs:10_000,allowedLatenessMs:0});
+    const at=s.assignment.assignedAt;
+    await new Promise(resolve=>setTimeout(resolve,8));
+    await s.expose('later',at+3);
+    await s.expose('earlier',at);
+    const decision=await s.user.decide(s.siteId,s.subject,s.experimentId);
+    expect(decision.status).toBe('assigned');
+    if(decision.status==='assigned')expect(decision.assignment.assignmentId).toBe(s.assignment.assignmentId);
+  });
   it('counts a completed zero only after the full window, and creates no idle windows', async () => {
     const s = await setup({ minHoldMs: 100_000, observationWindowMs: 10, allowedLatenessMs: 0 });
     await s.expose('zero', s.assignment.assignedAt);
     await new Promise(resolve => setTimeout(resolve, 15));
     await runDurableObjectAlarm(s.user);
+    await env.OBSERVATIONS.getByName(shardKey(s.siteId, s.experimentId, observationShard(subjectKey(s.siteId, s.subject)))).publish();
     const rows = await observations(s.user);
     expect(rows).toHaveLength(1); expect(rows[0]?.status).toBe('complete'); expect(rows[0]?.reward).toBe(0);
     const policy = await s.experiment.getPolicy();

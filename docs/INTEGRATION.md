@@ -2,7 +2,7 @@
 
 [문서 안내](README.md) · [API 레퍼런스](api/client.md) · [타입·설정 기본값](api/types.md) · [분석 해석](ANALYTICS.md)
 
-사이트는 Cloudflare Worker에서 Eye를 호출한다. Eye가 제공하는 것은 서버 SDK·배정·수집·관리·분석 API이며, 브라우저 이벤트 수집과 관리자 UI는 사이트가 만든다. 실제 계정 배포·대규모 분석 성능은 아직 검증하지 않았다.
+사이트는 Cloudflare Worker에서 Eye를 호출한다. Eye가 제공하는 것은 서버 SDK·배정·수집·관리·분석 API이며, 브라우저 이벤트 수집과 관리자 UI는 사이트가 만든다. 실제 계정의 테스트 배포와 제한된 부하는 검증했으며, 현재 버전의 지속 부하·대규모 분석 성능은 검증 중이다. [현재 검증 범위](IMPLEMENTATION.md)를 확인하고 로그 수집부터 연결한 뒤 영향이 작은 실험으로 확대한다.
 
 ## 1. 설치
 
@@ -98,20 +98,34 @@ const eye = createEye({
 ## 4. 화면 적용과 사건 수집
 
 ```ts
-const decision = await eye.decide({ subject, experimentId: 'checkout' });
-const armId = decision.status === 'assigned'
-  ? decision.assignment.armId : 'standard';
+// SDK 초기화(createEye)도 실패할 수 있으므로 서비스의 오류 경계 안에서 수행한다.
+let decision: Awaited<ReturnType<typeof eye.decide>> | undefined;
+try {
+  decision = await eye.decide({ subject, experimentId: 'checkout' });
+} catch (error) {
+  console.error('Eye decision failed', error);
+}
+const applied = decision?.status === 'assigned'
+  && ['standard', 'compact'].includes(decision.assignment.armId)
+  ? decision : undefined;
+const armId = applied?.assignment.armId ?? 'standard';
 
 // renderCheckout은 사이트 함수: armId에 맞는 화면을 실제로 제공한다.
 const response = renderCheckout(armId);
 if (cookie.setCookie) response.headers.append('Set-Cookie', cookie.setCookie);
-if (decision.status === 'assigned') {
-  eye.expose({ subject, decision, userAttributes: { device: 'mobile', locale: 'ko' } });
+if (applied) {
+  eye.expose({ subject, decision: applied, userAttributes: { device: 'mobile', locale: 'ko' } });
 }
 eye.track({ subject, name: 'page_view', attributes: { path: '/checkout' } });
 ```
 
-`decide`는 원격 응답을 기다리지 않는다. cold·미준비·만료 상태는 `unavailable`, 실험이 비활성이거나 활성 arm이 없으면 `no_active_arm`을 반환할 수 있다. 두 경우 모두 기본 화면을 사용하고 노출을 기록하지 않는다. `onPrepared`는 건너뛴 요청에서 다음 요청을 준비한다. 기본 정책은 60초 이후 백그라운드 갱신하며 발행 후 최대 5분까지 재사용한다.
+`decide`는 원격 응답을 기다리지 않는다. cold·미준비·만료 상태는 `unavailable`, 실험이 비활성이거나 활성 arm이 없으면 `no_active_arm`을 반환할 수 있다. 두 경우 모두 기본 화면을 사용하고 노출을 기록하지 않는다. `onPrepared`는 미준비 요청과 만료가 가까운 유효 토큰에서 다음 요청용 상태를 백그라운드로 준비·갱신한다. 배정 토큰은 최대 15분(열린 관측 종료 이내)이며, 유효기간의 20%가 남으면 갱신한다. 기본 정책은 별도로 60초 이후 백그라운드 갱신하며 발행 후 최대 5분까지 재사용한다.
+
+### 장애 시 기본 화면으로 돌아가기
+
+`defaultArm` 설정은 없다. 서비스가 기본 화면을 정하고, `assigned`이면서 서비스가 지원하는 arm일 때만 실험 화면을 적용한다. SDK 초기화·배정 예외도 기본 화면으로 연결한다. 초기화까지 포함한 오류 경계는 [호스트 예제](../examples/host.ts)를 따른다. 아직 화면 코드가 없는 arm을 등록했거나 SDK 오류가 발생해도 fallback을 특정 arm의 노출로 기록하지 않는다. fallback 화면이 control arm과 같아도 미참여와 control 배정은 구분한다.
+
+백그라운드 준비·갱신에 실패해도 정책과 토큰이 유효하면 기존 arm을 계속 제공한다. 원격 장애를 매 요청 확인하지 않으므로 모든 장애를 즉시 감지해 fallback하지는 않는다. 즉시 중단이 필요하면 서비스의 자체 플래그로 `decide`·`expose` 호출과 실험 화면 적용을 함께 끈다. 이미 열린 관측의 보상 귀속은 계속될 수 있다. Worker 자체가 실행되지 않는 장애는 이 오류 경계로 복구할 수 없다.
 
 `userAttributes`는 arm 비교용 사용자군 속성이고 첫 노출 때 관측에 고정된다. `attributes`는 개별 사건 속성이다. 두 값 모두 최상위 키와 scalar 값만 허용한다. SPA처럼 표시 사실을 브라우저만 알 수 있으면 사이트 수집 경로가 실제 표시 시점에 `expose`를 호출해야 한다. Eye는 DOM 표시 여부를 감지하지 않는다.
 

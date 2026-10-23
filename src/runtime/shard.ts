@@ -109,13 +109,15 @@ export class ObservationShard extends StoredObject {
         if (!remaining && this.kv.get<number>('sequence') === sequence) this.kv.delete(key);
       });
     }
+    if (dirty.length > 0) this.kv.put('lastPublishedAt', Date.now());
   }
-  override async alarm(): Promise<void> {
-    this.alarmStarted();
-    await this.wakeAt(Date.now() + 60_000);
-    await this.publish();
+  override async alarm(): Promise<void> { await this.retryAlarm(() => this.runAlarm()); }
+  private async runAlarm(): Promise<void> {
+    const publishAt = (this.kv.get<number>('lastPublishedAt') ?? 0) + 60_000;
+    if (Date.now() >= publishAt) await this.publish();
+    else this.atomic(() => this.expirePending());
     this.sql.exec('DELETE FROM observations WHERE id IN (SELECT id FROM observations WHERE expires_at <= ? LIMIT 1000)', Date.now());
-    if ([...this.kv.list({ prefix: 'dirty:', limit: 1 })].length > 0) return;
+    if ([...this.kv.list({ prefix: 'dirty:', limit: 1 })].length > 0) { await this.wakeAt(Math.max(Date.now() + 1000, publishAt)); return; }
     const expiry = this.sql.exec<{ at: number | null }>('SELECT MIN(expires_at) AS at FROM observations').one().at;
     const settlement = this.sql.exec<{ at: number | null }>('SELECT MIN(settle_at) AS at FROM observations WHERE counted = 1').one().at;
     const next = Math.min(expiry ?? Infinity, settlement ?? Infinity);

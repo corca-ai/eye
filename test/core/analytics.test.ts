@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { analyticsRecord } from '../../src/analytics/records.js';
 import type { AnalyticsRecord } from '../../src/analytics/records.js';
 import { AnalyticsSQL, compileFilter, TABLES } from '../../src/analytics/sql.js';
@@ -134,7 +134,7 @@ describe('Basin boundary', () => {
     const request: typeof fetch = async (url, init) => {
       expect(String(url)).toBe(`https://api.sql.cloudflarestorage.com/api/v1/accounts/${'a'.repeat(32)}/basin-sql/query/eye-data`);
       expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer test-token');
-      expect(init?.redirect).toBe('error');
+      expect(init?.redirect).toBe('manual');
       expect(JSON.parse(String(init?.body)).warehouse).toBe(config.EYE_ANALYTICS_WAREHOUSE);
       return Response.json({ success: true, result: { rows: [], metrics: { bytes_scanned: 55 } } });
     };
@@ -205,4 +205,20 @@ it('discovers a daily attribute in an hourly query even when the earlier duplica
     expect(result.rows[0]).toMatchObject({ key: 'plan', type: 'string', source: 'event' });
     expect(result.coverage).toEqual({ basis: 'utc_day', from: day, to: day + 86_400_000 });
   } finally { db.close(); }
+});
+
+describe('Workers fetch invocation', () => {
+  it('calls the default fetch with its platform global receiver', async () => {
+    const nativeStyleFetch: typeof fetch = async function (this: unknown, _input, init) {
+      if (this !== globalThis) throw new TypeError('Illegal invocation');
+      if (init?.redirect === 'error') throw new TypeError('Invalid redirect value');
+      expect(init?.redirect).toBe('manual');
+      return Response.json({ success: true, result: { rows: [], metrics: {} } });
+    };
+    vi.stubGlobal('fetch', nativeStyleFetch);
+    try {
+      const client = new BasinAnalytics(config, 'site', undefined, () => now);
+      expect((await client.goals({ from, to })).rows).toEqual([]);
+    } finally { vi.unstubAllGlobals(); }
+  });
 });

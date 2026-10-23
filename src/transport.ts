@@ -10,7 +10,7 @@ export interface PolicySnapshot extends PolicyEvaluation {
 export interface PublishedPolicy extends PolicySnapshot {
   publishedAt: number; sequence: number; status: ArmStatus; activeArms: string[];
 }
-/** reuseUntil은 배정 토큰 재사용 만료 Unix 밀리초. 명시적 prepare 결과에는 token도 추가된다. */
+/** reuseUntil은 배정 토큰 재사용 만료 Unix 밀리초. 최대 15분이며 열린 관측의 종료를 넘지 않는다. 명시적 prepare 결과에는 token도 추가된다. */
 export interface PreparedDecision { decision: Decision; reuseUntil: number; policy: PublishedPolicy }
 /** Structural RPC contract: hosts may name their Service Binding freely. */
 export interface EyeService {

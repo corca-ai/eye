@@ -108,14 +108,17 @@ export class ExperimentObject extends StoredObject {
     return next;
   }
   getPolicy() {
-    const config = this.getConfig(), now = Date.now();
-    this.expire(now);
+    const config = this.getConfig(), wallNow = Date.now();
+    this.expire(wallNow);
+    const snapshots = Array.from({ length: 16 }, (_, shard) => this.kv.get<ShardSnapshot>(`snapshot:${config.generation}:${shard}`))
+      .filter((snapshot): snapshot is ShardSnapshot => snapshot !== undefined);
+    // Internal DO clocks need not be identical. Compare all statistics at the
+    // latest known source time, never age a newer sample backwards or grow it.
+    const now = Math.max(wallNow, ...snapshots.map(snapshot => snapshot.asOf));
     let statsAsOf: number | null = null;
     const moments = new Map<string, Moments>();
     const pending = new Map(this.sql.exec<{ arm_id: string; count: number }>('SELECT arm_id, count FROM pending_counts WHERE generation = ?', config.generation).toArray().map(r => [r.arm_id, r.count]));
-    for (let shard = 0; shard < 16; shard++) {
-      const snapshot = this.kv.get<ShardSnapshot>(`snapshot:${config.generation}:${shard}`);
-      if (!snapshot) continue;
+    for (const snapshot of snapshots) {
       statsAsOf = statsAsOf === null ? snapshot.asOf : Math.min(statsAsOf, snapshot.asOf);
       for (const [armId, count] of Object.entries(snapshot.pending)) pending.set(armId, (pending.get(armId) ?? 0) + count);
       for (const [armId, m] of Object.entries(snapshot.moments)) {
@@ -187,7 +190,8 @@ export class ExperimentObject extends StoredObject {
   release(reservationId: string): void { this.atomic(() => this.releaseLocal(reservationId, Date.now())); }
   acceptSnapshot(snapshot: ShardSnapshot): void {
     invariant(Number.isInteger(snapshot.shard) && snapshot.shard >= 0 && snapshot.shard < 16, 'invalid_input', 'Invalid statistics shard');
-    invariant(snapshot.asOf <= Date.now(), 'invalid_input', 'Future statistics snapshot');
+    // This is a trusted shard-to-coordinator timestamp, not external event time.
+    timestamp(snapshot.asOf, 'snapshot.asOf');
     this.getGeneration(snapshot.generation);
     const key = `snapshot:${snapshot.generation}:${snapshot.shard}`;
     const old = this.kv.get<ShardSnapshot>(key);
@@ -218,8 +222,8 @@ export class ExperimentObject extends StoredObject {
     for (const r of due) this.releaseLocal(r.id, now);
     this.sql.exec("DELETE FROM reservations WHERE id IN (SELECT id FROM reservations WHERE state = 'released' AND expires_at <= ? LIMIT 1000)", now);
   }
-  override async alarm(): Promise<void> {
-    this.alarmStarted();
+  override async alarm(): Promise<void> { await this.retryAlarm(() => this.runAlarm()); }
+  private async runAlarm(): Promise<void> {
     this.atomic(() => this.expire(Date.now()));
     await this.wakeAt(Date.now() + 10_000);
     for (const row of this.sql.exec<{ id: number; data: string }>('SELECT * FROM policy_outbox ORDER BY id LIMIT 100').toArray()) {

@@ -10,7 +10,7 @@
 
 모든 테이블은 site별 record ID의 최신 revision을 선택한 뒤 상태·속성 조건을 적용한다. complete를 먼저 걸러 이후 interrupted 정정을 놓치지 않는다. 원본 goal 재전송은 한 번만 세며 credit을 사이트 합계에 다시 더하지 않는다.
 
-`meta`에는 `queriedAt`, `receivedBefore`, `consistency: 'eventual'`, `truncated`, `bytesScanned`가 있다. `receivedBefore`는 처리 시각 상한이지 수신 완료 watermark가 아니다. 행별 `latestReceivedAt`도 관측한 최댓값일 뿐이다. 파일 반영 지연과 테이블 간 반영 차이로 최근 결과가 바뀔 수 있다. 현재 정책 상태는 별도의 `experiments.policy()`에서 읽는다. 정책 응답의 `meanReward`는 원래 가치 단위이며 `score`는 공통 `scoreScale`로 나눈 비교용 점수다.
+`meta`에는 `queriedAt`, `receivedBefore`, `consistency: 'eventual'`, `truncated`, `bytesScanned`가 있다. `receivedBefore`는 처리 시각 상한이지 수신 완료 watermark가 아니다. 행별 `latestReceivedAt`도 관측한 최댓값일 뿐이다. 파일 반영 지연과 테이블 간 반영 차이로 최근 결과가 바뀔 수 있다. 현재 정책 상태는 별도의 `experiments.policy()`에서 읽는다. 정책 응답의 `meanReward`는 원래 가치 단위이며 `score`는 공통 `scoreScale`로 나눈 비교용 점수다. 현재 정책의 `asOf`는 모든 보유 shard를 비교한 공통 시각으로, 내부 DO 시각 차이 때문에 응답자의 벽시계보다 앞설 수 있다. 예약 만료는 실제 coordinator 시각을 사용한다.
 
 일반 `track`의 `subject_key`는 공급된 cid·uid 기준이며 원본 신원을 보존한다. 로그인 인계 전후의 관측 연결은 `subject_key`의 일치가 아니라 물리 상태 위치인 `state_key`를 사용한다. 일반 로그는 Queue→Stream으로 직접 전송하고 학습 자료는 Subject outbox를 거치므로 테이블 간 가시성 시각은 다를 수 있다.
 

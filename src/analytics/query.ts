@@ -71,7 +71,7 @@ export class BasinAnalytics implements AnalyticsAPI {
   private readonly warehouse: string;
   private readonly token: string;
   private readonly namespace: string;
-  constructor(env: AnalyticsEnv, private readonly siteId: string, private readonly request: typeof fetch = fetch, private readonly clock: () => number = Date.now) {
+  constructor(env: AnalyticsEnv, private readonly siteId: string, private readonly request: typeof fetch = fetch.bind(globalThis), private readonly clock: () => number = Date.now) {
     const warehouse = env.EYE_ANALYTICS_WAREHOUSE, token = env.EYE_ANALYTICS_TOKEN;
     invariant(typeof warehouse === 'string' && typeof token === 'string' && token.length > 0, 'unavailable', 'Analytics warehouse and token are not configured');
     const separator = warehouse.indexOf('_'), account = warehouse.slice(0, separator), bucket = warehouse.slice(separator + 1);
@@ -84,7 +84,7 @@ export class BasinAnalytics implements AnalyticsAPI {
     let response: Response;
     try {
       response = await this.request(this.endpoint, { method: 'POST', headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ warehouse: this.warehouse, query: plan.sql }), signal: AbortSignal.timeout(30_000), redirect: 'error' });
+        body: JSON.stringify({ warehouse: this.warehouse, query: plan.sql }), signal: AbortSignal.timeout(30_000), redirect: 'manual' });
     } catch { throw new EyeError('unavailable', 'Basin SQL request failed or timed out'); }
     if (!response.ok) {
       await response.body?.cancel();

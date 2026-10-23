@@ -11,19 +11,27 @@ interface HostSession {
 
 /** The host supplies its own authenticated uid, when available. */
 export async function handlePage(request: Request, env: HostEnv, ctx: ExecutionContext, session: HostSession, uid?: string): Promise<Response> {
-  const eye = createEye({ service: env.EYE, ctx, siteId: 'shop',
-    decisions: { secret: env.EYE_DECISION_SECRET, cache: policies, tokens: session.decisionTokens,
-      onPrepared: (experimentId, token) => session.setDecisionToken(experimentId, token) },
-    onError: error => console.error('Eye delivery failed', error) });
   const cookie = getOrCreateCid(request);
   const subject = { cid: cookie.cid, ...(uid === undefined ? {} : { uid }) };
-  const decision = await eye.decide({ subject, experimentId: 'checkout' });
-  const content = decision.status === 'assigned' && decision.assignment.armId === 'compact'
-    ? '<main>Compact checkout</main>' : '<main>Standard checkout</main>';
+  let content = '<main>Standard checkout</main>';
+  try {
+    const eye = createEye({ service: env.EYE, ctx, siteId: 'shop',
+      decisions: { secret: env.EYE_DECISION_SECRET, cache: policies, tokens: session.decisionTokens,
+        onPrepared: (experimentId, token) => session.setDecisionToken(experimentId, token) },
+      onError: error => console.error('Eye delivery failed', error) });
+    const decision = await eye.decide({ subject, experimentId: 'checkout' });
+    const applied = decision.status === 'assigned'
+      && ['standard', 'compact'].includes(decision.assignment.armId) ? decision : undefined;
+    if (applied?.assignment.armId === 'compact') content = '<main>Compact checkout</main>';
+    // Only report an arm that this host actually supports and applies.
+    if (applied) eye.expose({ subject, decision: applied, userAttributes: { locale: 'ko' } });
+    eye.track({ subject, name: 'page_view', attributes: { path: new URL(request.url).pathname } });
+  } catch (error) {
+    console.error('Eye integration failed', error);
+    // Preserve the chosen content if a later instrumentation call failed.
+  }
   const response = new Response(content, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
   if (cookie.setCookie) response.headers.append('Set-Cookie', cookie.setCookie);
-  if (decision.status === 'assigned') eye.expose({ subject, decision, userAttributes: { locale: 'ko' } });
-  eye.track({ subject, name: 'page_view', attributes: { path: new URL(request.url).pathname } });
   return response;
 }
 
