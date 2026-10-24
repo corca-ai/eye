@@ -9,6 +9,9 @@ const until=new Date(process.argv[3]??Date.now()).toISOString();
 if (since >= until) throw new Error('since must precede until');
 const filter=`{scriptName_in:["${c.prefix}","${c.prefix}-site"],datetime_geq:"${since}",datetime_leq:"${until}"}`;
 const query=`{viewer{accounts(filter:{accountTag:"${c.account}"}){
+r2:r2OperationsAdaptiveGroups(limit:100,filter:{bucketName:"${c.prefix}-data",datetime_geq:"${since}",datetime_leq:"${until}"}){dimensions{actionType}sum{requests}}
+catalog:r2CatalogDataOperationsAdaptiveGroups(limit:100,filter:{warehouseName:"${c.account}_${c.prefix}-data",datetime_geq:"${since}",datetime_leq:"${until}"}){dimensions{operation namespaceName}count}
+maintenance:r2CatalogTableMaintenanceAdaptiveGroups(limit:100,filter:{warehouseName:"${c.account}_${c.prefix}-data",datetime_geq:"${since}",datetime_leq:"${until}"}){dimensions{jobType namespaceName success}count sum{filesProcessed filesOutput inputBytes outputBytes}}
 pipeline:pipelinesOperatorAdaptiveGroups(limit:10,filter:{pipelineId:"${c.pipeline.id}",streamId_neq:"",datetime_geq:"${since}",datetime_leq:"${until}"}){sum{bytesIn recordsIn decodeErrors}}
 sinks:pipelinesSinkAdaptiveGroups(limit:20,filter:{pipelineId:"${c.pipeline.id}",datetime_geq:"${since}",datetime_leq:"${until}"}){dimensions{sinkId}sum{bytesWritten recordsWritten filesWritten uncompressedBytesWritten}}
 pipelineErrors:pipelinesUserErrorsAdaptiveGroups(limit:100,filter:{pipelineId:"${c.pipeline.id}",datetime_geq:"${since}",datetime_leq:"${until}"}){dimensions{errorFamily errorType}count}
