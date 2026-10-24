@@ -1,11 +1,14 @@
-import { attributionCTEs, anonymousLink } from './attribution-sql.js';
+import { attributionCTEs, anonymousLink, anonymousMatch, identitySegments } from './attribution-sql.js';
 import { invariant } from '../core/errors.js';
 import { id, record, timestamp, RETENTION_MS } from '../core/validation.js';
-import type { AnalyticsTable } from './records.js';
+import { analyticsRecord, type AnalyticsTable } from './records.js';
 import type { ArmQuery, AttributeValuesQuery, GoalQuery, QueryRange, SeriesQuery, TimelineQuery } from './types.js';
 
 export interface QueryPlan { sql: string; limit: number; receivedBefore: number; fingerprint: string }
 export interface Cursor { fingerprint: string; receivedBefore: number; at: number; table: string; id: string }
+// Iceberg adds engine-owned columns such as __ingest_ts. Project only the wire
+// schema so UNION branches derived from raw events have the same columns.
+const recordColumns = Object.keys(analyticsRecord({ siteId: '', subjectKey: '' }, 'events', '', 1, 0, 0, {})).join(', ');
 export const TABLES: readonly AnalyticsTable[] = ['events', 'observations', 'credits', 'decisions', 'identity_links', 'policies', 'attribute_keys'];
 
 export function literal(value: string | number | boolean | null): string {
@@ -80,7 +83,7 @@ export class AnalyticsSQL {
   private readonly namespace: string;
   constructor(namespace: string, private readonly siteId: string, private readonly now = Date.now()) { this.namespace = identifier(namespace); id(siteId, 'siteId'); }
   private latest(table: AnalyticsTable, alias: string, from: number, to: number, receivedBefore: number, extra = ''): string {
-    return `${alias} AS (SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY record_id ORDER BY revision DESC, received_at ASC) AS _revision_rank
+    return `${alias} AS (SELECT * FROM (SELECT ${recordColumns}, ROW_NUMBER() OVER (PARTITION BY record_id ORDER BY revision DESC, received_at ASC) AS _revision_rank
 FROM ${this.namespace}."${table}" WHERE site_id = ${literal(this.siteId)} AND occurred_at >= ${from} AND occurred_at < ${to} AND received_at <= ${receivedBefore}${extra}) ranked WHERE _revision_rank = 1)`;
   }
   arms(q: ArmQuery, bucketMs?: number): QueryPlan {
@@ -99,9 +102,11 @@ FROM ${this.namespace}."${table}" WHERE site_id = ${literal(this.siteId)} AND oc
     let hasEvent = '';
     if (q.hasEvent !== undefined) {
       const event = record(q.hasEvent, 'hasEvent');
+      ctes.push(identitySegments('identity_latest', 'identity_segments'));
       ctes.push(this.latest('events', 'events_latest', q.from, this.now + 1, this.now));
       // Immutable assignment id is not sufficient: an assignment can have multiple observation windows.
-      hasEvent = ` AND EXISTS (SELECT 1 FROM events_latest e WHERE ((o.uid IS NOT NULL AND e.uid = o.uid) OR (o.uid IS NULL AND e.uid IS NULL AND o.cid = e.cid AND NOT EXISTS (SELECT 1 FROM identity_latest l WHERE l.cid = o.cid AND l.occurred_at >= o.occurred_at AND l.occurred_at <= e.occurred_at)) OR ${anonymousLink('o', 'e.uid', 'identity_latest', 'e.occurred_at')}) AND e.occurred_at >= o.occurred_at AND e.occurred_at < json_get_int(o.payload_json, 'endAt') AND json_get_str(e.payload_json, 'kind') = 'track' AND json_get_str(e.payload_json, 'name') = ${literal(id(event.name, 'event name'))}${event.filter === undefined ? '' : ` AND ${compileFilter(event.filter, 'e')}`})`;
+      ctes.push(`matching_event_observations AS (SELECT DISTINCT o.observation_id FROM observations_latest o LEFT JOIN identity_segments il ON il.cid = o.cid CROSS JOIN events_latest e WHERE ((o.uid IS NOT NULL AND e.uid = o.uid) OR (o.uid IS NULL AND e.uid IS NULL AND o.cid = e.cid AND NOT EXISTS (SELECT 1 FROM identity_latest l WHERE l.cid = o.cid AND l.occurred_at >= o.occurred_at AND l.occurred_at <= e.occurred_at)) OR ${anonymousMatch('o', 'e.uid', 'il', 'e.occurred_at')}) AND e.occurred_at >= o.occurred_at AND e.occurred_at < json_get_int(o.payload_json, 'endAt') AND json_get_str(e.payload_json, 'kind') = 'track' AND json_get_str(e.payload_json, 'name') = ${literal(id(event.name, 'event name'))}${event.filter === undefined ? '' : ` AND ${compileFilter(event.filter, 'e')}`})`);
+      hasEvent = ' AND o.observation_id IN (SELECT observation_id FROM matching_event_observations)';
     }
     ctes.push(`cohort AS (SELECT ${bucketMs === undefined ? '' : `CAST(FLOOR(o.occurred_at / ${bucketMs}.0) * ${bucketMs} AS BIGINT) AS bucket_start, `}o.arm_id, json_get_int(o.payload_json, 'generation') AS generation,
 json_get_int(o.payload_json, 'endAt') - o.occurred_at AS window_ms, o.status, o.state_key AS state_key, o.received_at, o.value AS learning_reward,
@@ -128,14 +133,17 @@ FROM cohort GROUP BY ${dimensions.join(', ')} ORDER BY ${dimensions.join(', ')} 
     const ctes = [this.latest('identity_links', 'links', Math.max(0, this.now - RETENTION_MS), q.to, receivedBefore),
       ...attributionCTEs(this.namespace, literal(this.siteId), Math.max(0, this.now - RETENTION_MS), q.from, q.to, receivedBefore)];
     const linked = key === 'uid' && q.includeLinked !== false;
+    if (linked) ctes.push(identitySegments('links', 'link_segments'));
     for (const table of TABLES.filter(t => t !== 'identity_links' && t !== 'policies' && t !== 'attribute_keys' && t !== 'credits')) {
       // Subject membership is applied after revision deduplication; revisions may change identity metadata.
       ctes.push(this.latest(table, `${table}_latest`, q.from, q.to, receivedBefore));
     }
-    ctes.push(`all_records AS (${TABLES.filter(t => t !== 'policies' && t !== 'attribute_keys').map(table => `SELECT * FROM ${table === 'identity_links' ? 'links' : `${table}_latest`}`).join(' UNION ALL ')})`);
+    // Each branch is unique by (table_name, record_id), so UNION preserves the
+    // same rows while avoiding Basin's distributed UNION ALL partition failure.
+    ctes.push(`all_records AS (${TABLES.filter(t => t !== 'policies' && t !== 'attribute_keys').map(table => `SELECT * FROM ${table === 'identity_links' ? 'links' : `${table}_latest`}`).join(' UNION ')})`);
     const after = cursor ? ` AND (r.occurred_at > ${cursor.at} OR (r.occurred_at = ${cursor.at} AND (r.table_name > ${literal(cursor.table)} OR (r.table_name = ${literal(cursor.table)} AND r.record_id > ${literal(cursor.id)}))))` : '';
     const sql = `WITH ${ctes.join(',\n')} SELECT r.* FROM all_records r WHERE r.occurred_at >= ${q.from} AND r.occurred_at < ${q.to}
-AND (r.${key} = ${value}${linked ? ` OR ${anonymousLink('r', value, 'links', String(q.to))}` : ''})${after}
+AND (r.${key} = ${value}${linked ? ` OR ${anonymousLink('r', value, 'link_segments', String(q.to))}` : ''})${after}
 ORDER BY r.occurred_at, r.table_name, r.record_id LIMIT ${limit + 1}`;
     return { sql, limit, receivedBefore, fingerprint: fp };
   }

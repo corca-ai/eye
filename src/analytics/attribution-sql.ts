@@ -43,12 +43,23 @@ base_value * decay_factor AS value, '{}' AS attributes_json,
   ];
 }
 
+/** Precompute identity boundaries outside correlated subqueries for Basin. */
+export function identitySegments(links: string, alias: string): string {
+  return `${alias} AS (SELECT cid, uid, status, occurred_at, record_id,
+LAG(status) OVER (PARTITION BY cid ORDER BY occurred_at, record_id) AS previous_kind,
+LAG(occurred_at) OVER (PARTITION BY cid ORDER BY occurred_at, record_id) AS previous_at,
+LAG(record_id) OVER (PARTITION BY cid ORDER BY occurred_at, record_id) AS previous_id
+FROM ${links})`;
+}
+
 /** Claim only the anonymous interval immediately before its first login. */
-export function anonymousLink(record: string, uid: string, links: string, bound: string): string {
-  const before = (a: string, b: string) => `(${a}.occurred_at < ${b}.occurred_at OR (${a}.occurred_at = ${b}.occurred_at AND ${a}.record_id <= ${b}.record_id))`;
-  return `(${record}.uid IS NULL AND EXISTS (SELECT 1 FROM ${links} l WHERE l.status = 'identify' AND l.uid = ${uid} AND l.cid = ${record}.cid
-AND ${before(record, 'l')} AND l.occurred_at <= ${bound}
-AND NOT EXISTS (SELECT 1 FROM ${links} p WHERE p.cid = l.cid AND ${before(record, 'p')} AND NOT ${before('l', 'p')})
-AND NOT EXISTS (SELECT 1 FROM ${links} p WHERE p.cid = l.cid AND p.status = 'identify' AND ${before('p', record)}
-AND NOT EXISTS (SELECT 1 FROM ${links} x WHERE x.cid = p.cid AND x.status = 'logout' AND ${before('p', 'x')} AND ${before('x', record)}))))`;
+export function anonymousMatch(record: string, uid: string, link: string, bound: string): string {
+  return `(${record}.uid IS NULL AND ${link}.status = 'identify' AND ${link}.uid = ${uid} AND ${link}.cid = ${record}.cid
+AND (${record}.occurred_at < ${link}.occurred_at OR (${record}.occurred_at = ${link}.occurred_at AND ${record}.record_id < ${link}.record_id))
+AND ${link}.occurred_at <= ${bound} AND (${link}.previous_kind IS NULL OR (${link}.previous_kind = 'logout'
+AND (${record}.occurred_at > ${link}.previous_at OR (${record}.occurred_at = ${link}.previous_at AND ${record}.record_id > ${link}.previous_id)))))`;
+}
+
+export function anonymousLink(record: string, uid: string, segments: string, bound: string): string {
+  return `EXISTS (SELECT 1 FROM ${segments} l WHERE ${anonymousMatch(record, uid, 'l', bound)})`;
 }

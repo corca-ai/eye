@@ -6,9 +6,9 @@ export function database(records: AnalyticsRecord[]) {
   db.exec("ATTACH DATABASE ':memory:' AS eye");
   const example = analyticsRecord({ siteId: 'site', subjectKey: 'subject', cid: 'browser' }, 'events', 'example', 1, 0, 0, {});
   for (const table of TABLES) {
-    db.exec(`CREATE TABLE eye.${table} (${Object.keys(example).map(key => `"${key}" ${['schema_version', 'revision', 'occurred_at', 'received_at', 'value'].includes(key) ? 'REAL' : 'TEXT'}`).join(',')})`);
+    db.exec(`CREATE TABLE eye.${table} (__ingest_ts TEXT, ${Object.keys(example).map(key => `"${key}" ${['schema_version', 'revision', 'occurred_at', 'received_at', 'value'].includes(key) ? 'REAL' : 'TEXT'}`).join(',')})`);
   }
-  for (const record of records) db.prepare(`INSERT INTO eye.${record.table_name} VALUES (${Object.keys(example).map(() => '?').join(',')})`).run(...Object.values(record));
+  for (const record of records) db.prepare(`INSERT INTO eye.${record.table_name} (${Object.keys(example).join(',')}) VALUES (${Object.keys(example).map(() => '?').join(',')})`).run(...Object.values(record));
   for (const [name, kind] of [['json_get_str', 'string'], ['json_get_float', 'number'], ['json_get_int', 'number'], ['json_get_bool', 'boolean'], ['json_get_json', 'json'], ['json_contains', 'exists']] as const) {
     db.function(name, (json, key) => {
       const obj: Record<string, unknown> = JSON.parse(String(json)), value = obj[String(key)];
