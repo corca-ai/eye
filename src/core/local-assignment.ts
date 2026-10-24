@@ -98,7 +98,7 @@ export function exposeLocal(selection: Extract<LocalSelection, { status: 'assign
     ? previous.sample : { sampleId: JSON.stringify([previous.assignment.assignmentId, eventId]), startAt: occurredAt };
   invariant(previous.sample === undefined || occurredAt >= previous.sample.startAt,
     'invalid_input', 'Local exposure cannot precede the current sample');
-  const context: LocalAssignmentContext = { ...previous, sample };
+  const context: LocalAssignmentContext = sample === previous.sample ? previous : { ...previous, sample };
   return { context, exposure: {
     event: { kind: 'exposure', eventId, occurredAt, subject: previous.subject, assignment: previous.assignment },
     sampleId: sample.sampleId, startAt: sample.startAt, attributionWindowMs: previous.attributionWindowMs,

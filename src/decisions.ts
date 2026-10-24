@@ -52,6 +52,7 @@ export class DecisionCache {
 type DecisionService = Pick<EyeService, 'getPublishedPolicy'>;
 const caches = new WeakMap<DecisionService, DecisionCache>();
 const encoder = new TextEncoder();
+const policyLoads = new WeakMap<DecisionCache, Map<string, { work: Promise<PublishedPolicy>; expiresAt: number }>>();
 function b64(bytes: Uint8Array): string { return btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', ''); }
 function unb64(text: string): Uint8Array { return Uint8Array.from(atob(text.replaceAll('-', '+').replaceAll('_', '/')), c => c.charCodeAt(0)); }
 export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionContext, 'waitUntil'>, siteId: string, options: DecisionOptions | undefined, report: (error: unknown) => void) {
@@ -74,11 +75,25 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
   };
   const key = (experimentId: string) => JSON.stringify([siteId, experimentId]);
   const background = (work: Promise<unknown>) => ctx.waitUntil(work.catch(report));
-  const fetchPolicy = async (experimentId: string) => {
-    const policy = await service.getPublishedPolicy(siteId, experimentId, maxAge);
-    cache.put(key(experimentId), policy);
-    // Another request may have installed a newer snapshot while this RPC waited.
-    return cache.read(key(experimentId))!;
+  const fetchPolicy = (experimentId: string, force = false): Promise<PublishedPolicy> => {
+    let loads = policyLoads.get(cache);
+    if (!loads) { loads = new Map(); policyLoads.set(cache, loads); }
+    const loadKey = JSON.stringify([siteId, experimentId, maxAge]);
+    const pending = loads.get(loadKey);
+    if (!force && pending && pending.expiresAt > Date.now()) return pending.work;
+    const work = (async () => {
+      const policy = await service.getPublishedPolicy(siteId, experimentId, maxAge);
+      cache.put(key(experimentId), policy);
+      return cache.read(key(experimentId))!;
+    })();
+    if (!force) {
+      loads.delete(loadKey);
+      loads.set(loadKey, { work, expiresAt: Date.now() + 10_000 });
+      while (loads.size > 1000) loads.delete(loads.keys().next().value!);
+      const cleanup = () => { if (loads.get(loadKey)?.work === work) loads.delete(loadKey); };
+      void work.then(cleanup, cleanup);
+    }
+    return work;
   };
   const refresh = (experimentId: string) => { if (cache.begin(key(experimentId), Date.now())) background(fetchPolicy(experimentId)); };
   const seal = async (context: LocalAssignmentContext) => {
@@ -144,11 +159,20 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
     await restore(experimentId);
     return choose(subject, experimentId, cache.read(key(experimentId))).decision;
   };
-  const prepare = async (subject: Subject, experimentId: string, context?: LocalAssignmentContext): Promise<PreparedDecision & { token: string | null }> => {
+  const prepare = async (subject: Subject, experimentId: string, context?: LocalAssignmentContext, forceRefresh = false): Promise<PreparedDecision & { token: string | null }> => {
     invariant(options, 'invalid_input', 'Configure decisions.secret');
     await restore(experimentId);
-    if (context) contexts.set(experimentId, parseLocalContext(context));
-    const policy = await fetchPolicy(experimentId), result = choose(subject, experimentId, policy);
+    const supplied = context === undefined ? undefined : parseLocalContext(context);
+    if (supplied) contexts.set(experimentId, supplied);
+    const cached = cache.read(key(experimentId)), now = Date.now();
+    const policy = !forceRefresh && cached && cached.publishedAt <= now && now < cached.publishedAt + maxAge
+      ? cached : await fetchPolicy(experimentId, forceRefresh);
+    const result = choose(subject, experimentId, policy);
+    // choose() persists new selections, but a supplied held context also needs
+    // its own token: the restored token may be absent or describe an older sample.
+    if (supplied && result.selection.status === 'assigned' && result.selection.context === supplied) {
+      persist(experimentId, supplied);
+    }
     await writes.get(experimentId);
     return { decision: result.decision, policy, token: result.decision.status === 'assigned' ? tokens.get(experimentId) ?? null : null,
       reuseUntil: result.selection.status === 'assigned' ? result.selection.applyUntil : Date.now() };
@@ -161,7 +185,9 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
       && (!decision.localContext.sample || (latest.sample !== undefined
         && latest.sample.startAt > decision.localContext.sample.startAt)) ? latest : decision.localContext;
     const result = exposeLocal({ status: 'assigned', refreshPolicy: false, reason: decision.reason === 'selected' ? 'selected' : 'held', context, applyUntil: decision.applyUntil }, occurredAt, eventId);
-    return { exposure: result.exposure, commit: () => persist(decision.assignment.experimentId, result.context) };
+    return { exposure: result.exposure, commit: () => {
+      if (contexts.get(decision.assignment.experimentId) !== result.context) persist(decision.assignment.experimentId, result.context);
+    } };
   };
   const expose = (...args: Parameters<typeof stageExposure>) => {
     const staged = stageExposure(...args); staged.commit(); return staged.exposure;

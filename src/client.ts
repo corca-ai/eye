@@ -34,10 +34,13 @@ export function createEye(options: EyeOptions) {
   const siteId = id(options.siteId, 'siteId'), service = options.service;
   let pending: { envelope: EventEnvelope; bytes: number }[] = [];
   let delivery: Promise<void> | null = null;
+  let scheduled: { timer: ReturnType<typeof setTimeout>; resolve: () => void } | undefined;
+  let pendingBytes = 0;
   const report = (error: unknown) => {
     try { options.onError?.(error); } catch { /* The host's error hook cannot break event delivery. */ }
   };
   const flush = (): Promise<void> => {
+    if (scheduled) { clearTimeout(scheduled.timer); scheduled.resolve(); scheduled = undefined; }
     if (delivery) return delivery;
     if (pending.length === 0) return Promise.resolve();
     delivery = Promise.resolve().then(async () => {
@@ -45,7 +48,7 @@ export function createEye(options: EyeOptions) {
       let failure: unknown;
       while (pending.length > 0) {
         const queued = pending;
-        pending = [];
+        pending = []; pendingBytes = 0;
         let cursor = 0;
         while (cursor < queued.length) {
           const batch: EventEnvelope[] = [];
@@ -62,6 +65,14 @@ export function createEye(options: EyeOptions) {
     options.ctx.waitUntil(delivery.catch(report));
     return delivery;
   };
+  const schedule = () => {
+    if (delivery || scheduled) return;
+    let resolve!: () => void;
+    const waiting = new Promise<void>(done => { resolve = done; });
+    const timer = setTimeout(() => { void flush(); }, 0);
+    scheduled = { timer, resolve };
+    options.ctx.waitUntil(waiting);
+  };
   const submit = (build: () => object, onAccepted?: () => void): Submission => {
     try {
       const event = build();
@@ -70,8 +81,9 @@ export function createEye(options: EyeOptions) {
       const bytes = encodedSize(envelope) + 200;
       invariant(bytes <= MAX_EVENT_BYTES, 'invalid_input', 'Event exceeds the 100 KB encoded envelope limit');
       onAccepted?.();
-      pending.push({ envelope, bytes });
-      void flush();
+      pending.push({ envelope, bytes }); pendingBytes += bytes;
+      if (pending.length >= 100 || pendingBytes >= MAX_BATCH_BYTES) void flush();
+      else schedule();
       return { accepted: true, eventId: envelope.event.eventId };
     } catch (error) {
       return { accepted: false, error: { code: error instanceof EyeError ? error.code : 'invalid_input', message: error instanceof Error ? error.message : 'Invalid event' } };
@@ -80,8 +92,8 @@ export function createEye(options: EyeOptions) {
   const base = <T extends { eventId?: string; occurredAt?: number }>(input: T) => ({ ...input, eventId: input.eventId ?? crypto.randomUUID(), occurredAt: input.occurredAt ?? Date.now() });
   const decisions = decisionRuntime(service, options.ctx, siteId, options.decisions, report);
   return {
-    /** 정책을 가져온 뒤 로컬 배정을 준비한다. decisions.secret 필요. 반환 token은 미배정이면 null이며 호출자가 저장한다. 문맥이 바뀌면 onPrepared에도 전달한다. */
-    prepare: (input: { subject: Subject; experimentId: string; context?: import('./core/local-assignment.js').LocalAssignmentContext }) => decisions.prepare(parseSubject(input.subject), id(input.experimentId, 'experimentId'), input.context),
+    /** 사용 가능한 정책 캐시로 준비하고 오래된 캐시는 백그라운드 갱신한다. 캐시가 없거나 forceRefresh=true이면 정책 조회를 기다린다. decisions.secret 필요. 반환 token은 미배정이면 null이며 호출자가 저장한다. 문맥이 바뀌면 onPrepared에도 전달한다. */
+    prepare: (input: { subject: Subject; experimentId: string; context?: import('./core/local-assignment.js').LocalAssignmentContext; forceRefresh?: boolean }) => decisions.prepare(parseSubject(input.subject), id(input.experimentId, 'experimentId'), input.context, input.forceRefresh),
     /** 최신 로컬 배정 문맥을 서명한다. 쿠키 응답을 만들 때 사용하며 원격 I/O를 하지 않는다. */
     state: () => decisions.state(),
     /** 일반 사건을 분석에 기록한다. name은 서비스가 정의한다. goal 학습을 직접 발생시키지 않는다. */

@@ -1,0 +1,105 @@
+{
+  "baselineCommit": "5272223",
+  "environment": "Node.js v24.22.1, local macOS; simulated RPC and ingestion, local SQLite learning",
+  "before": [
+    {
+      "workload": "1000 repeated exposures",
+      "policyRPCs": 1,
+      "stateWrites": 1001,
+      "elapsedMs": [
+        26.445917,
+        24.952917,
+        23.781542
+      ]
+    },
+    {
+      "workload": "50 warm prepares; simulated 2ms RPC",
+      "policyRPCs": 51,
+      "stateWrites": 1,
+      "elapsedMs": [
+        127.21366699999999,
+        127.178291,
+        125.21899999999994
+      ]
+    },
+    {
+      "workload": "20 concurrent cold prepares",
+      "policyRPCs": 20,
+      "stateWrites": 20
+    },
+    {
+      "workload": "100 requests x 5 events separated by microtasks",
+      "ingestCalls": 500,
+      "queueMessages": 500,
+      "events": 500
+    }
+  ],
+  "after": [
+    {
+      "workload": "1000 repeated exposures",
+      "policyRPCs": 1,
+      "stateWrites": 2,
+      "elapsedMs": [
+        0.5295829999999881,
+        0.3781659999999931,
+        0.13279199999999491
+      ]
+    },
+    {
+      "workload": "50 warm prepares; simulated 2ms RPC",
+      "policyRPCs": 1,
+      "stateWrites": 1,
+      "elapsedMs": [
+        0.058624999999992156,
+        0.07745800000000713,
+        0.12520800000000065
+      ]
+    },
+    {
+      "workload": "20 concurrent cold prepares",
+      "policyRPCs": 1,
+      "stateWrites": 20
+    },
+    {
+      "workload": "100 requests x 5 events separated by microtasks",
+      "ingestCalls": 100,
+      "queueMessages": 100,
+      "events": 500
+    }
+  ],
+  "learningPages": [
+    {
+      "limit": 1000,
+      "queries": 3,
+      "samples": 2001,
+      "maxFrozenResultBytes": 1681598,
+      "elapsedMs": [
+        2193.461042,
+        2077.522542,
+        2078.5008339999995
+      ]
+    },
+    {
+      "limit": 2000,
+      "queries": 2,
+      "samples": 2001,
+      "maxFrozenResultBytes": 3359367,
+      "elapsedMs": [
+        1380.2874999999995,
+        1408.6255420000007,
+        1401.7561670000014
+      ]
+    },
+    {
+      "limit": 5000,
+      "queries": 1,
+      "samples": 2001,
+      "maxFrozenResultBytes": 3361094,
+      "elapsedMs": [
+        748.697709,
+        751.5039589999997,
+        724.6553750000003
+      ]
+    }
+  ]
+}
