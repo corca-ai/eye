@@ -1,5 +1,5 @@
 import { exposureProjection } from './projections-sql.js';
-import { attributionCTEs, anonymousLink, anonymousMatch, identitySegments } from './attribution-sql.js';
+import { attributionCTEs, anonymousLink, identitySegments } from './attribution-sql.js';
 import { invariant } from '../core/errors.js';
 import { id, record, timestamp, RETENTION_MS } from '../core/validation.js';
 import { analyticsRecord, type AnalyticsTable } from './records.js';
@@ -99,27 +99,45 @@ FROM ${this.namespace}."${table}" WHERE site_id = ${literal(this.siteId)} AND oc
     const ctes = [this.latest('observations', 'observations_latest', q.from, q.to, this.now, ` AND experiment_id = ${experiment}${q.armId === undefined ? '' : ` AND arm_id = ${literal(id(q.armId, 'armId'))}`}${q.generation === undefined ? '' : ` AND json_get_int(payload_json, 'generation') = ${q.generation}`}`)];
     ctes.push(this.latest('identity_links', 'identity_latest', Math.max(0, this.now - RETENTION_MS), this.now + 1, this.now));
     ctes.push(...attributionCTEs(this.namespace, literal(this.siteId), Math.max(0, this.now - RETENTION_MS), q.from, this.now + 1, this.now));
-    ctes.push(`goal_rewards AS (SELECT observation_id, SUM(value) AS reward FROM credits_latest WHERE status = 'eligible'${q.goalId === undefined ? '' : ` AND goal_id = ${literal(id(q.goalId, 'goalId'))}`} GROUP BY observation_id)`);
+    ctes.push(`goal_reward_values AS (SELECT observation_id, value,
+MAX(ABS(value)) OVER (PARTITION BY observation_id) AS reward_scale
+FROM credits_latest WHERE status = 'eligible'${q.goalId === undefined ? '' : ` AND goal_id = ${literal(id(q.goalId, 'goalId'))}`})`);
+    ctes.push(`goal_rewards AS (SELECT observation_id,
+COALESCE(SUM(value / NULLIF(reward_scale, 0)) * MAX(reward_scale), 0) AS reward FROM goal_reward_values GROUP BY observation_id)`);
     const reward = 'COALESCE(g.reward, 0)', join = ' LEFT JOIN goal_rewards g ON g.observation_id = o.observation_id';
     let hasEvent = '';
     if (q.hasEvent !== undefined) {
       const event = record(q.hasEvent, 'hasEvent');
-      ctes.push(identitySegments('identity_latest', 'identity_segments'));
       ctes.push(this.latest('events', 'events_latest', q.from, this.now + 1, this.now));
       // Immutable assignment id is not sufficient: an assignment can have multiple observation windows.
-      ctes.push(`matching_event_observations AS (SELECT DISTINCT o.observation_id FROM observations_latest o LEFT JOIN identity_segments il ON il.cid = o.cid CROSS JOIN events_latest e WHERE ((o.uid IS NOT NULL AND e.uid = o.uid) OR (o.uid IS NULL AND e.uid IS NULL AND o.cid = e.cid AND NOT EXISTS (SELECT 1 FROM identity_latest l WHERE l.cid = o.cid AND l.occurred_at >= o.occurred_at AND l.occurred_at <= e.occurred_at)) OR ${anonymousMatch('o', 'e.uid', 'il', 'e.occurred_at')}) AND e.occurred_at >= o.occurred_at AND e.occurred_at < json_get_int(o.payload_json, 'endAt') AND json_get_str(e.payload_json, 'kind') = 'track' AND json_get_str(e.payload_json, 'name') = ${literal(id(event.name, 'event name'))}${event.filter === undefined ? '' : ` AND ${compileFilter(event.filter, 'e')}`})`);
+      // Identity ordering uses the actual first exposure event, never the opaque sample id.
+      ctes.push(`first_exposures AS (SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY observation_id ORDER BY occurred_at, record_id) AS first_position FROM ac_exposures) ranked WHERE first_position = 1)`);
+      ctes.push(`matching_event_observations AS (SELECT DISTINCT o.observation_id
+FROM observations_latest o JOIN first_exposures x ON x.observation_id = o.observation_id
+JOIN ac_before b ON b.exposure_key = x.record_id JOIN ac_after a ON a.exposure_key = x.record_id
+CROSS JOIN events_latest e
+WHERE ((x.uid IS NOT NULL AND e.uid = x.uid) OR (x.uid IS NULL AND COALESCE(b.previous_kind, 'logout') = 'logout' AND (
+(e.uid IS NULL AND x.cid = e.cid AND (a.next_id IS NULL OR a.next_at > e.occurred_at OR (a.next_at = e.occurred_at AND a.next_id > e.record_id)))
+OR (e.uid IS NOT NULL AND a.next_kind = 'identify' AND a.next_uid = e.uid AND (a.next_at < e.occurred_at OR (a.next_at = e.occurred_at AND a.next_id <= e.record_id))))))
+AND (e.occurred_at > x.occurred_at OR (e.occurred_at = x.occurred_at AND e.record_id >= x.record_id))
+AND e.occurred_at >= o.occurred_at AND e.occurred_at < json_get_int(o.payload_json, 'endAt') AND json_get_str(e.payload_json, 'kind') = 'track' AND json_get_str(e.payload_json, 'name') = ${literal(id(event.name, 'event name'))}${event.filter === undefined ? '' : ` AND ${compileFilter(event.filter, 'e')}`})`);
       hasEvent = ' AND o.observation_id IN (SELECT observation_id FROM matching_event_observations)';
     }
     ctes.push(`cohort AS (SELECT ${bucketMs === undefined ? '' : `CAST(FLOOR(o.occurred_at / ${bucketMs}.0) * ${bucketMs} AS BIGINT) AS bucket_start, `}o.arm_id, json_get_int(o.payload_json, 'generation') AS generation,
 json_get_int(o.payload_json, 'endAt') - o.occurred_at AS window_ms, o.status, o.state_key AS state_key, o.received_at, o.value AS learning_reward,
 CASE WHEN o.status = 'complete' THEN ${reward} ELSE 0 END AS reward${fields.length ? `, ${fields.join(', ')}` : ''}
 FROM observations_latest o${join} WHERE TRUE${q.filter === undefined ? '' : ` AND ${compileFilter(q.filter, 'o')}`}${hasEvent})`);
+    ctes.push(`cohort_scaled AS (SELECT *, MAX(ABS(reward)) OVER (PARTITION BY ${dimensions.join(', ')}) AS reward_scale,
+MAX(ABS(learning_reward)) OVER (PARTITION BY ${dimensions.join(', ')}) AS learning_scale FROM cohort)`);
     const sql = `WITH ${ctes.join(',\n')}
 SELECT ${dimensions.join(', ')}, SUM(CASE WHEN status = 'complete' THEN 1 ELSE 0 END) AS completed,
 SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending, SUM(CASE WHEN status = 'interrupted' THEN 1 ELSE 0 END) AS interrupted,
-COUNT(DISTINCT state_key) AS subjects, SUM(reward) AS total_value, SUM(CASE WHEN status = 'complete' THEN learning_reward ELSE 0 END) AS learning_value,
-AVG(CASE WHEN status = 'complete' THEN reward ELSE NULL END) AS mean_value, MAX(received_at) AS latest_received_at
-FROM cohort GROUP BY ${dimensions.join(', ')} ORDER BY ${dimensions.join(', ')} LIMIT ${limit + 1}`;
+COUNT(DISTINCT state_key) AS subjects, COALESCE(SUM(reward / NULLIF(reward_scale, 0)) * MAX(reward_scale), 0) AS total_value,
+COALESCE(SUM(CASE WHEN status = 'complete' THEN learning_reward / NULLIF(learning_scale, 0) ELSE 0 END) * MAX(learning_scale), 0) AS learning_value,
+CASE WHEN SUM(CASE WHEN status = 'complete' THEN 1 ELSE 0 END) = 0 THEN NULL
+ELSE COALESCE(AVG(CASE WHEN status = 'complete' THEN reward / NULLIF(reward_scale, 0) ELSE NULL END) * MAX(reward_scale), 0) END AS mean_value,
+MAX(received_at) AS latest_received_at
+FROM cohort_scaled GROUP BY ${dimensions.join(', ')} ORDER BY ${dimensions.join(', ')} LIMIT ${limit + 1}`;
     return { sql, limit, receivedBefore: this.now, fingerprint: fingerprint(this.siteId, 'arms', q) };
   }
   learning(q: import('./types.js').LearningQuery): QueryPlan {
@@ -174,10 +192,11 @@ ORDER BY r.occurred_at, r.table_name, r.record_id LIMIT ${limit + 1}`;
   private goalAggregate(q: GoalQuery, bucketMs?: number): QueryPlan {
     const limit = range(q, this.now), dimensions = bucketMs === undefined ? 'e.goal_id' : `CAST(FLOOR(e.occurred_at / ${bucketMs}.0) * ${bucketMs} AS BIGINT), e.goal_id`;
     const select = bucketMs === undefined ? 'e.goal_id' : `CAST(FLOOR(e.occurred_at / ${bucketMs}.0) * ${bucketMs} AS BIGINT) AS bucket_start, e.goal_id`;
-    return { sql: `WITH ${this.latest('events', 'events_latest', q.from, q.to, this.now)}
-SELECT ${select}, COUNT(*) AS events, SUM(e.value) AS total_value, MAX(e.received_at) AS latest_received_at
-FROM events_latest e WHERE e.status = 'accepted' AND json_get_str(e.payload_json, 'kind') = 'goal'${q.goalId === undefined ? '' : ` AND e.goal_id = ${literal(id(q.goalId, 'goalId'))}`}${q.filter === undefined ? '' : ` AND ${compileFilter(q.filter, 'e')}`}
-GROUP BY ${dimensions} ORDER BY ${bucketMs === undefined ? 'e.goal_id' : 'bucket_start, e.goal_id'} LIMIT ${limit + 1}`, limit, receivedBefore: this.now, fingerprint: fingerprint(this.siteId, 'goals', q) };
+    return { sql: `WITH ${this.latest('events', 'events_latest', q.from, q.to, this.now)}, goal_values AS (
+SELECT e.*, MAX(ABS(e.value)) OVER (PARTITION BY ${dimensions}) AS goal_scale
+FROM events_latest e WHERE e.status = 'accepted' AND json_get_str(e.payload_json, 'kind') = 'goal'${q.goalId === undefined ? '' : ` AND e.goal_id = ${literal(id(q.goalId, 'goalId'))}`}${q.filter === undefined ? '' : ` AND ${compileFilter(q.filter, 'e')}`})
+SELECT ${select}, COUNT(*) AS events, COALESCE(SUM(e.value / NULLIF(e.goal_scale, 0)) * MAX(e.goal_scale), 0) AS total_value, MAX(e.received_at) AS latest_received_at
+FROM goal_values e GROUP BY ${dimensions} ORDER BY ${bucketMs === undefined ? 'e.goal_id' : 'bucket_start, e.goal_id'} LIMIT ${limit + 1}`, limit, receivedBefore: this.now, fingerprint: fingerprint(this.siteId, 'goals', q) };
   }
   traffic(q: import('./types.js').TrafficQuery): QueryPlan {
     const limit = range(q, this.now), experiment = literal(id(q.experimentId, 'experimentId'));

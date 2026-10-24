@@ -60,6 +60,8 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
   const cache = options?.cache ?? shared;
   const fresh = policyFreshMs(options), maxAge = options?.maxAgeMs ?? DEFAULT_POLICY_MAX_AGE_MS;
   invariant(fresh > 0 && Number.isSafeInteger(fresh) && Number.isSafeInteger(maxAge) && maxAge >= fresh, 'invalid_input', 'Invalid policy freshness settings');
+  if (options) invariant(typeof options.secret === 'string' && encoder.encode(options.secret).length >= 32,
+    'invalid_input', 'Configure a decision secret of at least 32 UTF-8 bytes');
   const contexts = new Map<string, LocalAssignmentContext>();
   const restored = new Map<string, Promise<void>>();
   const writes = new Map<string, Promise<string>>();
@@ -72,7 +74,12 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
   };
   const key = (experimentId: string) => JSON.stringify([siteId, experimentId]);
   const background = (work: Promise<unknown>) => ctx.waitUntil(work.catch(report));
-  const fetchPolicy = async (experimentId: string) => { const policy = await service.getPublishedPolicy(siteId, experimentId, maxAge); cache.put(key(experimentId), policy); return policy; };
+  const fetchPolicy = async (experimentId: string) => {
+    const policy = await service.getPublishedPolicy(siteId, experimentId, maxAge);
+    cache.put(key(experimentId), policy);
+    // Another request may have installed a newer snapshot while this RPC waited.
+    return cache.read(key(experimentId))!;
+  };
   const refresh = (experimentId: string) => { if (cache.begin(key(experimentId), Date.now())) background(fetchPolicy(experimentId)); };
   const seal = async (context: LocalAssignmentContext) => {
     const payload = b64(encoder.encode(JSON.stringify({ version: 2, context })));
@@ -98,6 +105,7 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
   const restore = async (experimentId: string) => {
     const pending = restored.get(experimentId);
     if (pending) return pending;
+    if (contexts.has(experimentId)) return;
     const work = load(experimentId); restored.set(experimentId, work); return work;
   };
   const load = async (experimentId: string) => {
@@ -145,7 +153,7 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
     return { decision: result.decision, policy, token: result.decision.status === 'assigned' ? tokens.get(experimentId) ?? null : null,
       reuseUntil: result.selection.status === 'assigned' ? result.selection.applyUntil : Date.now() };
   };
-  const expose = (decision: Extract<Decision, { status: 'assigned' }>, occurredAt: number, eventId: string) => {
+  const stageExposure = (decision: Extract<Decision, { status: 'assigned' }>, occurredAt: number, eventId: string) => {
     invariant(decision.localContext && decision.applyUntil !== undefined, 'invalid_input', 'Expected a local decision from this SDK');
     const latest = contexts.get(decision.assignment.experimentId);
     const context = latest?.assignment.assignmentId === decision.assignment.assignmentId
@@ -153,10 +161,16 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
       && (!decision.localContext.sample || (latest.sample !== undefined
         && latest.sample.startAt > decision.localContext.sample.startAt)) ? latest : decision.localContext;
     const result = exposeLocal({ status: 'assigned', refreshPolicy: false, reason: decision.reason === 'selected' ? 'selected' : 'held', context, applyUntil: decision.applyUntil }, occurredAt, eventId);
-    persist(decision.assignment.experimentId, result.context);
-    return result.exposure;
+    return { exposure: result.exposure, commit: () => persist(decision.assignment.experimentId, result.context) };
   };
-  return { decide, prepare, expose, async state() { await Promise.all([...writes.values()]); return Object.fromEntries(tokens); } };
+  const expose = (...args: Parameters<typeof stageExposure>) => {
+    const staged = stageExposure(...args); staged.commit(); return staged.exposure;
+  };
+  return { decide, prepare, expose, stageExposure, async state() {
+    await Promise.all(Object.keys(options?.tokens ?? {}).map(restore));
+    await Promise.all([...writes.values()]);
+    return Object.fromEntries(tokens);
+  } };
 }
 
 export function parseLocalContext(value: unknown): LocalAssignmentContext {

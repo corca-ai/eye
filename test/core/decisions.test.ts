@@ -11,7 +11,7 @@ function fixture() {
     settings: settings({ minHoldMs: 100000 }), asOf: now, scoreScale: 1,
     arms: [{ armId: 'a', weight: 0, meanReward: 0, score: 1, probability: 1 }],
     publishedAt: now, sequence: 1, status: 'active', activeArms: ['a'] };
-  const service = { getPublishedPolicy: vi.fn(async () => policy) };
+  const service = { getPublishedPolicy: vi.fn(async (_site: string, _experimentId: string) => policy) };
   const pending: Promise<unknown>[] = [], ctx = { waitUntil: (p: Promise<unknown>) => { pending.push(p); } };
   const cache = new DecisionCache();
   return { policy, service, cache, pending, ctx, advance: (ms: number) => { clock += ms; } };
@@ -106,4 +106,52 @@ it('accepts a legacy maxAge-only configuration and refreshes before its explicit
   expect((await runtime.decide({ cid: 'c' }, 'exp')).status).toBe('unavailable');
   await Promise.all(f.pending);
   expect(() => decisionRuntime(f.service, f.ctx, 'site', { secret, freshMs: 300_001, maxAgeMs: 300_000 }, () => {})).toThrow();
+});
+
+it('explicit preparation never selects a policy older than one already cached', async () => {
+  const f = fixture();
+  let release!: (policy: PublishedPolicy) => void;
+  f.service.getPublishedPolicy.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+  const oldRuntime = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache }, () => {});
+  const slow = oldRuntime.prepare({ cid: 'old-request' }, 'exp');
+  const newer: PublishedPolicy = { ...f.policy, sequence: 2, revision: 2, status: 'paused', arms: [], activeArms: [] };
+  f.service.getPublishedPolicy.mockResolvedValueOnce(newer);
+  const freshRuntime = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache }, () => {});
+  expect((await freshRuntime.prepare({ cid: 'new-request' }, 'exp')).decision.status).toBe('no_active_arm');
+  release(f.policy);
+  expect((await slow).decision.status).toBe('no_active_arm');
+  await Promise.all(f.pending);
+});
+
+it('state preserves other experiments across requests that select only one experiment or only collect events', async () => {
+  const f = fixture();
+  f.service.getPublishedPolicy.mockImplementation(async (_site, experimentId) => ({ ...f.policy, experimentId }));
+  const first = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache }, () => {});
+  await first.prepare({ cid: 'c' }, 'exp');
+  await first.prepare({ cid: 'c' }, 'other');
+  const tokens = await first.state();
+  const second = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache, tokens }, () => {});
+  await second.decide({ cid: 'c' }, 'exp');
+  expect(await second.state()).toEqual(tokens);
+  const collectionOnly = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache, tokens }, () => {});
+  expect(await collectionOnly.state()).toEqual(tokens);
+  await Promise.all(f.pending);
+});
+
+it('state drops invalid untouched tokens and preserves a newly exposed sample', async () => {
+  const f = fixture(), errors: unknown[] = [];
+  const first = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache }, () => {});
+  const prepared = await first.prepare({ cid: 'c' }, 'exp');
+  if (prepared.decision.status !== 'assigned') throw new Error('expected assignment');
+  const tokens: Record<string, string> = { ...await first.state(), invalid: 'bad.signature' };
+  const second = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache, tokens }, error => errors.push(error));
+  second.expose(prepared.decision, now, 'visible');
+  const next = await second.state();
+  expect(next.invalid).toBeUndefined();
+  expect(next.exp).not.toBe(tokens.exp);
+  const third = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache, tokens: next }, () => {});
+  const decision = await third.decide({ cid: 'c' }, 'exp');
+  expect(decision.status === 'assigned' && decision.localContext?.sample?.startAt).toBe(now);
+  expect(errors).toHaveLength(1);
+  await Promise.all(f.pending);
 });

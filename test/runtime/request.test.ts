@@ -122,3 +122,30 @@ it('cookie preparation is separate from rendering and old auth scopes cannot sup
   await waitOnExecutionContext(f.ctx);
   expect(f.events.filter(e => e.event.kind === 'exposure')).toHaveLength(2);
 });
+
+it('an invalid signing secret falls back before selecting an experiment and state remains safe', async () => {
+  const f = await fixture();
+  const eye = createEyeRequest({ ...f.options, decisions: { ...f.options.decisions, secret: 'short', tokens: {} } });
+  expect((await eye.variant(checkout)).armId).toBeNull();
+  await expect(eye.state()).resolves.toEqual({});
+  await waitOnExecutionContext(f.ctx);
+});
+
+it.each([{ bad: NaN }, { detail: 'x'.repeat(100_000) }])('rejected exposure payloads do not open a sample in the persisted decision context', async attributes => {
+  const f = await fixture(), eye = createEye(f.options);
+  const decision = await eye.decide({ subject: f.subject, experimentId: 'checkout' });
+  if (decision.status !== 'assigned') throw new Error('Expected assignment');
+  expect(eye.expose({ subject: f.subject, decision, eventId: 'rejected', attributes }).accepted).toBe(false);
+  const tokens = await eye.state();
+  const next = createEye({ ...f.options, decisions: { ...f.options.decisions, tokens } });
+  const restored = await next.decide({ subject: f.subject, experimentId: 'checkout' });
+  expect(restored.status).toBe('assigned');
+  if (restored.status === 'assigned') {
+    expect(restored.localContext?.sample).toBeUndefined();
+    expect(next.expose({ subject: f.subject, decision: restored, eventId: 'accepted' }).accepted).toBe(true);
+  }
+  await next.flush();
+  expect(f.events).toHaveLength(1);
+  expect(f.events[0]!.event).toMatchObject({ eventId: 'accepted', sample: { sampleId: expect.stringContaining('accepted') } });
+  await waitOnExecutionContext(f.ctx);
+});

@@ -101,3 +101,32 @@ it('keeps maxAge-only hosts compatible and gives CSR the same shortened refresh 
   expect(choice.refreshAfter).toBeLessThan(choice.applyUntil);
   await waitOnExecutionContext(f.options.ctx);
 });
+
+it('rejects non-finite user attributes before JSON can silently turn them into null', async () => {
+  const f = await fixture();
+  expect(() => createEyeBrowserServer({ ...f.options, userAttributes: { revenue: NaN } })).toThrow();
+  expect(() => createEyeBrowserServer({ ...f.options, userAttributes: { revenue: Infinity } })).toThrow();
+  await waitOnExecutionContext(f.options.ctx);
+});
+
+it('does not publish a receipt that its own receiver rejects for size', async () => {
+  const f = await fixture();
+  const server = createEyeBrowserServer({ ...f.options, userAttributes: { segment: 'x'.repeat(20000) } });
+  const prepared = await server.prepare(['checkout']);
+  expect(prepared.choices).toEqual([]);
+  expect(f.options.onError).toHaveBeenCalled();
+  await waitOnExecutionContext(f.options.ctx);
+});
+
+it('receives large valid attribute receipts without corrupting the original attributes', async () => {
+  const f = await fixture(), segment = 'x'.repeat(14000);
+  const server = createEyeBrowserServer({ ...f.options, userAttributes: { segment } });
+  const prepared = await server.prepare(['checkout']);
+  const choice = prepared.choices[0]!;
+  expect(choice.receipt.length).toBeGreaterThan(16000);
+  expect(choice.receipt.length).toBeLessThanOrEqual(24000);
+  expect(await server.receive([{ eventId: 'large-valid', receipt: choice.receipt, occurredAt: prepared.serverNow }]))
+    .toEqual([{ eventId: 'large-valid', accepted: true }]);
+  expect(f.events[0]!.event).toMatchObject({ kind: 'exposure', userAttributes: { segment } });
+  await waitOnExecutionContext(f.options.ctx);
+});
