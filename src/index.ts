@@ -21,3 +21,10 @@ export type { DecisionOptions, DecisionMetric } from './decisions.js';
 export type { PublishedPolicy, PreparedDecision } from './transport.js';
 
 export type { ArmSeriesQuery, ArmSeriesRow, TrafficQuery, TrafficRow, PolicyQuery, PolicyHistoryRow, AttributeKeyRow, AttributeKeyReport } from './analytics/types.js';
+
+export { createEyeRequest } from './request.js';
+export type { EyeRequestOptions, EyeRequest, VariantDefinition, VariantSelection, ExposureInput } from './request.js';
+
+export { createEyeBrowserServer } from './browser-server.js';
+export type { BrowserServerOptions } from './browser-server.js';
+export type { BrowserSnapshot, BrowserChoice, BrowserExposure, BrowserEventResult, BrowserSample, BrowserState } from './browser-types.js';

@@ -1,1 +1,1 @@
-export { default, SiteControl, ExperimentObject, ObservationShard, SubjectObject, IdentityRegistry } from '@eye/workers/worker';
+export { default, SiteControl, ExperimentObject } from '@eye/workers/worker';

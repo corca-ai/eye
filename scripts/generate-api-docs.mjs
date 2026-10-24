@@ -17,7 +17,11 @@ if (diagnostics.length) {
 }
 const checker = program.getTypeChecker();
 const entry = program.getSourceFile(resolve(root, 'src/index.ts'));
-const exported = checker.getExportsOfModule(checker.getSymbolAtLocation(entry));
+const browserEntry = program.getSourceFile(resolve(root, 'src/browser.ts'));
+const exported = [...new Map([
+  ...checker.getExportsOfModule(checker.getSymbolAtLocation(entry)),
+  ...checker.getExportsOfModule(checker.getSymbolAtLocation(browserEntry)),
+].map(symbol => [symbol.name, symbol])).values()];
 const unalias = symbol => symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
 const flags = ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope;
 const doc = symbol => ts.displayPartsToString(symbol.getDocumentationComment(checker));

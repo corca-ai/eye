@@ -37,11 +37,24 @@ void report;
     target: 'ES2023', module: 'ESNext', moduleResolution: 'Bundler', lib: ['ES2023'],
     types: ['@cloudflare/workers-types'], strict: true, exactOptionalPropertyTypes: true,
     skipLibCheck: false, noEmit: true,
-  }, include: ['consumer.ts', 'node_modules/@eye/workers/examples/host.ts'] }));
+  }, include: ['consumer.ts', 'node_modules/@eye/workers/examples/**/*.ts'] }));
   await exec(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '-p', join(temporary, 'tsconfig.json')]);
+  // Compile the browser entry with DOM types only: no Cloudflare ambient types.
+  await writeFile(join(temporary, 'browser-consumer.ts'), `
+import { createEyeBrowser } from '@eye/workers/browser';
+const client = createEyeBrowser({ scope: 'auth-epoch' });
+const view = client.beginView();
+const selection = view.variant({ experimentId: 'checkout', variants: { standard: 'normal' }, fallback: 'normal' });
+selection.expose(); client.dispose();
+`);
+  await writeFile(join(temporary, 'tsconfig.browser.json'), JSON.stringify({ compilerOptions: {
+    target: 'ES2023', module: 'ESNext', moduleResolution: 'Bundler', lib: ['ES2023', 'DOM'],
+    types: [], strict: true, skipLibCheck: false, noEmit: true,
+  }, files: ['browser-consumer.ts'] }));
+  await exec(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '-p', join(temporary, 'tsconfig.browser.json')]);
   const installation = join(temporary, 'eye');
   await exec(process.execPath, [join(library, 'scripts/eye.mjs'), 'init', installation, '--account-id', 'a'.repeat(32)]);
   const deployed = await exec(process.execPath, [join(root, 'node_modules/wrangler/bin/wrangler.js'), 'deploy', '--dry-run', '--config', join(installation, 'wrangler.jsonc')]);
   const bundle = deployed.stdout.split('\n').find(line => line.includes('Total Upload:'));
-  console.log(JSON.stringify({ tarballBytes: size, externalConsumerTypes: 'passed', generatedWorkerBundle: bundle?.trim() ?? 'passed', deployed: false }));
+  console.log(JSON.stringify({ tarballBytes: size, externalConsumerTypes: 'passed', browserConsumerTypes: 'passed', generatedWorkerBundle: bundle?.trim() ?? 'passed', deployed: false }));
 } finally { await rm(temporary, { recursive: true, force: true }); }

@@ -18,6 +18,10 @@ Use `createEye({ service: env.EYE, ctx, siteId: "your-site" })` for each request
 
 For later code-only updates, run `wrangler deploy --config wrangler.jsonc`. Changes to a Stream/table schema or pipeline need a reviewed migration; re-running the provision script is not a schema migration mechanism.
 
-Fast `decide()` requires a host `decisions.secret` (at least 32 UTF-8 bytes) and signed tokens retained in the host session. Supply `onPrepared` to persist background preparations; clear tokens on authentication/session transitions. It skips cold/unprepared requests. `prepare()` is an explicit waiting preparation API; `decideConsistent()` retains the prior waiting central path. See the host example and `docs/FAST-DECISIONS.md` in the source repository.
+Fast `decide()` uses a local policy cache and signed per-device context; it requires a host `decisions.secret` (at least 32 UTF-8 bytes). Save updates from `onPrepared` in the host session, or await `state()` after exposure and save the result in response cookies. Cold/expired policy requests skip participation. `prepare()` explicitly waits for a policy RPC. There is no central assignment or `decideConsistent()` API.
+
+The COHORTS R2 binding uses the analytics bucket for temporary frozen learning results under `eye/cohorts/`. This config's `v2-fresh` migration is for a new installation only. Do not replace an existing v1 migration history with it. Install a new Worker/namespaces and explicitly switch the host binding and stored contexts after testing; no automatic legacy data migration or deletion is performed.
 
 For the complete integration sequence, see the [integration guide](https://github.com/corca-ai/eye/blob/main/docs/INTEGRATION.md). Generated [SDK reference](https://github.com/corca-ai/eye/blob/main/docs/api/client.md) and [parameter reference](https://github.com/corca-ai/eye/blob/main/docs/api/types.md) describe the installed API.
+
+For request-scoped identity, safe fallback, concrete session storage and cookie preparation examples, see [application integration](https://github.com/corca-ai/eye/blob/main/docs/APPLICATION-INTEGRATION.md). `createEyeRequest` wraps page/event use; keep `createEye` for administration, analytics and explicit preparation.

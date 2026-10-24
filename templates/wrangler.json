@@ -20,30 +20,15 @@
       {
         "name": "EXPERIMENTS",
         "class_name": "ExperimentObject"
-      },
-      {
-        "name": "OBSERVATIONS",
-        "class_name": "ObservationShard"
-      },
-      {
-        "name": "SUBJECTS",
-        "class_name": "SubjectObject"
-      },
-      {
-        "name": "IDENTITIES",
-        "class_name": "IdentityRegistry"
       }
     ]
   },
   "migrations": [
     {
-      "tag": "v1",
+      "tag": "v2-fresh",
       "new_sqlite_classes": [
         "SiteControl",
-        "ExperimentObject",
-        "ObservationShard",
-        "SubjectObject",
-        "IdentityRegistry"
+        "ExperimentObject"
       ]
     }
   ],
@@ -69,5 +54,11 @@
         "dead_letter_queue": "eye-events-failed"
       }
     ]
-  }
+  },
+  "r2_buckets": [
+    {
+      "binding": "COHORTS",
+      "bucket_name": "eye-analytics"
+    }
+  ]
 }

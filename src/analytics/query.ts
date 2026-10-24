@@ -79,6 +79,12 @@ export class BasinAnalytics implements AnalyticsAPI {
     this.warehouse = warehouse; this.token = token; this.namespace = env.EYE_ANALYTICS_NAMESPACE ?? 'eye';
     this.endpoint = `https://api.sql.cloudflarestorage.com/api/v1/accounts/${account}/basin-sql/query/${bucket}`;
   }
+  /** Internal bounded learning query; never returns a silently truncated input. */
+  async learningQuery(sql: string, limit: number): Promise<Record<string, unknown>[]> {
+    const result = await this.execute({ sql, limit, receivedBefore: this.clock(), fingerprint: 'learning' });
+    invariant(!result.meta.truncated, 'unavailable', 'Learning partition exceeds its row budget');
+    return result.rows;
+  }
   private sql(): AnalyticsSQL { return new AnalyticsSQL(this.namespace, this.siteId, this.clock()); }
   private async execute(plan: QueryPlan): Promise<{ rows: Row[]; meta: AnalyticsMeta }> {
     let response: Response;
@@ -107,11 +113,11 @@ export class BasinAnalytics implements AnalyticsAPI {
   }
   private async armReport(query: ArmQuery, bucketMs?: number) {
     const result = await this.execute(this.sql().arms(query, bucketMs));
-    return { cohortBasis: 'observation_start' as const, meta: result.meta, rows: result.rows.map(row => ({
+    return { rewardBasis: 'raw_attribution' as const, cohortBasis: 'observation_start' as const, meta: result.meta, rows: result.rows.map(row => ({
       ...(bucketMs === undefined ? {} : { bucketStart: numeric(row, 'bucket_start') }),
       armId: text(row, 'arm_id'), generation: numeric(row, 'generation'), observationWindowMs: numeric(row, 'window_ms'),
       groups: (query.groupBy ?? []).map((_, i) => scalar(row[`group_${i}`])), completed: numeric(row, 'completed'), pending: numeric(row, 'pending'),
-      interrupted: numeric(row, 'interrupted'), subjects: numeric(row, 'subjects'), totalValue: numeric(row, 'total_value'),
+      interrupted: numeric(row, 'interrupted'), subjects: numeric(row, 'subjects'), totalValue: numeric(row, 'total_value'), learningValue: numeric(row, 'learning_value'),
       meanValue: row.mean_value === null ? null : numeric(row, 'mean_value'), latestReceivedAt: numeric(row, 'latest_received_at'),
     })) };
   }

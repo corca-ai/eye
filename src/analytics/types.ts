@@ -17,7 +17,7 @@ export interface ArmQuery extends QueryRange {
 }
 export interface TimelineQuery extends QueryRange {
   subject: { cid: string; uid?: never } | { uid: string; cid?: never };
-  /** Include anonymous events only inside explicitly known login intervals. Defaults to true. */
+  /** Include anonymous events in the interval claimed by the first subsequent login. Defaults to true. */
   includeLinked?: boolean; cursor?: string;
 }
 export interface GoalQuery extends QueryRange { goalId?: string; filter?: Filter }
@@ -33,7 +33,10 @@ export interface AnalyticsMeta {
 export interface ArmRow {
   armId: string; generation: number; observationWindowMs: number; groups: Scalar[];
   completed: number; pending: number; interrupted: number; subjects: number;
-  totalValue: number; meanValue: number | null; latestReceivedAt: number;
+  /** 현재 조회 가능한 원본으로 재계산한 귀속 보상. */
+  totalValue: number;
+  /** 확정 당시 학습에 반영한 전체 goal 보상. goalId 필터와 무관하다. */
+  learningValue: number; meanValue: number | null; latestReceivedAt: number;
 }
 export interface TimelineRow {
   table: 'events' | 'observations' | 'credits' | 'decisions' | 'identity_links';
@@ -48,7 +51,7 @@ export interface SeriesRow extends GoalRow { bucketStart: number }
 export interface AttributeValueRow { value: Scalar; events: number; latestReceivedAt: number }
 /** rows는 집계 결과. meta.truncated이면 범위·조건을 좁힌다. 일반 집계에는 다음 페이지 cursor가 없다. */
 export interface AnalyticsPage<T> { rows: T[]; meta: AnalyticsMeta }
-export interface ArmReport extends AnalyticsPage<ArmRow> { cohortBasis: 'observation_start' }
+export interface ArmReport extends AnalyticsPage<ArmRow> { rewardBasis: 'raw_attribution'; cohortBasis: 'observation_start' }
 export interface TimelinePage extends AnalyticsPage<TimelineRow> { nextCursor: string | null }
 export interface ArmSeriesQuery extends ArmQuery { bucketMs: number }
 export interface ArmSeriesRow extends ArmRow { bucketStart: number }

@@ -1,3 +1,5 @@
+> **v1 기록**: 아래 설계·측정·비용은 이전 구조의 기록입니다. 현재 로컬 배정·고정 마감 학습의 계약과 검증 범위는 [구현 구조](../TECHNICAL_DESIGN.md), [현재 구현](IMPLEMENTATION.md)을 따릅니다. 이 수치를 현재 버전의 성능·비용으로 인용하지 않습니다.
+
 # 지속형 MAB 설계 시뮬레이션
 
 2026년 10월 22일 실행한 설계 실험이다. [계산식](../TECHNICAL_DESIGN.md)과 [실행 코드](../scripts/simulate_bandit.py)를 함께 보관한다. 실제 SDK나 Cloudflare 처리 성능을 측정한 결과는 아니다.

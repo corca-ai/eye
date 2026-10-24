@@ -29,6 +29,7 @@ async function main() {
   template.queues.producers[0].queue = `${name}-events`;
   template.queues.consumers[0].queue = `${name}-events`;
   template.queues.consumers[0].dead_letter_queue = `${name}-events-failed`;
+  template.r2_buckets = [{ binding: 'COHORTS', bucket_name: bucket }];
   template.vars = { EYE_ANALYTICS_WAREHOUSE: `${account}_${bucket}`, EYE_ANALYTICS_NAMESPACE: namespace };
   const streamName = `${name.replaceAll('-', '_')}_stream`;
   const tables = ['events', 'observations', 'credits', 'decisions', 'identity_links', 'policies', 'attribute_keys'];

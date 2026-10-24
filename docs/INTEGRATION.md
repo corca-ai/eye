@@ -2,7 +2,7 @@
 
 [문서 안내](README.md) · [API 레퍼런스](api/client.md) · [타입·설정 기본값](api/types.md) · [분석 해석](ANALYTICS.md)
 
-사이트는 Cloudflare Worker에서 Eye를 호출한다. Eye가 제공하는 것은 서버 SDK·배정·수집·관리·분석 API이며, 브라우저 이벤트 수집과 관리자 UI는 사이트가 만든다. 실제 계정의 테스트 배포와 제한된 부하는 검증했으며, 현재 버전의 지속 부하·대규모 분석 성능은 검증 중이다. [현재 검증 범위](IMPLEMENTATION.md)를 확인하고 로그 수집부터 연결한 뒤 영향이 작은 실험으로 확대한다.
+사이트는 Cloudflare Worker에서 Eye를 호출한다. Eye는 서버·브라우저 SDK와 배정·수집·관리·분석 API를 제공한다. 실제 표시·업무 사건 감지와 관리자 UI는 사이트가 만든다. 현재 구조는 로컬 검증을 마쳤으며 새 구조의 원격 부하·대규모 분석 성능은 아직 검증하지 않았다. [현재 검증 범위](IMPLEMENTATION.md)를 확인하고 로그 수집부터 연결한 뒤 영향이 작은 실험으로 확대한다.
 
 ## 1. 설치
 
@@ -58,11 +58,13 @@ await eye.experiments.create({
 
 골은 ID만 등록한다. 언제 달성했는지와 가치는 서비스가 전달하며, 모든 실험은 같은 사이트의 골을 사용한다. 모든 골의 가치 단위를 통일한다.
 
-`minHoldMs`만 필수다. 기본 관측 기간은 7일이므로 위 설정이 매일 재배정을 의미하지는 않는다. 첫 실제 노출로 관측이 시작하고, 일반 재배정은 최소 유지·관측 종료·토큰 안전 유지 조건이 모두 충족된 뒤 가능하다. 구매 주기와 변화 속도에 맞춰 관측 기간, 귀속 반감기, 학습 반감기를 설정한다. [전체 설정·기본값·제약](api/types.md#experimentsettings)을 참고한다.
+`minHoldMs`만 필수다. 기본 관측 기간은 7일이므로 위 설정이 매일 재배정을 의미하지는 않는다. 첫 실제 노출로 관측이 시작하고, 일반 재배정은 최소 유지·관측 종료 조건이 모두 충족된 뒤 가능하다. 구매 주기와 변화 속도에 맞춰 관측 기간, 귀속 반감기, 학습 반감기를 설정한다. [전체 설정·기본값·제약](api/types.md#experimentsettings)을 참고한다.
 
 같은 최초 실험 정의의 재등록은 안전하지만 다른 정의로 덮어쓰지는 않는다. 변경에는 `experiments.update()`를 사용한다. 설정이 바뀌면 새 학습 세대를 시작하고 기존 배정 설정은 보존한다.
 
 ## 3. cid·uid와 서버 세션 연결
+
+일반 페이지에는 [요청 래퍼와 서비스 코드 구성](APPLICATION-INTEGRATION.md)을 권장한다. 아래는 같은 동작을 직접 연결하는 저수준 API 예제다. 실제 서버 세션 저장·쿠키 준비 경로·업무 사건 예제도 해당 문서에 있다.
 
 전체 핸들러의 타입 검사되는 예제는 [examples/host.ts](../examples/host.ts)에 있다. 다음 준비물이 필요하다.
 
@@ -91,9 +93,9 @@ const eye = createEye({
 });
 ```
 
-응답 반환 전에 `cookie.setCookie`가 있으면 `response.headers.append('Set-Cookie', cookie.setCookie)`로 추가한다. `onPrepared`는 응답 후 실행될 수 있으므로 이미 보낸 응답 쿠키를 수정할 수 없다. 서버 세션이 없다면 명시적 `await eye.prepare(...)` 결과의 token을 응답 전에 저장하는 별도 준비 경로가 필요하며, 이 호출은 중앙 응답을 기다린다. [세션·SWR 계약](FAST-DECISIONS.md)을 참고한다.
+응답 반환 전에 `cookie.setCookie`가 있으면 `response.headers.append('Set-Cookie', cookie.setCookie)`로 추가한다. `onPrepared`는 응답 후 실행될 수 있으므로 이미 보낸 응답 쿠키를 수정할 수 없다. 서버 세션이 없다면 실제 노출 후 `await eye.state()`의 문맥을 응답 쿠키에 저장한다. 이 함수는 로컬 서명 완료를 기다린다. 명시적 `prepare()`만 정책 RPC를 기다린다. [세션·SWR 계약](FAST-DECISIONS.md)을 참고한다.
 
-로그인 시 `eye.identify({ subject: { cid, uid } })`, 로그아웃 시 `eye.logout({ subject: { cid } })`을 호출한다. 로그인·로그아웃·계정 변경 시 이전 배정 토큰도 비운다. uid의 기존 배정을 우선하며, uid에 없는 실험은 cid의 배정과 누적 보상을 인계한다. 신원 전환을 이유로 이미 보낸 골을 다른 subject로 다시 보내지 않는다.
+로그인 시 `eye.identify({ subject: { cid, uid } })`, 로그아웃 시 `eye.logout({ subject: { cid } })`을 호출한다. 로그인·로그아웃·계정 변경 시 이전 배정 토큰도 비운다. uid를 우선해 새 신원으로 선택한다. 익명 노출은 첫 로그인 이력으로 연결하지만 배정·보상 상태를 인계하지 않는다. 같은 uid의 기기별 arm은 다를 수 있다. 신원 전환을 이유로 이미 보낸 골을 다른 subject로 다시 보내지 않는다.
 
 ## 4. 화면 적용과 사건 수집
 
@@ -119,13 +121,13 @@ if (applied) {
 eye.track({ subject, name: 'page_view', attributes: { path: '/checkout' } });
 ```
 
-`decide`는 원격 응답을 기다리지 않는다. cold·미준비·만료 상태는 `unavailable`, 실험이 비활성이거나 활성 arm이 없으면 `no_active_arm`을 반환할 수 있다. 두 경우 모두 기본 화면을 사용하고 노출을 기록하지 않는다. `onPrepared`는 미준비 요청과 만료가 가까운 유효 토큰에서 다음 요청용 상태를 백그라운드로 준비·갱신한다. 배정 토큰은 최대 15분(열린 관측 종료 이내)이며, 유효기간의 20%가 남으면 갱신한다. 기본 정책은 별도로 60초 이후 백그라운드 갱신하며 발행 후 최대 5분까지 재사용한다.
+`decide`는 원격 응답을 기다리지 않는다. cold·만료 정책은 `unavailable`, 비활성 실험이나 활성 arm이 없는 경우는 `no_active_arm`이다. 기본 화면을 사용하고 미참여 노출은 기록하지 않는다. 정책이 유효하면 이전 토큰 없이도 로컬 배정할 수 있다. 정책은 60초 후 백그라운드 갱신하고 발행 후 최대 5분까지 재사용한다. `onPrepared`는 배정·실제 노출로 바뀐 문맥을 저장한다.
 
 ### 장애 시 기본 화면으로 돌아가기
 
 `defaultArm` 설정은 없다. 서비스가 기본 화면을 정하고, `assigned`이면서 서비스가 지원하는 arm일 때만 실험 화면을 적용한다. SDK 초기화·배정 예외도 기본 화면으로 연결한다. 초기화까지 포함한 오류 경계는 [호스트 예제](../examples/host.ts)를 따른다. 아직 화면 코드가 없는 arm을 등록했거나 SDK 오류가 발생해도 fallback을 특정 arm의 노출로 기록하지 않는다. fallback 화면이 control arm과 같아도 미참여와 control 배정은 구분한다.
 
-백그라운드 준비·갱신에 실패해도 정책과 토큰이 유효하면 기존 arm을 계속 제공한다. 원격 장애를 매 요청 확인하지 않으므로 모든 장애를 즉시 감지해 fallback하지는 않는다. 즉시 중단이 필요하면 서비스의 자체 플래그로 `decide`·`expose` 호출과 실험 화면 적용을 함께 끈다. 이미 열린 관측의 보상 귀속은 계속될 수 있다. Worker 자체가 실행되지 않는 장애는 이 오류 경계로 복구할 수 없다.
+백그라운드 준비·갱신에 실패해도 정책과 해당 결정의 적용 기한이 유효하면 기존 arm을 계속 제공한다. 원격 장애를 매 요청 확인하지 않으므로 모든 장애를 즉시 감지해 fallback하지는 않는다. 즉시 중단이 필요하면 서비스의 자체 플래그로 `decide`·`expose` 호출과 실험 화면 적용을 함께 끈다. 이미 열린 관측의 보상 귀속은 계속될 수 있다. Worker 자체가 실행되지 않는 장애는 이 오류 경계로 복구할 수 없다.
 
 `userAttributes`는 arm 비교용 사용자군 속성이고 첫 노출 때 관측에 고정된다. `attributes`는 개별 사건 속성이다. 두 값 모두 최상위 키와 scalar 값만 허용한다. SPA처럼 표시 사실을 브라우저만 알 수 있으면 사이트 수집 경로가 실제 표시 시점에 `expose`를 호출해야 한다. Eye는 DOM 표시 여부를 감지하지 않는다.
 
@@ -157,7 +159,7 @@ const timeline = await eye.analytics.timeline({
 });
 ```
 
-`report.rows`의 `completed/pending/interrupted`와 `meanValue`를 함께 본다. 관측이 끝나기 전에는 완료 평균이 없을 수 있다. `policy`는 현재 중앙 선택 정책, `traffic`은 실제 배정·노출, `analytics.policies`는 발행 정책 이력이다. 분석에는 반영 지연이 있으며 평균 차이는 인과적 uplift가 아니다. [조회별 의미·응답·필터 예제](ANALYTICS.md)를 참고한다.
+`report.rows`의 `completed/pending`와 `meanValue`를 함께 본다. `learningValue`는 마감 때 고정한 학습 보상이며 뒤늦게 반영된 원본 귀속 보상과 다를 수 있다. 관측이 끝나기 전에는 완료 평균이 없을 수 있다. `policy`는 현재 선택 정책, `traffic`은 실제 노출된 배정·노출, `analytics.policies`는 발행 정책 이력이다. 분석에는 반영 지연이 있으며 평균 차이는 인과적 uplift가 아니다. [조회별 의미·응답·필터 예제](ANALYTICS.md)를 참고한다.
 
 arm을 추가하려면 `experiments.addArm(id, armId)`, 잠시 멈추려면 `pauseArm/resumeArm`, 실험 전체는 `pause/resume`을 사용한다. `delete/deleteArm`은 이력을 보존하는 영구 비활성화이며 ID 재사용을 금지한다. 로컬 결정에는 정책 갱신 지연이 있다. 골도 `goals.pause/resume/delete`로 관리한다.
 
@@ -175,7 +177,7 @@ if (!result.accepted) console.error(result.error.code, result.error.message);
 
 | 증상 | 먼저 확인할 것 |
 | --- | --- |
-| 계속 unavailable | secret, 세션 토큰 저장·다음 요청 읽기, onPrepared 오류. 설정 없는 decide는 자동 참여하지 않음 |
+| 계속 unavailable | secret, 정책 조회 실패·캐시 갱신, onPrepared 오류. 설정 없는 decide는 자동 참여하지 않음 |
 | no_active_arm | 실험 상태와 활성 arm, 로컬 정책 갱신 대기 |
 | 골은 있는데 arm 완료 평균이 없음 | 실제 expose, 관측 종료와 allowedLatenessMs, 귀속 범위 |
 | 속성별 결과가 예상과 다름 | expose.userAttributes와 사건 attributes 구분, 최초 노출 시점의 값 |

@@ -1,22 +1,21 @@
 import type { ArmStatus, Assignment, CreateExperiment, Decision, EventEnvelope, Experiment, ExperimentSettings, GoalStatus, Subject } from './core/types.js';
 import type { GoalDefinition } from './runtime/site.js';
-import type { PolicyEvaluation } from './core/policy.js';
+import type { UnreservedPolicyEvaluation } from './core/policy.js';
 import type { AnalyticsAPI } from './analytics/types.js';
 
-/** statsAsOf는 보유 shard snapshot들의 최소 시각이며 null은 snapshot 없음. 전체 데이터 수신 완료 watermark가 아니다. */
-export interface PolicySnapshot extends PolicyEvaluation {
+/** statsAsOf는 마지막 적용한 마감 구간의 기준 시각이며 null은 적용 이력 없음. 전체 데이터 수신 완료 watermark가 아니다. */
+export interface PolicySnapshot extends UnreservedPolicyEvaluation {
   experimentId: string; generation: number; revision: number; statsAsOf: number | null;
 }
 export interface PublishedPolicy extends PolicySnapshot {
+  settings: ExperimentSettings;
   publishedAt: number; sequence: number; status: ArmStatus; activeArms: string[];
 }
-/** reuseUntil은 배정 토큰 재사용 만료 Unix 밀리초. 최대 15분이며 열린 관측의 종료를 넘지 않는다. 명시적 prepare 결과에는 token도 추가된다. */
+/** reuseUntil은 이번 결정의 적용 기한(Unix 밀리초)이다. 정책 유효기간과 유지·관측 조건으로 결정하며 저장 문맥의 삭제 시각은 아니다. */
 export interface PreparedDecision { decision: Decision; reuseUntil: number; policy: PublishedPolicy }
 /** Structural RPC contract: hosts may name their Service Binding freely. */
 export interface EyeService {
   getPublishedPolicy(siteId: string, experimentId: string): Promise<PublishedPolicy>;
-  prepareDecision(siteId: string, subject: Subject, experimentId: string): Promise<PreparedDecision>;
-  decide(siteId: string, subject: Subject, experimentId: string): Promise<Decision>;
   ingest(events: readonly EventEnvelope[]): Promise<void>;
   createExperiment(siteId: string, input: CreateExperiment): Promise<Experiment>;
   getExperiment(siteId: string, experimentId: string): Promise<Experiment>;

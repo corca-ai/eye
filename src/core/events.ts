@@ -1,5 +1,5 @@
 import { EyeError, invariant } from './errors.js';
-import { attributes, id, number, record, RETENTION_MS, settings, subject, timestamp } from './validation.js';
+import { attributes, id, number, record, RETENTION_MS, settings, subject, timestamp, sampleId } from './validation.js';
 import type { Assignment, CreateExperiment, EventEnvelope, EyeEvent } from './types.js';
 
 export function parseAssignment(value: unknown): Assignment {
@@ -7,14 +7,11 @@ export function parseAssignment(value: unknown): Assignment {
   const generation = timestamp(v.generation, 'generation');
   const probability = number(v.probability, 'probability');
   invariant(generation >= 1 && probability > 0 && probability <= 1, 'invalid_input', 'Invalid assignment generation or probability');
-  const rawSettings = record(v.settings, 'settings');
-  const parsedSettings = settings({ ...rawSettings, correctionWindowMs: rawSettings.correctionWindowMs === undefined ? RETENTION_MS : rawSettings.correctionWindowMs });
-  // Preserve legacy assignment serialization; never retrofit a shorter deadline.
-  const { correctionWindowMs, ...legacySettings } = parsedSettings;
+  const parsedSettings = settings(v.settings);
   return {
     assignmentId: id(v.assignmentId, 'assignmentId'), experimentId: id(v.experimentId, 'experimentId'),
     armId: id(v.armId, 'armId'), generation, assignedAt: timestamp(v.assignedAt, 'assignedAt'),
-    policyRevision: timestamp(v.policyRevision, 'policyRevision'), probability, settings: rawSettings.correctionWindowMs === undefined ? legacySettings : parsedSettings,
+    policyRevision: timestamp(v.policyRevision, 'policyRevision'), probability, settings: parsedSettings,
   };
 }
 export function parseEvent(value: unknown): EyeEvent {
@@ -30,7 +27,14 @@ export function parseEvent(value: unknown): EyeEvent {
       invariant(v.routingKey === undefined || (typeof v.routingKey === 'string' && v.routingKey.length <= 2048), 'invalid_input', 'Invalid exposure routing key');
       const assignment = parseAssignment(v.assignment);
       invariant(base.occurredAt >= assignment.assignedAt, 'invalid_input', 'Exposure predates assignment');
+      const sample = v.sample === undefined ? undefined : record(v.sample, 'sample');
+      const sampleValue = sample === undefined ? undefined : { sampleId: sampleId(sample.sampleId), startAt: timestamp(sample.startAt, 'sample.startAt') };
+      if (sampleValue) invariant(sampleValue.startAt >= assignment.assignedAt && base.occurredAt >= sampleValue.startAt
+        && base.occurredAt < sampleValue.startAt + assignment.settings.observationWindowMs, 'invalid_input', 'Invalid sample interval');
+      const horizon = v.attributionWindowMs === undefined ? undefined : timestamp(v.attributionWindowMs, 'attributionWindowMs');
+      if (horizon !== undefined) invariant(horizon > 0 && horizon <= RETENTION_MS, 'invalid_input', 'Invalid attribution horizon');
       return {
+      ...(sampleValue === undefined ? {} : { sample: sampleValue }), ...(horizon === undefined ? {} : { attributionWindowMs: horizon }),
       ...base, kind: 'exposure', assignment,
       ...(v.routingKey === undefined ? {} : { routingKey: v.routingKey }),
       ...(v.userAttributes === undefined ? {} : { userAttributes: attributes(v.userAttributes) }),

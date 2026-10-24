@@ -24,6 +24,16 @@
 - [Attributes](#attributes)
 - [AttributeValueRow](#attributevaluerow)
 - [AttributeValuesQuery](#attributevaluesquery)
+- [BrowserChoice](#browserchoice)
+- [BrowserEventResult](#browsereventresult)
+- [BrowserExposure](#browserexposure)
+- [BrowserOptions](#browseroptions)
+- [BrowserSample](#browsersample)
+- [BrowserSelection](#browserselection)
+- [BrowserServerOptions](#browserserveroptions)
+- [BrowserSnapshot](#browsersnapshot)
+- [BrowserState](#browserstate)
+- [BrowserView](#browserview)
 - [CidCookie](#cidcookie)
 - [CidCookieOptions](#cidcookieoptions)
 - [CreateExperiment](#createexperiment)
@@ -38,8 +48,12 @@
 - [ExperimentSettings](#experimentsettings)
 - [ExperimentStatus](#experimentstatus)
 - [ExposureEvent](#exposureevent)
+- [ExposureInput](#exposureinput)
+- [EyeBrowser](#eyebrowser)
 - [EyeEvent](#eyeevent)
 - [EyeOptions](#eyeoptions)
+- [EyeRequest](#eyerequest)
+- [EyeRequestOptions](#eyerequestoptions)
 - [EyeService](#eyeservice)
 - [Filter](#filter)
 - [GoalDefinition](#goaldefinition)
@@ -67,10 +81,13 @@
 - [TrackEvent](#trackevent)
 - [TrafficQuery](#trafficquery)
 - [TrafficRow](#trafficrow)
+- [UnreservedPolicyEvaluation](#unreservedpolicyevaluation)
+- [VariantDefinition](#variantdefinition)
+- [VariantSelection](#variantselection)
 
 ## AnalyticsAPI
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L61)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L64)
 
 ```ts
 export interface AnalyticsAPI {
@@ -107,7 +124,7 @@ export interface AnalyticsMeta {
 
 ## AnalyticsPage
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L50)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L53)
 
 ```ts
 /** rows는 집계 결과. meta.truncated이면 범위·조건을 좁힌다. 일반 집계에는 다음 페이지 cursor가 없다. */
@@ -130,8 +147,6 @@ export interface ArmEvaluation {
     readonly weight: number;
     /** 원래 가치 단위의 감쇠 평균. 해당 arm 자료가 없으면 전체 arm의 평균(전체도 없으면 0). */
     readonly meanReward: number;
-    /** 결과를 기다리는 유효 예약·관측 수. 완료 표본에 포함하지 않는다. */
-    readonly pending: number;
     /** Compare scores in shared scoreScale units to avoid raw-score overflow. */
     readonly score: number;
     /** 현재 신규 선택의 확률. 기존 배정 유지 요청의 실제 노출 비율과 다르다. */
@@ -166,10 +181,11 @@ export interface ArmQuery extends QueryRange {
 
 ## ArmReport
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L51)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L54)
 
 ```ts
 export interface ArmReport extends AnalyticsPage<ArmRow> {
+    rewardBasis: 'raw_attribution';
     cohortBasis: 'observation_start';
 }
 ```
@@ -190,7 +206,10 @@ export interface ArmRow {
     pending: number;
     interrupted: number;
     subjects: number;
+    /** 현재 조회 가능한 원본으로 재계산한 귀속 보상. */
     totalValue: number;
+    /** 확정 당시 학습에 반영한 전체 goal 보상. goalId 필터와 무관하다. */
+    learningValue: number;
     meanValue: number | null;
     latestReceivedAt: number;
 }
@@ -200,7 +219,7 @@ export interface ArmRow {
 
 ## ArmSeriesQuery
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L53)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L56)
 
 ```ts
 export interface ArmSeriesQuery extends ArmQuery {
@@ -212,7 +231,7 @@ export interface ArmSeriesQuery extends ArmQuery {
 
 ## ArmSeriesRow
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L54)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L57)
 
 ```ts
 export interface ArmSeriesRow extends ArmRow {
@@ -234,7 +253,7 @@ export type ArmStatus = 'active' | 'paused' | 'deleted';
 
 ## AssignedDecision
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L43)
+[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L42)
 
 ```ts
 export type AssignedDecision = Extract<Decision, {
@@ -246,7 +265,7 @@ export type AssignedDecision = Extract<Decision, {
 
 ## Assignment
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L54)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L52)
 
 ```ts
 /** 서버가 발급한 배정. settings는 배정 당시 고정되며 probability는 신규 선택 당시 확률이다. 직접 만들거나 수정하지 않는다. */
@@ -279,7 +298,7 @@ export interface AttributeField {
 
 ## AttributeKeyReport
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L60)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L63)
 
 ```ts
 export interface AttributeKeyReport extends AnalyticsPage<AttributeKeyRow> {
@@ -295,7 +314,7 @@ export interface AttributeKeyReport extends AnalyticsPage<AttributeKeyRow> {
 
 ## AttributeKeyRow
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L59)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L62)
 
 ```ts
 export interface AttributeKeyRow {
@@ -322,7 +341,7 @@ export type Attributes = Readonly<Record<string, string | number | boolean | nul
 
 ## AttributeValueRow
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L48)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L51)
 
 ```ts
 export interface AttributeValueRow {
@@ -346,6 +365,166 @@ export interface AttributeValuesQuery extends QueryRange {
 ```
 
 타입: [AttributeField](types.md#attributefield) · [AttributeValuesQuery](types.md#attributevaluesquery) · [Filter](types.md#filter) · [QueryRange](types.md#queryrange)
+
+## BrowserChoice
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser-types.ts#L2)
+
+```ts
+/** Wire format shared by the browser and host Worker; receipts are opaque. */
+export interface BrowserChoice {
+    experimentId: string;
+    armId: string;
+    receipt: string;
+    applyUntil: number;
+    assignmentId?: string;
+    observationWindowMs?: number;
+    sample?: BrowserSample;
+}
+```
+
+타입: [BrowserChoice](types.md#browserchoice) · [BrowserSample](types.md#browsersample)
+
+## BrowserEventResult
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser-types.ts#L7)
+
+```ts
+export interface BrowserEventResult {
+    eventId: string;
+    accepted: boolean;
+}
+```
+
+타입: [BrowserEventResult](types.md#browsereventresult)
+
+## BrowserExposure
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser-types.ts#L6)
+
+```ts
+export interface BrowserExposure {
+    eventId: string;
+    receipt: string;
+    occurredAt: number;
+    sample?: BrowserSample;
+}
+```
+
+타입: [BrowserExposure](types.md#browserexposure) · [BrowserSample](types.md#browsersample)
+
+## BrowserOptions
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L4)
+
+```ts
+export interface BrowserOptions {
+    scope: string;
+    initial?: BrowserSnapshot;
+    /** Host POST endpoints. Same origin by default; authentication stays in host cookies. */
+    prepareUrl?: string;
+    eventsUrl?: string;
+    /** Defaults to tab sessionStorage. A custom adapter may retain state across reloads. */
+    storage?: {
+        getItem(key: string): string | null;
+        setItem(key: string, value: string): void;
+        removeItem(key: string): void;
+    };
+    onError?: (error: unknown) => void;
+    /** Optional transport adapters for existing data APIs and tests. */
+    prepare?: (experiments: string[], states: Readonly<Record<string, BrowserState>>) => Promise<BrowserSnapshot>;
+    send?: (events: BrowserExposure[]) => Promise<BrowserEventResult[]>;
+}
+```
+
+타입: [BrowserEventResult](types.md#browsereventresult) · [BrowserExposure](types.md#browserexposure) · [BrowserOptions](types.md#browseroptions) · [BrowserSnapshot](types.md#browsersnapshot) · [BrowserState](types.md#browserstate)
+
+## BrowserSample
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser-types.ts#L4)
+
+```ts
+export interface BrowserSample {
+    sampleId: string;
+    startAt: number;
+}
+```
+
+타입: [BrowserSample](types.md#browsersample)
+
+## BrowserSelection
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L17)
+
+```ts
+export interface BrowserSelection<T> {
+    readonly value: T;
+    readonly armId: string | null;
+    /** True means queued locally, not delivered. Fallback/disposed/expired selections return false. */
+    expose(): boolean;
+}
+```
+
+타입: [BrowserSelection](types.md#browserselection)
+
+## BrowserServerOptions
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser-server.ts#L11)
+
+```ts
+export interface BrowserServerOptions extends EyeOptions {
+    subject: Subject;
+    /** Host-authenticated browser binding, stable across login/logout, never taken from request JSON. */
+    browserBinding: string;
+    /** Host authentication epoch; rotate on every login/logout/account switch. */
+    scope: string;
+    /** Secret of at least 32 UTF-8 bytes; kept on server. Domain-separated from decision signing. */
+    receiptSecret: string;
+    userAttributes?: Attributes;
+}
+```
+
+타입: [Attributes](types.md#attributes) · [BrowserServerOptions](types.md#browserserveroptions) · [EyeOptions](types.md#eyeoptions) · [Subject](types.md#subject)
+
+## BrowserSnapshot
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser-types.ts#L3)
+
+```ts
+export interface BrowserSnapshot {
+    scope: string;
+    serverNow: number;
+    choices: BrowserChoice[];
+}
+```
+
+타입: [BrowserChoice](types.md#browserchoice) · [BrowserSnapshot](types.md#browsersnapshot)
+
+## BrowserState
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser-types.ts#L5)
+
+```ts
+export interface BrowserState {
+    receipt: string;
+    sample?: BrowserSample;
+}
+```
+
+타입: [BrowserSample](types.md#browsersample) · [BrowserState](types.md#browserstate)
+
+## BrowserView
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L23)
+
+```ts
+export interface BrowserView {
+    variant<T>(definition: VariantDefinition<T>, placement?: string): BrowserSelection<T>;
+    dispose(): void;
+}
+```
+
+타입: [BrowserSelection](types.md#browserselection) · [BrowserView](types.md#browserview) · [VariantDefinition](types.md#variantdefinition)
 
 ## CidCookie
 
@@ -378,7 +557,7 @@ export interface CidCookieOptions {
 
 ## CreateExperiment
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L38)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L36)
 
 ```ts
 /** 최초 정의. arms는 중복 없는 비어 있지 않은 ID 목록이다. settings에서 minHoldMs만 필수다. */
@@ -393,7 +572,7 @@ export interface CreateExperiment {
 
 ## Decision
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L64)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L62)
 
 ```ts
 export type Decision = {
@@ -401,6 +580,8 @@ export type Decision = {
     readonly assignment: Assignment;
     readonly reason: 'selected' | 'held' | 'adopted';
     readonly routingKey?: string;
+    readonly localContext?: import('./local-assignment.js').LocalAssignmentContext;
+    readonly applyUntil?: number;
 } | {
     readonly status: 'no_active_arm' | 'unavailable';
     readonly experimentId: string;
@@ -411,7 +592,7 @@ export type Decision = {
 
 ## DecisionMetric
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/decisions.ts#L8)
+[소스](https://github.com/corca-ai/eye/blob/main/src/decisions.ts#L9)
 
 ```ts
 export interface DecisionMetric {
@@ -427,7 +608,7 @@ export interface DecisionMetric {
 
 ## DecisionOptions
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/decisions.ts#L13)
+[소스](https://github.com/corca-ai/eye/blob/main/src/decisions.ts#L14)
 
 ```ts
 export interface DecisionOptions {
@@ -443,7 +624,7 @@ export interface DecisionOptions {
     maxAgeMs?: number;
     /** 로컬 결정마다 동기 호출. 미참여율 측정용이며 느린 I/O를 여기서 기다리지 않는다. */
     onDecision?: (metric: DecisionMetric) => void;
-    /** 미준비 상태와 만료가 가까운 토큰을 백그라운드에서 준비·갱신한다. 다음 요청이 읽을 서버 세션에 저장한다. 응답 반환 후 헤더는 수정할 수 없다. */
+    /** 로컬 배정 또는 실제 노출로 상태가 바뀌면 서명 후 호출한다. 다음 요청이 읽을 서버 세션에 저장한다. 쿠키는 state()를 기다린 뒤 응답에 쓴다. */
     onPrepared?: (experimentId: string, token: string) => Promise<void> | void;
 }
 ```
@@ -463,7 +644,7 @@ export type ErrorCode = 'invalid_input' | 'not_found' | 'conflict' | 'deleted' |
 
 ## EventBase
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L68)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L66)
 
 ```ts
 interface EventBase {
@@ -480,7 +661,7 @@ interface EventBase {
 
 ## EventEnvelope
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L83)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L82)
 
 ```ts
 export interface EventEnvelope {
@@ -508,7 +689,7 @@ export type EventInput<T> = Omit<T, 'kind' | 'eventId' | 'occurredAt'> & {
 
 ## Experiment
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L43)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L41)
 
 ```ts
 export interface Experiment {
@@ -534,7 +715,11 @@ export interface Experiment {
 
 ```ts
 export interface ExperimentSettings {
-    /** 필수. 배정 시각부터 같은 arm을 유지할 최소 시간(ms), 0 이상. 실제 재배정은 관측 종료와 준비 토큰의 안전 유지 기간도 기다린다. */
+    /** 기본 7일. 마지막 실제 노출의 유한한 귀속 기간(ms). */
+    readonly attributionWindowMs?: number;
+    /** 기본 0.2. 충분한 최근 표본이 없는 arm들의 초기 탐색 예산. */
+    readonly bootstrapShare?: number;
+    /** 필수. 배정 시각부터 같은 arm을 유지할 최소 시간(ms), 0 이상. 실제 재배정은 진행 중인 관측 종료도 기다린다. */
     readonly minHoldMs: number;
     /** 기본 7일. 첫 실제 노출부터 한 완료 표본을 평가하는 기간(ms), 양의 정수. */
     readonly observationWindowMs: number;
@@ -542,22 +727,16 @@ export interface ExperimentSettings {
     readonly attributionHalfLifeMs: number;
     /** 기본 14일. 완료 표본의 학습 가중치를 잊는 반감기(ms), 양의 정수. 귀속 반감기와 독립적이다. */
     readonly learningHalfLifeMs: number;
-    /** 기본 1시간. 관측 종료 후 최초 완료를 기다리는 시간(ms), 0 이상. observationWindowMs와 합이 60일 이하여야 한다. */
+    /** 기본 1시간. 관측 종료 후 최초 완료를 기다리는 시간(ms), 0 이상. 사이트의 과거 최대 관측·유예·귀속 기간 합이 60일에서 1시간을 뺀 값보다 작아야 한다. */
     readonly allowedLatenessMs: number;
-    /** 신규 기본 7일. 관측 종료 후 학습 정정을 허용하는 기간(ms). allowedLatenessMs 이상, 60일 이하. 이 필드가 없는 과거 배정은 60일이다. */
-    readonly correctionWindowMs?: number;
     /** 기본 0.02. 신규 배정 전체 중 균등 탐색 비율, 0 초과 1 이하. arm별 하한은 이 값 / 활성 arm 수이다. */
     readonly explorationFloor: number;
     /** 기본 1. 분산이 작거나 자료가 없을 때 탐색 보너스의 최소 가치 척도, 양수. 보상을 자르는 상한이 아니다. */
     readonly rewardScale: number;
     /** 기본 2. 불확실성 보너스 배수, 양수. 높이면 score에서 불확실성의 비중이 커진다. */
     readonly bonusMultiplier: number;
-    /** 기본 1. 아직 결과가 없는 예약·관측의 탐색 보너스 억제 계수, 양수. */
-    readonly pendingPenalty: number;
-    /** 기본 8. 감쇠 표본 가중치와 pending 수가 각각 이 값보다 작은 arm에 초기 탐색을 우선하는 기준, 양의 정수. */
+    /** 기본 8. 감쇠 표본 가중치가 이 값보다 작은 arm을 초기 탐색 대상으로 보는 기준, 양의 정수. */
     readonly bootstrapQuota: number;
-    /** 기본 5분. 첫 노출을 기다리는 중앙 예약의 만료 시간(ms), 양의 정수. 정책 캐시 수명이나 최소 유지 기간과 다르다. */
-    readonly reservationTtlMs: number;
 }
 ```
 
@@ -575,7 +754,7 @@ export type ExperimentStatus = ArmStatus;
 
 ## ExposureEvent
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L78)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L76)
 
 ```ts
 export type ExposureEvent = EventBase & {
@@ -583,14 +762,49 @@ export type ExposureEvent = EventBase & {
     readonly assignment: Assignment;
     readonly userAttributes?: Attributes;
     readonly routingKey?: string;
+    readonly sample?: {
+        readonly sampleId: string;
+        readonly startAt: number;
+    };
+    readonly attributionWindowMs?: number;
 };
 ```
 
 타입: [Assignment](types.md#assignment) · [Attributes](types.md#attributes) · [EventBase](types.md#eventbase) · [ExposureEvent](types.md#exposureevent)
 
+## ExposureInput
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/request.ts#L15)
+
+```ts
+export interface ExposureInput {
+    eventId?: string;
+    occurredAt?: number;
+    userAttributes?: Attributes;
+    attributes?: Attributes;
+}
+```
+
+타입: [Attributes](types.md#attributes) · [ExposureInput](types.md#exposureinput)
+
+## EyeBrowser
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L27)
+
+```ts
+export interface EyeBrowser {
+    setScope(scope: string): void;
+    beginView(): BrowserView;
+    flush(): Promise<void>;
+    dispose(): void;
+}
+```
+
+타입: [BrowserView](types.md#browserview) · [EyeBrowser](types.md#eyebrowser)
+
 ## EyeEvent
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L82)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L81)
 
 ```ts
 export type EyeEvent = TrackEvent | GoalEvent | ExposureEvent | IdentityEvent;
@@ -619,16 +833,51 @@ export interface EyeOptions {
 
 타입: [DecisionOptions](types.md#decisionoptions) · [EyeOptions](types.md#eyeoptions) · [EyeService](types.md#eyeservice)
 
+## EyeRequest
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/request.ts#L30)
+
+```ts
+/** 사용자 요청용 API. 관리·분석·명시적 준비·신원 전환에는 기존 createEye를 사용한다. */
+export interface EyeRequest {
+    /** 응답 쿠키 등에 저장할 서명 문맥. 원격 호출 없이 로컬 서명 완료를 기다린다. */
+    state(): Promise<Record<string, string>>;
+    /** 원격 응답을 기다리지 않고 지원하는 arm의 값을 선택한다. 오류·미준비·미지원 arm은 fallback이다. */
+    variant<T>(definition: VariantDefinition<T>): Promise<VariantSelection<T>>;
+    /** 신원을 다시 전달하지 않는다. 접수 거절과 비동기 전송 실패 모두 onError로 보고한다. */
+    track(input: Omit<EventInput<TrackEvent>, 'subject'>): Submission;
+    /** 사이트가 확정한 값. 재전송은 원래 eventId·occurredAt·subject·payload를 보존한다. */
+    goal(input: Omit<EventInput<GoalEvent>, 'subject'>): Submission;
+}
+```
+
+타입: [EventInput](types.md#eventinput) · [EyeRequest](types.md#eyerequest) · [GoalEvent](types.md#goalevent) · [Submission](types.md#submission) · [TrackEvent](types.md#trackevent) · [VariantDefinition](types.md#variantdefinition) · [VariantSelection](types.md#variantselection)
+
+## EyeRequestOptions
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/request.ts#L6)
+
+```ts
+/** 요청마다 생성하며 신원은 생성 당시 값으로 고정한다. 로그인 전환 뒤에는 새 인스턴스를 만든다. */
+export interface EyeRequestOptions extends EyeOptions {
+    subject: Subject;
+    /** 첫 실제 노출의 사용자군 속성. 개별 expose에서 덮어쓸 수 있다. */
+    userAttributes?: Attributes;
+    /** false면 실험 선택·준비·노출을 생략한다. track/goal 수집은 유지한다. 기본 true. */
+    experimentsEnabled?: boolean;
+}
+```
+
+타입: [Attributes](types.md#attributes) · [EyeOptions](types.md#eyeoptions) · [EyeRequestOptions](types.md#eyerequestoptions) · [Subject](types.md#subject)
+
 ## EyeService
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L16)
+[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L17)
 
 ```ts
 /** Structural RPC contract: hosts may name their Service Binding freely. */
 export interface EyeService {
     getPublishedPolicy(siteId: string, experimentId: string): Promise<PublishedPolicy>;
-    prepareDecision(siteId: string, subject: Subject, experimentId: string): Promise<PreparedDecision>;
-    decide(siteId: string, subject: Subject, experimentId: string): Promise<Decision>;
     ingest(events: readonly EventEnvelope[]): Promise<void>;
     createExperiment(siteId: string, input: CreateExperiment): Promise<Experiment>;
     getExperiment(siteId: string, experimentId: string): Promise<Experiment>;
@@ -654,7 +903,7 @@ export interface EyeService {
 }
 ```
 
-타입: [AnalyticsAPI](types.md#analyticsapi) · [ArmStatus](types.md#armstatus) · [CreateExperiment](types.md#createexperiment) · [Decision](types.md#decision) · [EventEnvelope](types.md#eventenvelope) · [Experiment](types.md#experiment) · [ExperimentSettings](types.md#experimentsettings) · [EyeService](types.md#eyeservice) · [GoalDefinition](types.md#goaldefinition) · [GoalStatus](types.md#goalstatus) · [PolicySnapshot](types.md#policysnapshot) · [PreparedDecision](types.md#prepareddecision) · [PublishedPolicy](types.md#publishedpolicy) · [Subject](types.md#subject)
+타입: [AnalyticsAPI](types.md#analyticsapi) · [ArmStatus](types.md#armstatus) · [CreateExperiment](types.md#createexperiment) · [EventEnvelope](types.md#eventenvelope) · [Experiment](types.md#experiment) · [ExperimentSettings](types.md#experimentsettings) · [EyeService](types.md#eyeservice) · [GoalDefinition](types.md#goaldefinition) · [GoalStatus](types.md#goalstatus) · [PolicySnapshot](types.md#policysnapshot) · [PublishedPolicy](types.md#publishedpolicy)
 
 ## Filter
 
@@ -690,7 +939,7 @@ export type Filter = {
 
 ## GoalDefinition
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/runtime/site.ts#L7)
+[소스](https://github.com/corca-ai/eye/blob/main/src/runtime/site.ts#L12)
 
 ```ts
 export interface GoalDefinition {
@@ -706,7 +955,7 @@ export interface GoalDefinition {
 
 ## GoalEvent
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L77)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L75)
 
 ```ts
 export type GoalEvent = EventBase & {
@@ -733,7 +982,7 @@ export interface GoalQuery extends QueryRange {
 
 ## GoalRow
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L46)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L49)
 
 ```ts
 export interface GoalRow {
@@ -758,7 +1007,7 @@ export type GoalStatus = 'active' | 'paused' | 'deleted';
 
 ## IdentityEvent
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L81)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L80)
 
 ```ts
 export type IdentityEvent = EventBase & {
@@ -780,7 +1029,7 @@ export type ObservationStatus = 'pending' | 'complete' | 'interrupted';
 
 ## PolicyEvaluation
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/policy.ts#L24)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/policy.ts#L22)
 
 ```ts
 export interface PolicyEvaluation {
@@ -795,7 +1044,7 @@ export interface PolicyEvaluation {
 
 ## PolicyHistoryRow
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L58)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L61)
 
 ```ts
 export interface PolicyHistoryRow {
@@ -816,7 +1065,7 @@ export interface PolicyHistoryRow {
 
 ## PolicyQuery
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L57)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L60)
 
 ```ts
 export interface PolicyQuery extends QueryRange {
@@ -832,8 +1081,8 @@ export interface PolicyQuery extends QueryRange {
 [소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L7)
 
 ```ts
-/** statsAsOf는 보유 shard snapshot들의 최소 시각이며 null은 snapshot 없음. 전체 데이터 수신 완료 watermark가 아니다. */
-export interface PolicySnapshot extends PolicyEvaluation {
+/** statsAsOf는 마지막 적용한 마감 구간의 기준 시각이며 null은 적용 이력 없음. 전체 데이터 수신 완료 watermark가 아니다. */
+export interface PolicySnapshot extends UnreservedPolicyEvaluation {
     experimentId: string;
     generation: number;
     revision: number;
@@ -841,14 +1090,14 @@ export interface PolicySnapshot extends PolicyEvaluation {
 }
 ```
 
-타입: [PolicyEvaluation](types.md#policyevaluation) · [PolicySnapshot](types.md#policysnapshot)
+타입: [PolicySnapshot](types.md#policysnapshot) · [UnreservedPolicyEvaluation](types.md#unreservedpolicyevaluation)
 
 ## PreparedDecision
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L14)
+[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L15)
 
 ```ts
-/** reuseUntil은 배정 토큰 재사용 만료 Unix 밀리초. 최대 15분이며 열린 관측의 종료를 넘지 않는다. 명시적 prepare 결과에는 token도 추가된다. */
+/** reuseUntil은 이번 결정의 적용 기한(Unix 밀리초)이다. 정책 유효기간과 유지·관측 조건으로 결정하며 저장 문맥의 삭제 시각은 아니다. */
 export interface PreparedDecision {
     decision: Decision;
     reuseUntil: number;
@@ -864,6 +1113,7 @@ export interface PreparedDecision {
 
 ```ts
 export interface PublishedPolicy extends PolicySnapshot {
+    settings: ExperimentSettings;
     publishedAt: number;
     sequence: number;
     status: ArmStatus;
@@ -871,7 +1121,7 @@ export interface PublishedPolicy extends PolicySnapshot {
 }
 ```
 
-타입: [ArmStatus](types.md#armstatus) · [PolicySnapshot](types.md#policysnapshot) · [PublishedPolicy](types.md#publishedpolicy)
+타입: [ArmStatus](types.md#armstatus) · [ExperimentSettings](types.md#experimentsettings) · [PolicySnapshot](types.md#policysnapshot) · [PublishedPolicy](types.md#publishedpolicy)
 
 ## QueryRange
 
@@ -913,7 +1163,7 @@ export interface SeriesQuery extends GoalQuery {
 
 ## SeriesRow
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L47)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L50)
 
 ```ts
 export interface SeriesRow extends GoalRow {
@@ -959,7 +1209,7 @@ export type Submission = {
 
 ## TimelinePage
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L52)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L55)
 
 ```ts
 export interface TimelinePage extends AnalyticsPage<TimelineRow> {
@@ -982,7 +1232,7 @@ export interface TimelineQuery extends QueryRange {
         uid: string;
         cid?: never;
     };
-    /** Include anonymous events only inside explicitly known login intervals. Defaults to true. */
+    /** Include anonymous events in the interval claimed by the first subsequent login. Defaults to true. */
     includeLinked?: boolean;
     cursor?: string;
 }
@@ -992,7 +1242,7 @@ export interface TimelineQuery extends QueryRange {
 
 ## TimelineRow
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L38)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L41)
 
 ```ts
 export interface TimelineRow {
@@ -1018,7 +1268,7 @@ export interface TimelineRow {
 
 ## TrackEvent
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L76)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L74)
 
 ```ts
 export type TrackEvent = EventBase & {
@@ -1031,7 +1281,7 @@ export type TrackEvent = EventBase & {
 
 ## TrafficQuery
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L55)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L58)
 
 ```ts
 export interface TrafficQuery extends QueryRange {
@@ -1044,7 +1294,7 @@ export interface TrafficQuery extends QueryRange {
 
 ## TrafficRow
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L56)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L59)
 
 ```ts
 export interface TrafficRow {
@@ -1059,3 +1309,47 @@ export interface TrafficRow {
 ```
 
 타입: [TrafficRow](types.md#trafficrow)
+
+## UnreservedPolicyEvaluation
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/policy.ts#L62)
+
+```ts
+export type UnreservedPolicyEvaluation = Omit<PolicyEvaluation, 'arms'> & {
+    readonly arms: readonly ArmEvaluation[];
+};
+```
+
+타입: [ArmEvaluation](types.md#armevaluation) · [PolicyEvaluation](types.md#policyevaluation) · [UnreservedPolicyEvaluation](types.md#unreservedpolicyevaluation)
+
+## VariantDefinition
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser-types.ts#L10)
+
+```ts
+/** 서비스가 지원하는 arm → 화면 값. fallback은 배정과 별개의 미참여 값이다. */
+export interface VariantDefinition<T> {
+    experimentId: string;
+    variants: Readonly<Record<string, T>>;
+    fallback: T;
+}
+```
+
+타입: [VariantDefinition](types.md#variantdefinition)
+
+## VariantSelection
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/request.ts#L22)
+
+```ts
+/** 실제 적용한 뒤 expose를 호출한다. 하나의 핸들은 한 노출을 나타내며 중복 호출은 첫 결과를 반환한다. */
+export interface VariantSelection<T> {
+    value: T;
+    /** null이면 미참여다. fallback이 control 화면과 같아도 control 노출이 아니다. */
+    armId: string | null;
+    /** fallback에서는 null. assigned에서는 로컬 접수 결과이며 영속 저장 확인이 아니다. */
+    expose(input?: ExposureInput): Submission | null;
+}
+```
+
+타입: [ExposureInput](types.md#exposureinput) · [Submission](types.md#submission) · [VariantSelection](types.md#variantselection)
