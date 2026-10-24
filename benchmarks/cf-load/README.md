@@ -52,3 +52,5 @@ fixture seed는 과거 골 등록 절차를 생략하는 벤치마크 전용 RPC
 `state_churn`은 유지 기간 중 배정이나 관측 표본이 바뀌면 실패한다. HTTP/이벤트 거부/누락된 iteration과 응답·상태 계약도 검사한다. 미참여율은 신규·반복·신원별로 보고하며 임의의 통과 기준으로 숨기지 않는다. 정책 cold start가 있는 최초 요청은 정상적으로 미참여할 수 있다. 외부 지연은 단일 지역 생성기에서 측정한 값이며 `eye_local_ms=0`은 CPU 사용 0을 뜻하지 않는다.
 
 `results/stateful-*/manifest.json`에 사이트, phase별 시작/종료 시각과 종료 코드가 남는다. 오류 시 해당 결과와 실행 프로세스를 확인하고, 관찰 timeout만으로 새 부하를 중복 실행하지 않는다. 각 실행은 독립 사이트이므로 다시 실행하면 새 데이터가 생긴다. 생성기 로그/요약과 Cloudflare 계측의 시간 범위를 맞춰 비교한다. 원본 결과와 자격 증명은 커밋하지 않는다.
+
+수집 반영 후 `node stateful-collection.mjs results/STATEFUL_RUN_DIRECTORY`는 성공 완료된 Eye phase의 제출 총계, 실험/arm별 노출, 익명/로그인별 노출을 Basin의 고유 사건 수와 대조한다. SQL 기능은 `cf sql query`가 지원하지 않는 Basin warehouse API를 사용한다. 불일치는 exit 1이며 새 전송 없이 같은 명령으로 가시성을 재확인한다. 실행 중에도 완료된 phase만 점검할 수 있으므로 `matching=true`만으로 전체 시험 완료를 주장하지 않는다. `fullRunFinished`와 manifest의 모든 phase를 함께 확인한다. 이는 집계별 수집 품질 검사이며 전송 사건 ID 전체의 집합 동등성이나 arm×신원 교차 집계를 검증한 것은 아니다.
