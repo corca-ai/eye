@@ -88,6 +88,13 @@ export default {
       const ref = { scope: 'benchmark', jobId: url.searchParams.get('jobId') ?? '' };
       return Response.json(url.searchParams.has('page') ? await admin.analytics.jobs.page({ ...ref, limit: 1, offset: Number(url.searchParams.get('offset') ?? 0) }) : await admin.analytics.jobs.status(ref));
     }
+    if (url.pathname === '/benchmark/drain') {
+      if (!siteId.startsWith('cohort-')) return new Response('Dedicated fixture required', { status: 400 });
+      if (request.method === 'POST') for (let i = 0; i < 3; i++)
+        await admin.experiments.create({ experimentId: `exp-${i}`, arms: ['arm-0', 'arm-1', 'arm-2'], settings: { minHoldMs: 0 } });
+      const from = request.method === 'POST' ? Number(url.searchParams.get('from')) : undefined;
+      return Response.json(await (env.EYE as unknown as { benchmarkDrain(site: string, from?: number): Promise<unknown> }).benchmarkDrain(siteId, from));
+    }
     if (url.pathname === '/benchmark/seed' && request.method === 'POST') {
       const input = await request.json() as unknown[];
       return Response.json(await (env.EYE as unknown as { benchmarkSeed(input: unknown[]): Promise<unknown> }).benchmarkSeed(input));

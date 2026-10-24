@@ -3,13 +3,46 @@ import { LearningSource } from '../../../src/runtime/learning';
 import { parseEnvelope } from '../../../src/core/events';
 import { rawRecords } from '../../../src/analytics/raw';
 import { exportBatches } from '../../../src/analytics/export';
-export { SiteControl, ExperimentObject, ReportObject } from '../../../src/worker';
+import { SiteControl as ProductionSiteControl } from '../../../src/worker';
+export { ExperimentObject, ReportObject } from '../../../src/worker';
+
+/** Private benchmark hook; the inherited alarm runs the unchanged production path. */
+export class SiteControl extends ProductionSiteControl {
+  override async fetch(request: Request): Promise<Response> {
+    if (new URL(request.url).pathname !== '/benchmark/drain') return new Response(null, { status: 404 });
+    if (request.method === 'POST') {
+      const from = Number(new URL(request.url).searchParams.get('from'));
+      if (!Number.isSafeInteger(from) || from % 3600000 !== 0 || from < Date.now() - 59 * 86400000 || from >= Date.now() - 3600000)
+        return new Response('Invalid historical hour', { status: 400 });
+      if (!this.kv.get('siteId')) return new Response('Register experiments first', { status: 409 });
+      const original = this.kv.get<number>('benchmarkDrainFrom');
+      if (original !== undefined && original !== from) return new Response('Already initialized', { status: 409 });
+      if (original === undefined) {
+        this.atomic(() => {
+          this.kv.put('benchmarkDrainFrom', from); this.kv.put('benchmarkDrainStartedAt', Date.now()); this.kv.put('learningFrom', from);
+          this.kv.delete('learningAfter'); this.kv.put('alarmAt', Date.now() + 1000);
+        });
+        await this.ctx.storage.setAlarm(this.kv.get<number>('alarmAt')!);
+      }
+    } else if (request.method !== 'GET') return new Response(null, { status: 405 });
+    return Response.json({ initializedAt: this.kv.get('benchmarkDrainStartedAt') ?? null, from: this.kv.get('learningFrom'), after: this.kv.get('learningAfter') ?? '',
+      failures: this.kv.get('alarmFailures') ?? 0, retryAt: this.kv.get('alarmRetryAt') ?? null,
+      alarmAt: await this.ctx.storage.getAlarm() });
+  }
+}
 
 /** Benchmark-only RPC entry point. HTTP is disabled and the host authenticates all access.
  * Never use this entry point in the installation template: seed bypasses goal registration
  * deliberately, so historical deterministic fixtures can be compared between versions.
  */
 export default class BenchmarkEye extends EyeWorker {
+  async benchmarkDrain(siteId: string, from?: number) {
+    if (!siteId.startsWith('cohort-')) throw new Error('Only dedicated cohort fixtures are allowed');
+    const url = `https://benchmark/benchmark/drain${from === undefined ? '' : `?from=${from}`}`;
+    const response = await this.env.SITES.getByName(siteId).fetch(new Request(url, { method: from === undefined ? 'GET' : 'POST' }));
+    if (!response.ok) throw new Error(`Drain hook HTTP ${response.status}`);
+    return { state: await response.json(), policies: await Promise.all([0, 1, 2].map(i => this.getPolicy(siteId, `exp-${i}`))) };
+  }
   async benchmarkSeed(input: unknown[]) {
     if (!Array.isArray(input) || input.length > 100) throw new Error('Fixture batch must be <=100');
     const rows = input.flatMap(item => rawRecords(parseEnvelope(item, Date.now())));
