@@ -167,7 +167,7 @@ it('validates schedules, isolates sites, and drops the previous result when repo
   } finally { query.mockRestore(); }
 });
 
-it('does not publish an in-flight result into a changed schedule and bounds scheduled admission', async () => {
+it('does not publish an in-flight result into a changed schedule', async () => {
   const site = crypto.randomUUID(), actor = env.REPORTS.getByName(site);
   const request = { scope: 'admins', scheduleId: 'report', report: { kind: 'goals' as const }, windowMs: 86400000 };
   let entered!: () => void, release!: () => void;
@@ -183,17 +183,28 @@ it('does not publish an in-flight result into a changed schedule and bounds sche
       expect((await a.getSchedule(request)).latestJob).toBeNull();
     });
     await actor.unschedule(request);
-    // Existing queued jobs have priority; automatic reports wait rather than
-    // exceeding the shared eight-job bound.
-    for (let i = 0; i < 8; i++) await actor.create(site, { ...input(), scope: `scope-${i}` });
-    await actor.schedule(site, request);
-    await runInDurableObject(actor, async (a, state) => {
+  } finally { release(); query.mockRestore(); }
+});
+
+it('bounds scheduled admission while eight ordinary jobs are pending', async () => {
+  const site = crypto.randomUUID(), actor = env.REPORTS.getByName(site);
+  const request = { scope: 'admins', scheduleId: 'report', report: { kind: 'goals' as const }, windowMs: 86400000 };
+  const query = vi.spyOn(BasinAnalytics.prototype, 'goals').mockResolvedValue(result());
+  try {
+    // Prevent real timer alarms from draining the queue between fixture RPCs.
+    // Run the one alarm under test explicitly after establishing the full queue.
+    await runInDurableObject(actor, async (a, state) => state.blockConcurrencyWhile(async () => {
+      for (let i = 0; i < 8; i++) await a.create(site, { ...input(), scope: `scope-${i}` });
+      await a.schedule(site, request);
+      const pendingCount = () => state.storage.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM report_jobs WHERE status IN ('queued','running')").one().n;
+      expect(pendingCount()).toBe(8);
       await a.alarm();
       const scheduled = await a.getSchedule(request);
       expect(scheduled.currentJob).toBeNull(); expect(scheduled.error).toBe('registration_unavailable');
-      expect(state.storage.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM report_jobs WHERE status IN ('queued','running')").one().n).toBeLessThanOrEqual(8);
-    });
-  } finally { release(); query.mockRestore(); }
+      expect(pendingCount()).toBe(7);
+      expect(query).toHaveBeenCalledTimes(1);
+    }));
+  } finally { query.mockRestore(); }
 });
 
 it('does not attach a job to a deleted and recreated schedule during async registration', async () => {
