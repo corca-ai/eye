@@ -11,6 +11,9 @@ const wrangler = join(dirname(require.resolve('wrangler/package.json')), 'bin/wr
 const configPath = join(directory, 'wrangler.jsonc'), statePath = join(directory, '.provision-state.json');
 const config = JSON.parse(await readFile(configPath, 'utf8'));
 const resources = JSON.parse(await readFile(join(directory, 'resources.json'), 'utf8'));
+// Existing generated installations retain their former 60-second setting.
+const rollSeconds = resources.sinkRollIntervalSeconds ?? 60;
+if (!Number.isSafeInteger(rollSeconds) || rollSeconds < 60 || rollSeconds > 300) throw new Error('sinkRollIntervalSeconds must be an integer from 60 to 300');
 const catalogToken = process.env.EYE_CATALOG_TOKEN, queryToken = process.env.EYE_ANALYTICS_TOKEN;
 if (!catalogToken || !queryToken) throw new Error('Set EYE_CATALOG_TOKEN and EYE_ANALYTICS_TOKEN before provisioning; values are never written to project files.');
 let state = { completed: [] };
@@ -61,7 +64,7 @@ try {
   for (const table of resources.tables) {
     // Wrangler 4.151 uses r2-data-catalog even though current prose docs also say basin-catalog.
     await step(`sink ${table}`, ['basin', 'pipelines', 'sinks', 'create', `${resources.streamName}_${table}`, '--type', 'r2-data-catalog',
-      '--bucket', resources.bucket, '--namespace', resources.namespace, '--table', table, '--catalog-token', catalogToken, '--roll-interval', '60']);
+      '--bucket', resources.bucket, '--namespace', resources.namespace, '--table', table, '--catalog-token', catalogToken, '--roll-interval', String(rollSeconds)]);
   }
   await step('pipeline', ['basin', 'pipelines', 'create', resources.pipelineName, '--sql-file', join(directory, 'fanout.sql')]);
   config.pipelines[0].stream = state.streamId;

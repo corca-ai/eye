@@ -35,7 +35,7 @@ async function main() {
   const tables = ['events', 'observations', 'credits', 'decisions', 'identity_links', 'policies', 'attribute_keys'];
   const outputs = {
     'wrangler.jsonc': JSON.stringify(template, null, 2) + '\n',
-    'resources.json': JSON.stringify({ bucket, namespace, streamName, pipelineName: `${name.replaceAll('-', '_')}_pipeline`, tables }, null, 2) + '\n',
+    'resources.json': JSON.stringify({ bucket, namespace, streamName, pipelineName: `${name.replaceAll('-', '_')}_pipeline`, sinkRollIntervalSeconds: 300, tables }, null, 2) + '\n',
     'fanout.sql': tables.map(table => `INSERT INTO ${streamName}_${table}\nSELECT * FROM ${streamName} WHERE table_name = '${table}';`).join('\n\n') + '\n',
     '.gitignore': '.dev.vars\n.provision-state.json\n.wrangler/\n',
   };

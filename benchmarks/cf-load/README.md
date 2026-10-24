@@ -36,3 +36,9 @@ For a host path without foreground session RPC, run `client-proxy.mjs` then `val
 fixture seed는 과거 골 등록 절차를 생략하는 벤치마크 전용 RPC다. public HTTP가 비활성인 private Worker에만 있고 호스트의 인증된 경로를 통해 접근한다. 설치 템플릿이나 운영 Worker에 이 entrypoint를 사용하지 않는다. 초기 스키마/수집 가시성 지연 중 실패한 측정을 성능 결과로 보고하지 않는다.
 
 `node operator-bench.mjs`는 같은 fixture에 대해 동일 골 조회를 동시 등록하고 같은 작업을 공유하는지, 완료 결과 페이지와 캐시 재등록이 같은 결과를 쓰는지 검증한다. 외부 등록/완료 시간과 SQL 스캔량을 기록한다. 데이터 기준 시각과 작업 완료 시각은 구분하며 사용자 요청 경로 성능으로 해석하지 않는다.
+
+## 파일 생성 간격 비교
+
+격리된 `eye-i1-*` 환경에서 `node roll-provision.mjs`는 같은 Stream을 읽는 300초 events/identity sink를 `eye_roll300`에 만든다. 기존 60초 sink를 변경하지 않는다. `node roll-bench.mjs --seed`는 1분 간격 여섯 배치를 보내며 중간 재시도는 같은 ID를 재사용한다. 전송이 끝난 뒤 `node roll-bench.mjs`로 양쪽의 arm·신원별 수집 수를 비교하고, `node roll-snapshots.mjs`로 시험 구간 append 파일/레코드 수와 snapshot 이력 누락 여부를 확인한다. `node roll-learning.mjs`는 실제 LearningSource의 1000표본 분할과 보상 일치를 검사한다.
+
+가시성이 아직 부족하면 조회 비교는 exit code 1이다. 다시 seed하지 말고 원래 fixture와 실행 중 전송 프로세스를 보존한 채 조회만 재시도한다. 파일 간격은 end-to-end 가시성 상한이 아니다. 비교용 Pipeline도 별도 처리·저장 비용이 발생하므로 최종 비용 모델에서 운영 Pipeline과 구분하며, 시험 종료 후 해당 Pipeline을 중단/정리한다.
