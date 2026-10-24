@@ -1,3 +1,4 @@
+import type { AnalyticsJobsAPI, AnalyticsJobPage } from './analytics/jobs.js';
 import { decisionRuntime, type DecisionOptions } from './decisions.js';
 import { EyeError, invariant } from './core/errors.js';
 import type { ErrorCode } from './core/errors.js';
@@ -78,8 +79,10 @@ export function createEye(options: EyeOptions) {
   const base = <T extends { eventId?: string; occurredAt?: number }>(input: T) => ({ ...input, eventId: input.eventId ?? crypto.randomUUID(), occurredAt: input.occurredAt ?? Date.now() });
   const decisions = decisionRuntime(service, options.ctx, siteId, options.decisions, report);
   return {
-    /** 중앙 신원·배정을 기다려 서명 토큰을 만든다. decisions.secret 필요. 반환 token은 미배정이면 null이며 호출자가 저장한다. 명시적 prepare는 onPrepared를 호출하지 않는다. */
-    prepare: (input: { subject: Subject; experimentId: string }) => decisions.prepare(parseSubject(input.subject), id(input.experimentId, 'experimentId')),
+    /** 정책을 가져온 뒤 로컬 배정을 준비한다. decisions.secret 필요. 반환 token은 미배정이면 null이며 호출자가 저장한다. 문맥이 바뀌면 onPrepared에도 전달한다. */
+    prepare: (input: { subject: Subject; experimentId: string; context?: import('./core/local-assignment.js').LocalAssignmentContext }) => decisions.prepare(parseSubject(input.subject), id(input.experimentId, 'experimentId'), input.context),
+    /** 최신 로컬 배정 문맥을 서명한다. 쿠키 응답을 만들 때 사용하며 원격 I/O를 하지 않는다. */
+    state: () => decisions.state(),
     /** 일반 사건을 분석에 기록한다. name은 서비스가 정의한다. goal 학습을 직접 발생시키지 않는다. */
     track: (input: EventInput<TrackEvent>): Submission => submit(() => ({ ...base(input), kind: 'track' })),
     /** 사이트가 확정한 골을 전달한다. goalId는 먼저 등록한다. value는 모든 골에서 같은 단위의 유한한 값이며 음수·0도 허용한다. */
@@ -87,22 +90,41 @@ export function createEye(options: EyeOptions) {
     /** arm을 실제 적용한 뒤 assigned decision을 그대로 전달한다. userAttributes는 첫 노출 때 관측 속성으로 고정하고, attributes는 개별 노출 사건 속성으로 보관한다. */
     expose: (input: { subject: Subject; decision: AssignedDecision; eventId?: string; occurredAt?: number; userAttributes?: Attributes; attributes?: Attributes }): Submission => submit(() => {
       const { decision, ...rest } = input;
-      return { ...base(rest), kind: 'exposure', assignment: decision.assignment, ...(decision.routingKey === undefined ? {} : { routingKey: decision.routingKey }) };
+      const event = base(rest);
+      invariant(event.subject.cid === decision.localContext?.subject.cid && event.subject.uid === decision.localContext.subject.uid, 'invalid_input', 'Exposure identity must match its original decision');
+      const exposed = decisions.expose(decision, event.occurredAt, event.eventId);
+      return { ...event, kind: 'exposure', assignment: decision.assignment, sample: { sampleId: exposed.sampleId, startAt: exposed.startAt }, attributionWindowMs: exposed.attributionWindowMs };
     }),
-    /** 로그인 시 cid와 인증된 uid를 함께 전달한다. 기존 uid 배정을 우선하고 없는 실험의 cid 상태는 인계한다. 호스트의 이전 배정 토큰도 비운다. */
+    /** 로그인 시 cid와 인증된 uid를 함께 전달한다. 마감 집계에서 익명 구간을 uid에 연결한다. 호스트의 이전 배정 토큰도 비운다. */
     identify: (input: EventInput<IdentityEvent> & { subject: Subject & { uid: string } }): Submission => submit(() => ({ ...base(input), kind: 'identify' })),
     /** 로그아웃 시 uid 없이 현재 cid를 전달한다. 새 익명 구간을 시작한다. 호스트의 이전 배정 토큰도 비운다. */
     logout: (input: EventInput<IdentityEvent>): Submission => submit(() => ({ ...base(input), kind: 'logout' })),
     /** 원격 응답을 기다리지 않고 준비된 배정을 재사용한다. unavailable이면 기본 화면을 사용하고 노출을 기록하지 않는다. 세션 준비와 최신성은 빠른 배정 가이드를 따른다. */
     decide: (input: { subject: Subject; experimentId: string }) => decisions.decide(parseSubject(input.subject), id(input.experimentId, 'experimentId')),
-    /** 중앙 배정을 기다리는 경로. decisions 설정은 불필요하나 사용자 요청에 RPC 지연이 추가된다. */
-    decideConsistent: (input: { subject: Subject; experimentId: string }) => service.decide(siteId, parseSubject(input.subject), id(input.experimentId, 'experimentId')),
     /** Optional for jobs/tests that need to await Queue ingestion. Normal request handlers need not await this. */
     flush,
     analytics: {
+      /** 원본 귀속을 다시 계산하지 않고 확정 학습 표본의 합계·평균을 조회한다. */
+      learning: query => service.analyticsLearning(siteId, query),
+      jobs: {
+        /** 기본 골·확정 학습 보고서를 1~24시간 간격으로 생성한다. */
+        schedule: input => service.analyticsJobSchedule(siteId, input),
+        /** 새 작업을 시작하지 않고 자동 보고서와 이전 완료 결과를 확인한다. */
+        scheduled: input => service.analyticsJobScheduled(siteId, input),
+        /** 이후 자동 실행을 중단한다. 이미 생성된 작업은 자체 만료까지 남는다. */
+        unschedule: input => service.analyticsJobUnschedule(siteId, input),
+        /** 동일 권한 범위·조건의 작업과 완료 결과를 재사용한다. 등록은 SQL 완료를 기다리지 않는다. */
+        create: input => service.analyticsJobCreate(siteId, input),
+        /** 작업 진행 상태·시각·만료·실패 이유를 조회한다. */
+        status: input => service.analyticsJobStatus(siteId, input),
+        /** R2에 고정된 결과의 페이지를 읽으며 원본 SQL을 다시 계산하지 않는다. */
+        page: async input => JSON.parse(await service.analyticsJobPage(siteId, input)) as AnalyticsJobPage,
+        /** 같은 scope에서 공유하는 미완료 작업을 취소한다. */
+        cancel: input => service.analyticsJobCancel(siteId, input),
+      } satisfies AnalyticsJobsAPI,
       /** 기간에 걸친 UTC 날짜 전체의 속성 키·타입·출처 목록. coverage로 실제 조회 범위를 확인한다. */
       attributeKeys: query => service.analyticsAttributeKeys(siteId, query),
-      /** 발행된 arm 선택 확률·평균·점수 이력. 모든 중앙 선택 순간의 기록은 아니다. */
+      /** 발행된 arm 선택 확률·평균·점수 이력. 모든 로컬 선택 순간의 기록은 아니다. */
       policies: query => service.analyticsPolicies(siteId, query),
       /** bucket·arm·세대별 신규 배정 수와 실제 노출 수 및 각각의 비율. */
       traffic: query => service.analyticsTraffic(siteId, query),
@@ -118,19 +140,11 @@ export function createEye(options: EyeOptions) {
       series: query => service.analyticsSeries(siteId, query),
       /** 원본 사건 attributes의 지정 키 값별 빈도. 관측 userAttributes의 분포와는 다르다. */
       attributeValues: query => service.analyticsAttributeValues(siteId, query),
-    } satisfies AnalyticsAPI,
+    } satisfies AnalyticsAPI & { jobs: AnalyticsJobsAPI },
     /** 신뢰할 수 있는 관리 경로에서 사용한다. */
     experiments: {
       /** 최초 정의를 등록한다. 같은 최초 정의로 재호출하면 현재 정의를 반환하며, 다른 최초 정의는 conflict다. */
-      create: (input: CreateExperiment) => {
-        const raw = record(input, 'experiment'), rawSettings = record(raw.settings, 'settings');
-        // Only the Experiment DO knows whether this is a new or legacy definition.
-        // Validate without turning an omitted deadline into an explicit new default.
-        const omitted = rawSettings.correctionWindowMs === undefined;
-        const parsed = parseCreateExperiment(omitted
-          ? { ...raw, settings: { ...rawSettings, correctionWindowMs: RETENTION_MS } } : input);
-        const { correctionWindowMs: _deadline, ...withoutDeadline } = parsed.settings;
-        return service.createExperiment(siteId, omitted ? { ...parsed, settings: withoutDeadline } : parsed);
+      create: (input: CreateExperiment) => { return service.createExperiment(siteId, parseCreateExperiment(input));
       },
       /** 현재 실험 정의를 반환한다. 없으면 not_found 오류. */
       get: (experimentId: string) => service.getExperiment(siteId, id(experimentId, 'experimentId')),
@@ -140,7 +154,7 @@ export function createEye(options: EyeOptions) {
       update: (experimentId: string, input: Partial<ExperimentSettings>) => service.updateExperiment(siteId, id(experimentId, 'experimentId'), input),
       /** 활성 arm을 추가한다. 기존 arm은 그대로 반환하며 삭제된 ID는 재사용할 수 없다. */
       addArm: (experimentId: string, armId: string) => service.addArm(siteId, id(experimentId, 'experimentId'), id(armId, 'armId')),
-      /** arm을 일시중지한다. 중앙에서는 최소 유지 기간보다 우선하며 로컬 정책에는 갱신 지연이 있다. */
+      /** arm을 일시중지한다. 정책에 반영되면 최소 유지 기간보다 우선하며 로컬 정책에는 갱신 지연이 있다. */
       pauseArm: (experimentId: string, armId: string) => service.setArmStatus(siteId, id(experimentId, 'experimentId'), id(armId, 'armId'), 'paused'),
       /** 일시중지한 arm을 재개한다. 삭제된 arm은 재개할 수 없다. */
       resumeArm: (experimentId: string, armId: string) => service.setArmStatus(siteId, id(experimentId, 'experimentId'), id(armId, 'armId'), 'active'),

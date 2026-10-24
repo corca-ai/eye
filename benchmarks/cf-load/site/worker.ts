@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { createEye, DecisionCache } from '../../../src/index';
+import { decisionRuntime } from '../../../src/decisions';
 import type { EyeService, DecisionMetric, Submission } from '../../../src/index';
 
 // String references in cf config cannot infer RPC classes; refine only those two bindings.
@@ -28,6 +29,42 @@ export default {
     if (url.pathname === '/ping') return new Response(JSON.stringify({ mode: 'baseline', sessionMs: 0, eyeMs: 0, metrics: [], submitted: 0, rejected: 0, fill: 'x'.repeat(3984) }), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
     const siteId = url.searchParams.get('site') ?? 'load';
     const admin = createEye({ service: env.EYE, ctx, siteId, onError: e => console.error('delivery', String(e)) });
+    if (url.pathname === '/benchmark/policy' && request.method === 'POST') {
+      const experimentId = 'policy-probe', subject = { cid: crypto.randomUUID() };
+      await admin.experiments.create({ experimentId, arms: ['a', 'b'], settings: { minHoldMs: 86400000 } });
+      try {
+        const pending: Promise<unknown>[] = [], errors: string[] = [];
+        let outage = false, reads = 0, publishedAt = 0;
+        const freshMs = 250, maxAgeMs = 8000;
+        const runtime = decisionRuntime({ getPublishedPolicy: async (...args) => {
+          reads++;
+          if (outage) throw new Error('injected policy outage');
+          const policy = await env.EYE.getPublishedPolicy(...args); publishedAt = policy.publishedAt; return policy;
+        } }, { waitUntil: promise => { pending.push(promise); ctx.waitUntil(promise); } }, siteId,
+        { secret: env.EYE_DECISION_SECRET, cache: new DecisionCache(), freshMs, maxAgeMs }, error => errors.push(String(error)));
+        const settle = async () => { while (pending.length) await Promise.all(pending.splice(0)); };
+        const cold = await runtime.decide(subject, experimentId);
+        await settle();
+        const first = await runtime.decide(subject, experimentId);
+        if (first.status !== 'assigned') return Response.json({ error: 'policy did not become available', cold, first }, { status: 500 });
+        runtime.expose(first, Date.now(), crypto.randomUUID()); await runtime.state();
+        await admin.experiments.pauseArm(experimentId, first.assignment.armId);
+        const pausedAt = Date.now();
+        await new Promise(resolve => setTimeout(resolve, freshMs + 50));
+        const stale = await runtime.decide(subject, experimentId);
+        await settle();
+        const refreshed = await runtime.decide(subject, experimentId), stoppedAt = Date.now();
+        outage = true;
+        const expiresAt = publishedAt + maxAgeMs;
+        await new Promise(resolve => setTimeout(resolve, Math.max(0, expiresAt - Date.now()) + 50));
+        const expired = await runtime.decide(subject, experimentId), expiredAt = Date.now();
+        await settle();
+        return Response.json({ freshMs, maxAgeMs, cold: cold.status, firstArm: first.assignment.armId,
+          staleArm: stale.status === 'assigned' ? stale.assignment.armId : null,
+          refreshedArm: refreshed.status === 'assigned' ? refreshed.assignment.armId : null,
+          stopDelayMs: stoppedAt - pausedAt, expired: expired.status, expiryOvershootMs: expiredAt - expiresAt, reads, errors });
+      } finally { await admin.experiments.pause(experimentId); }
+    }
     if (url.pathname === '/fetch-probe') {
       const carrier = { request: fetch };
       const results: Record<string, unknown> = {};
@@ -36,12 +73,42 @@ export default {
       }
       return Response.json(results);
     }
+    if (url.pathname === '/benchmark/schedules') {
+      if (request.method === 'POST') {
+        const input = await request.json() as Omit<import('../../../src/analytics/jobs').ReportScheduleInput, 'scope'>;
+        return Response.json(await admin.analytics.jobs.schedule({ ...input, scope: 'benchmark' }));
+      }
+      const ref = { scope: 'benchmark', scheduleId: url.searchParams.get('scheduleId') ?? '' };
+      if (request.method === 'DELETE') { await admin.analytics.jobs.unschedule(ref); return new Response(null, { status: 204 }); }
+      return Response.json(await admin.analytics.jobs.scheduled(ref));
+    }
+    if (url.pathname === '/benchmark/jobs') {
+      if (request.method === 'POST') return Response.json(await admin.analytics.jobs.create({ scope: 'benchmark',
+        request: await request.json() as import('../../../src/analytics/jobs').AnalyticsRequest }));
+      const ref = { scope: 'benchmark', jobId: url.searchParams.get('jobId') ?? '' };
+      return Response.json(url.searchParams.has('page') ? await admin.analytics.jobs.page({ ...ref, limit: 1, offset: Number(url.searchParams.get('offset') ?? 0) }) : await admin.analytics.jobs.status(ref));
+    }
+    if (url.pathname === '/benchmark/drain') {
+      if (!siteId.startsWith('cohort-')) return new Response('Dedicated fixture required', { status: 400 });
+      if (request.method === 'POST') for (let i = 0; i < 3; i++)
+        await admin.experiments.create({ experimentId: `exp-${i}`, arms: ['arm-0', 'arm-1', 'arm-2'], settings: { minHoldMs: 0 } });
+      const from = request.method === 'POST' ? Number(url.searchParams.get('from')) : undefined;
+      return Response.json(await (env.EYE as unknown as { benchmarkDrain(site: string, from?: number): Promise<unknown> }).benchmarkDrain(siteId, from));
+    }
+    if (url.pathname === '/benchmark/seed' && request.method === 'POST') {
+      const input = await request.json() as unknown[];
+      return Response.json(await (env.EYE as unknown as { benchmarkSeed(input: unknown[]): Promise<unknown> }).benchmarkSeed(input));
+    }
+    if (url.pathname === '/benchmark/learn' && request.method === 'POST') {
+      return Response.json(await (env.EYE as unknown as { benchmarkLearn(site: string, from: number, until: number, publish: boolean): Promise<unknown> })
+        .benchmarkLearn(siteId, Number(url.searchParams.get('from')), Number(url.searchParams.get('until')), url.searchParams.get('publish') === '1'));
+    }
     if (url.pathname === '/setup' && request.method === 'POST') {
       for (const goal of ['purchase', 'signup', 'refund']) await admin.goals.create(goal);
       for (const experimentId of experiments) await admin.experiments.create({ experimentId,
         arms: ['a', 'b', 'c'], settings: url.searchParams.get('profile') === 'long' || experimentId === 'checkout' ? { minHoldMs: 86_400_000 }
           : { minHoldMs: 30_000, observationWindowMs: 120_000, allowedLatenessMs: 10_000,
-              attributionHalfLifeMs: 120_000, learningHalfLifeMs: 600_000, correctionWindowMs: 600_000 } });
+              attributionHalfLifeMs: 120_000, learningHalfLifeMs: 600_000 } });
       return Response.json({ siteId, experiments });
     }
     if (url.pathname === '/identity' && request.method === 'POST') {
@@ -91,6 +158,7 @@ export default {
     const submissions: Submission[] = [];
     const eyeStart = performance.now();
     const mode = url.searchParams.get('mode') === 'baseline' ? 'baseline' : 'eye';
+    let responseTokens = tokens;
     if (mode === 'eye') {
       const eye = createEye({ service: env.EYE, ctx, siteId,
         decisions: { secret: env.EYE_DECISION_SECRET, cache, tokens,
@@ -109,12 +177,13 @@ export default {
           value: goal === 'refund' ? -100 : goal === 'signup' ? 1000 : 100,
           attributes: { run } }));
       }
+      if (inline) responseTokens = await eye.state();
     }
     const eyeMs = performance.now() - eyeStart;
-    const data = { mode, sessionMs, eyeMs, metrics,
+    const data = { mode, sessionMs, eyeMs, metrics, ...(inline ? { tokens: responseTokens } : {}),
       submitted: submissions.filter(s => s.accepted).length,
       rejected: submissions.filter(s => !s.accepted).length, fill: '' };
-    data.fill = 'x'.repeat(Math.max(0, 4096 - new TextEncoder().encode(JSON.stringify(data)).length));
+    data.fill = 'x'.repeat(Math.max(0, (inline ? 8192 : 4096) - new TextEncoder().encode(JSON.stringify(data)).length));
     return new Response(JSON.stringify(data),
       { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Server-Timing': `session;dur=${sessionMs},eye;dur=${eyeMs}` } });
   },

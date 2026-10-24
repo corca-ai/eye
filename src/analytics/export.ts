@@ -18,14 +18,27 @@ export function validateExport(record: AnalyticsRecord): void {
   }
   invariant(record.value === null || (typeof record.value === 'number' && Number.isFinite(record.value)), 'numeric_range', 'Invalid analytics value');
 }
-export function* exportBatches<T extends { record: AnalyticsRecord }>(rows: readonly T[]): Generator<T[]> {
-  let batch: T[] = [], bytes = 2;
+/** Expand before sizing: a valid event's dictionary may span several requests.
+ * Yield wire records directly so callers never expand an already-sized batch.
+ */
+export function* exportBatches(rows: readonly { record: AnalyticsRecord }[]): Generator<AnalyticsRecord[]> {
+  let batch: AnalyticsRecord[] = [], bytes = 2;
+  const keys = new Set<string>();
   for (const row of rows) {
     validateExport(row.record);
-    const size = encoder.encode(JSON.stringify(exportRecords([row]))).byteLength;
-    invariant(size + 2 <= EXPORT_BATCH_BYTES, 'invalid_input', 'Analytics record exceeds the Stream request limit');
-    if (bytes + size > EXPORT_BATCH_BYTES) { yield batch; batch = []; bytes = 2; }
-    batch.push(row); bytes += size;
+    const expanded = [row.record, ...attributeRecords(row.record)];
+    for (const [index, record] of expanded.entries()) {
+      if (index !== 0) validateExport(record);
+      const key = index === 0 ? null : JSON.stringify([record.site_id, record.record_id]);
+      if (key !== null && keys.has(key)) continue;
+      const size = encoder.encode(JSON.stringify(record)).byteLength;
+      invariant(size + 2 <= EXPORT_BATCH_BYTES, 'invalid_input', 'Analytics record exceeds the Stream request limit');
+      if (bytes + size + (batch.length ? 1 : 0) > EXPORT_BATCH_BYTES) {
+        yield batch; batch = []; bytes = 2; keys.clear();
+      }
+      bytes += size + (batch.length ? 1 : 0); batch.push(record);
+      if (key !== null) keys.add(key);
+    }
   }
   if (batch.length > 0) yield batch;
 }

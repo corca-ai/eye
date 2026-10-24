@@ -4,6 +4,11 @@ import type { Cursor, QueryPlan } from './sql.js';
 import type { AnalyticsTable } from './records.js';
 import type { AnalyticsAPI, AnalyticsMeta, AnalyticsPage, ArmQuery, ArmReport, AttributeValuesQuery, AttributeValueRow, GoalQuery, GoalRow, Scalar, SeriesQuery, SeriesRow, TimelinePage, TimelineQuery, TimelineRow } from './types.js';
 
+/** Internal signal for retrying a smaller result partition, not a transient outage. */
+export class AnalyticsCapacityError extends EyeError {
+  constructor(message: string) { super('invalid_input', message); }
+}
+
 /** Runtime configuration is supplied by the customer's Worker; the token is a Worker secret. */
 export interface AnalyticsEnv {
   EYE_ANALYTICS_WAREHOUSE?: string;
@@ -42,7 +47,7 @@ async function readResponse(response: Response): Promise<unknown> {
       const part = await reader.read();
       if (part.done) break;
       bytes += part.value.byteLength;
-      invariant(bytes <= 16 * 1024 * 1024, 'invalid_input', 'Analytics response exceeds 16 MiB; reduce the limit or time range');
+      if (bytes > 16 * 1024 * 1024) throw new AnalyticsCapacityError('Analytics response exceeds 16 MiB; reduce the limit or time range');
       body += decoder.decode(part.value, { stream: true });
     }
     body += decoder.decode();
@@ -79,6 +84,12 @@ export class BasinAnalytics implements AnalyticsAPI {
     this.warehouse = warehouse; this.token = token; this.namespace = env.EYE_ANALYTICS_NAMESPACE ?? 'eye';
     this.endpoint = `https://api.sql.cloudflarestorage.com/api/v1/accounts/${account}/basin-sql/query/${bucket}`;
   }
+  /** Internal bounded learning query; never returns a silently truncated input. */
+  async learningQuery(sql: string, limit: number): Promise<Record<string, unknown>[]> {
+    const result = await this.execute({ sql, limit, receivedBefore: this.clock(), fingerprint: 'learning' });
+    if (result.meta.truncated) throw new AnalyticsCapacityError('Learning partition exceeds its row budget');
+    return result.rows;
+  }
   private sql(): AnalyticsSQL { return new AnalyticsSQL(this.namespace, this.siteId, this.clock()); }
   private async execute(plan: QueryPlan): Promise<{ rows: Row[]; meta: AnalyticsMeta }> {
     let response: Response;
@@ -107,12 +118,20 @@ export class BasinAnalytics implements AnalyticsAPI {
   }
   private async armReport(query: ArmQuery, bucketMs?: number) {
     const result = await this.execute(this.sql().arms(query, bucketMs));
-    return { cohortBasis: 'observation_start' as const, meta: result.meta, rows: result.rows.map(row => ({
+    return { rewardBasis: 'raw_attribution' as const, cohortBasis: 'observation_start' as const, meta: result.meta, rows: result.rows.map(row => ({
       ...(bucketMs === undefined ? {} : { bucketStart: numeric(row, 'bucket_start') }),
       armId: text(row, 'arm_id'), generation: numeric(row, 'generation'), observationWindowMs: numeric(row, 'window_ms'),
       groups: (query.groupBy ?? []).map((_, i) => scalar(row[`group_${i}`])), completed: numeric(row, 'completed'), pending: numeric(row, 'pending'),
-      interrupted: numeric(row, 'interrupted'), subjects: numeric(row, 'subjects'), totalValue: numeric(row, 'total_value'),
+      interrupted: numeric(row, 'interrupted'), subjects: numeric(row, 'subjects'), totalValue: numeric(row, 'total_value'), learningValue: numeric(row, 'learning_value'),
       meanValue: row.mean_value === null ? null : numeric(row, 'mean_value'), latestReceivedAt: numeric(row, 'latest_received_at'),
+    })) };
+  }
+  async learning(query: import('./types.js').LearningQuery): Promise<import('./types.js').LearningReport> {
+    const result = await this.execute(this.sql().learning(query));
+    return { rewardBasis: 'closed_learning', cohortBasis: 'observation_start', meta: result.meta, rows: result.rows.map(row => ({
+      experimentId: text(row, 'experiment_id'), armId: text(row, 'arm_id'), generation: numeric(row, 'generation'),
+      observationWindowMs: numeric(row, 'window_ms'), completed: numeric(row, 'completed'), learningValue: numeric(row, 'learning_value'),
+      meanValue: numeric(row, 'mean_value'), latestReceivedAt: numeric(row, 'latest_received_at'),
     })) };
   }
   async arms(query: ArmQuery): Promise<ArmReport> { return this.armReport(query); }

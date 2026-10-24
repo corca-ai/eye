@@ -9,7 +9,11 @@
   "workers_dev": false,
   "observability": {
     "enabled": true,
-    "head_sampling_rate": 1
+    "head_sampling_rate": 1,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": false
+    }
   },
   "durable_objects": {
     "bindings": [
@@ -22,28 +26,23 @@
         "class_name": "ExperimentObject"
       },
       {
-        "name": "OBSERVATIONS",
-        "class_name": "ObservationShard"
-      },
-      {
-        "name": "SUBJECTS",
-        "class_name": "SubjectObject"
-      },
-      {
-        "name": "IDENTITIES",
-        "class_name": "IdentityRegistry"
+        "name": "REPORTS",
+        "class_name": "ReportObject"
       }
     ]
   },
   "migrations": [
     {
-      "tag": "v1",
+      "tag": "v2-fresh",
       "new_sqlite_classes": [
         "SiteControl",
-        "ExperimentObject",
-        "ObservationShard",
-        "SubjectObject",
-        "IdentityRegistry"
+        "ExperimentObject"
+      ]
+    },
+    {
+      "tag": "v2-reports",
+      "new_sqlite_classes": [
+        "ReportObject"
       ]
     }
   ],
@@ -69,5 +68,11 @@
         "dead_letter_queue": "eye-events-failed"
       }
     ]
-  }
+  },
+  "r2_buckets": [
+    {
+      "binding": "COHORTS",
+      "bucket_name": "eye-analytics"
+    }
+  ]
 }

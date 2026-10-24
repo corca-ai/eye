@@ -36,28 +36,6 @@ export function addSample(m: Readonly<Moments>, value: number, weight = 1): Mome
   return { weight: total, scale, mean, m2: finite(m2, 'Central moment'), asOf: m.asOf };
 }
 
-export function removeSample(m: Readonly<Moments>, value: number, weight: number): Moments {
-  finite(value, 'Reward');
-  invariant(Number.isFinite(weight) && weight >= 0, 'invalid_input', 'Sample weight must be nonnegative and finite');
-  if (weight === 0) return { ...m };
-  invariant(weight <= m.weight * (1 + 1e-12), 'conflict', 'Cannot remove more weight than the aggregate contains');
-  const remaining = m.weight - weight;
-  if (remaining <= m.weight * 1e-14) return emptyMoments(m.asOf);
-  const y = value / m.scale;
-  const delta = y - m.mean;
-  const mean = m.mean - delta * (weight / remaining);
-  const removed = delta * (y - mean) * weight;
-  const m2 = m.m2 - removed;
-  // Roundoff can make an otherwise zero variance slightly negative after removal.
-  invariant(m2 >= -1e-10 * Math.max(1, m.m2, Math.abs(removed)), 'numeric_range', 'Unstable variance removal');
-  return { ...m, weight: remaining, mean: finite(mean, 'Mean'), m2: Math.max(0, m2) };
-}
-
-export function replaceSample(m: Readonly<Moments>, oldValue: number, newValue: number, weight: number): Moments {
-  if (oldValue === newValue) return { ...m };
-  return addSample(removeSample(m, oldValue, weight), newValue, weight);
-}
-
 export function mergeMoments(a: Readonly<Moments>, b: Readonly<Moments>): Moments {
   invariant(a.asOf === b.asOf, 'invalid_input', 'Merge moments at the same time');
   if (b.weight === 0) return { ...a };

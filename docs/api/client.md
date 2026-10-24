@@ -16,14 +16,22 @@ createEye(options: EyeOptions): EyeClient
 타입: [EyeOptions](types.md#eyeoptions)
 
 - [eye.prepare](#eyeprepare)
+- [eye.state](#eyestate)
 - [eye.track](#eyetrack)
 - [eye.goal](#eyegoal)
 - [eye.expose](#eyeexpose)
 - [eye.identify](#eyeidentify)
 - [eye.logout](#eyelogout)
 - [eye.decide](#eyedecide)
-- [eye.decideConsistent](#eyedecideconsistent)
 - [eye.flush](#eyeflush)
+- [eye.analytics.learning](#eyeanalyticslearning)
+- [eye.analytics.jobs.schedule](#eyeanalyticsjobsschedule)
+- [eye.analytics.jobs.scheduled](#eyeanalyticsjobsscheduled)
+- [eye.analytics.jobs.unschedule](#eyeanalyticsjobsunschedule)
+- [eye.analytics.jobs.create](#eyeanalyticsjobscreate)
+- [eye.analytics.jobs.status](#eyeanalyticsjobsstatus)
+- [eye.analytics.jobs.page](#eyeanalyticsjobspage)
+- [eye.analytics.jobs.cancel](#eyeanalyticsjobscancel)
 - [eye.analytics.attributeKeys](#eyeanalyticsattributekeys)
 - [eye.analytics.policies](#eyeanalyticspolicies)
 - [eye.analytics.traffic](#eyeanalyticstraffic)
@@ -54,13 +62,21 @@ createEye(options: EyeOptions): EyeClient
 
 ## eye.prepare
 
-중앙 신원·배정을 기다려 서명 토큰을 만든다. decisions.secret 필요. 반환 token은 미배정이면 null이며 호출자가 저장한다. 명시적 prepare는 onPrepared를 호출하지 않는다.
+정책을 가져온 뒤 로컬 배정을 준비한다. decisions.secret 필요. 반환 token은 미배정이면 null이며 호출자가 저장한다. 문맥이 바뀌면 onPrepared에도 전달한다.
 
 ```ts
-eye.prepare(input: { subject: Subject; experimentId: string; }): Promise<PreparedDecision & { token: string | null; }>
+eye.prepare(input: { subject: Subject; experimentId: string; context?: import("./core/local-assignment.js").LocalAssignmentContext; }): Promise<PreparedDecision & { token: string | null; }>
 ```
 
 타입: [PreparedDecision](types.md#prepareddecision) · [Subject](types.md#subject)
+
+## eye.state
+
+최신 로컬 배정 문맥을 서명한다. 쿠키 응답을 만들 때 사용하며 원격 I/O를 하지 않는다.
+
+```ts
+eye.state(): Promise<{ [k: string]: string; }>
+```
 
 ## eye.track
 
@@ -94,7 +110,7 @@ eye.expose(input: { subject: Subject; decision: AssignedDecision; eventId?: stri
 
 ## eye.identify
 
-로그인 시 cid와 인증된 uid를 함께 전달한다. 기존 uid 배정을 우선하고 없는 실험의 cid 상태는 인계한다. 호스트의 이전 배정 토큰도 비운다.
+로그인 시 cid와 인증된 uid를 함께 전달한다. 마감 집계에서 익명 구간을 uid에 연결한다. 호스트의 이전 배정 토큰도 비운다.
 
 ```ts
 eye.identify(input: EventInput<IdentityEvent> & { subject: Subject & { uid: string; }; }): Submission
@@ -122,16 +138,6 @@ eye.decide(input: { subject: Subject; experimentId: string; }): Promise<Decision
 
 타입: [Decision](types.md#decision) · [Subject](types.md#subject)
 
-## eye.decideConsistent
-
-중앙 배정을 기다리는 경로. decisions 설정은 불필요하나 사용자 요청에 RPC 지연이 추가된다.
-
-```ts
-eye.decideConsistent(input: { subject: Subject; experimentId: string; }): Promise<Decision>
-```
-
-타입: [Decision](types.md#decision) · [Subject](types.md#subject)
-
 ## eye.flush
 
 Optional for jobs/tests that need to await Queue ingestion. Normal request handlers need not await this.
@@ -139,6 +145,86 @@ Optional for jobs/tests that need to await Queue ingestion. Normal request handl
 ```ts
 eye.flush(): Promise<void>
 ```
+
+## eye.analytics.learning
+
+원본 귀속을 다시 계산하지 않고 확정 학습 표본의 합계·평균을 조회한다.
+
+```ts
+eye.analytics.learning(query: LearningQuery): Promise<LearningReport>
+```
+
+타입: [LearningQuery](types.md#learningquery) · [LearningReport](types.md#learningreport)
+
+## eye.analytics.jobs.schedule
+
+기본 골·확정 학습 보고서를 1~24시간 간격으로 생성한다.
+
+```ts
+eye.analytics.jobs.schedule(input: ReportScheduleInput): Promise<ReportSchedule>
+```
+
+타입: [ReportSchedule](types.md#reportschedule) · [ReportScheduleInput](types.md#reportscheduleinput)
+
+## eye.analytics.jobs.scheduled
+
+새 작업을 시작하지 않고 자동 보고서와 이전 완료 결과를 확인한다.
+
+```ts
+eye.analytics.jobs.scheduled(input: ReportScheduleRef): Promise<ReportSchedule>
+```
+
+타입: [ReportSchedule](types.md#reportschedule) · [ReportScheduleRef](types.md#reportscheduleref)
+
+## eye.analytics.jobs.unschedule
+
+이후 자동 실행을 중단한다. 이미 생성된 작업은 자체 만료까지 남는다.
+
+```ts
+eye.analytics.jobs.unschedule(input: ReportScheduleRef): Promise<void>
+```
+
+타입: [ReportScheduleRef](types.md#reportscheduleref)
+
+## eye.analytics.jobs.create
+
+동일 권한 범위·조건의 작업과 완료 결과를 재사용한다. 등록은 SQL 완료를 기다리지 않는다.
+
+```ts
+eye.analytics.jobs.create(input: AnalyticsJobInput): Promise<AnalyticsJob>
+```
+
+타입: [AnalyticsJob](types.md#analyticsjob) · [AnalyticsJobInput](types.md#analyticsjobinput)
+
+## eye.analytics.jobs.status
+
+작업 진행 상태·시각·만료·실패 이유를 조회한다.
+
+```ts
+eye.analytics.jobs.status(input: AnalyticsJobRef): Promise<AnalyticsJob>
+```
+
+타입: [AnalyticsJob](types.md#analyticsjob) · [AnalyticsJobRef](types.md#analyticsjobref)
+
+## eye.analytics.jobs.page
+
+R2에 고정된 결과의 페이지를 읽으며 원본 SQL을 다시 계산하지 않는다.
+
+```ts
+eye.analytics.jobs.page(input: AnalyticsJobRef & { offset?: number; limit?: number; }): Promise<AnalyticsJobPage>
+```
+
+타입: [AnalyticsJobPage](types.md#analyticsjobpage) · [AnalyticsJobRef](types.md#analyticsjobref)
+
+## eye.analytics.jobs.cancel
+
+같은 scope에서 공유하는 미완료 작업을 취소한다.
+
+```ts
+eye.analytics.jobs.cancel(input: AnalyticsJobRef): Promise<AnalyticsJob>
+```
+
+타입: [AnalyticsJob](types.md#analyticsjob) · [AnalyticsJobRef](types.md#analyticsjobref)
 
 ## eye.analytics.attributeKeys
 
@@ -152,7 +238,7 @@ eye.analytics.attributeKeys(query: QueryRange): Promise<AttributeKeyReport>
 
 ## eye.analytics.policies
 
-발행된 arm 선택 확률·평균·점수 이력. 모든 중앙 선택 순간의 기록은 아니다.
+발행된 arm 선택 확률·평균·점수 이력. 모든 로컬 선택 순간의 기록은 아니다.
 
 ```ts
 eye.analytics.policies(query: PolicyQuery): Promise<AnalyticsPage<PolicyHistoryRow>>
@@ -280,7 +366,7 @@ eye.experiments.addArm(experimentId: string, armId: string): Promise<Experiment>
 
 ## eye.experiments.pauseArm
 
-arm을 일시중지한다. 중앙에서는 최소 유지 기간보다 우선하며 로컬 정책에는 갱신 지연이 있다.
+arm을 일시중지한다. 정책에 반영되면 최소 유지 기간보다 우선하며 로컬 정책에는 갱신 지연이 있다.
 
 ```ts
 eye.experiments.pauseArm(experimentId: string, armId: string): Promise<Experiment>
@@ -432,13 +518,44 @@ getOrCreateCid(request: Request, options?: CidCookieOptions): CidCookie
 
 ## DecisionCache
 
-정책만 저장하는 isolate 캐시. capacity 기본 1000, 양의 정수. 호스트는 생성 후 decisions.cache에 전달하며 read/begin/put은 SDK 내부 갱신용이다.
+정책만 저장하는 isolate 캐시. capacity 기본 1000, 양의 정수. 호스트는 생성 후 decisions.cache에 전달하며 read/checkedAt/begin/put은 SDK 내부 갱신용이다.
 
 ```ts
 constructor(capacity?: number): DecisionCache
 read: (key: string) => PublishedPolicy | undefined
+checkedAt: (key: string) => number | undefined
 begin: (key: string, now: number) => boolean
 put: (key: string, policy: PublishedPolicy) => void
 ```
 
 타입: [PublishedPolicy](types.md#publishedpolicy)
+
+## createEyeRequest
+
+공통 요청 경계에서 한 번 생성한다. SDK 초기화·선택 실패는 fallback, 수집 실패는 Submission으로 반환하며 onError에 보고한다.
+
+```ts
+createEyeRequest(options: EyeRequestOptions): EyeRequest
+```
+
+타입: [EyeRequest](types.md#eyerequest) · [EyeRequestOptions](types.md#eyerequestoptions)
+
+## createEyeBrowserServer
+
+Request-scoped adapter. Mount behind host authentication and same-origin POST checks.
+
+```ts
+createEyeBrowserServer(options: BrowserServerOptions): { prepare(experimentIds: readonly string[], previous?: unknown): Promise<BrowserSnapshot>; receive(input: unknown): Promise<BrowserEventResult[]>; }
+```
+
+타입: [BrowserEventResult](types.md#browsereventresult) · [BrowserServerOptions](types.md#browserserveroptions) · [BrowserSnapshot](types.md#browsersnapshot)
+
+## createEyeBrowser
+
+Browser-only, framework-independent client. No Worker bindings or server secrets in this entry point.
+
+```ts
+createEyeBrowser(options: BrowserOptions): EyeBrowser
+```
+
+타입: [BrowserOptions](types.md#browseroptions) · [EyeBrowser](types.md#eyebrowser)

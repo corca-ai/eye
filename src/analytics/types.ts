@@ -17,7 +17,7 @@ export interface ArmQuery extends QueryRange {
 }
 export interface TimelineQuery extends QueryRange {
   subject: { cid: string; uid?: never } | { uid: string; cid?: never };
-  /** Include anonymous events only inside explicitly known login intervals. Defaults to true. */
+  /** Include anonymous events in the interval claimed by the first subsequent login. Defaults to true. */
   includeLinked?: boolean; cursor?: string;
 }
 export interface GoalQuery extends QueryRange { goalId?: string; filter?: Filter }
@@ -33,7 +33,10 @@ export interface AnalyticsMeta {
 export interface ArmRow {
   armId: string; generation: number; observationWindowMs: number; groups: Scalar[];
   completed: number; pending: number; interrupted: number; subjects: number;
-  totalValue: number; meanValue: number | null; latestReceivedAt: number;
+  /** 현재 조회 가능한 원본으로 재계산한 귀속 보상. */
+  totalValue: number;
+  /** 확정 당시 학습에 반영한 전체 goal 보상. goalId 필터와 무관하다. */
+  learningValue: number; meanValue: number | null; latestReceivedAt: number;
 }
 export interface TimelineRow {
   table: 'events' | 'observations' | 'credits' | 'decisions' | 'identity_links';
@@ -48,7 +51,7 @@ export interface SeriesRow extends GoalRow { bucketStart: number }
 export interface AttributeValueRow { value: Scalar; events: number; latestReceivedAt: number }
 /** rows는 집계 결과. meta.truncated이면 범위·조건을 좁힌다. 일반 집계에는 다음 페이지 cursor가 없다. */
 export interface AnalyticsPage<T> { rows: T[]; meta: AnalyticsMeta }
-export interface ArmReport extends AnalyticsPage<ArmRow> { cohortBasis: 'observation_start' }
+export interface ArmReport extends AnalyticsPage<ArmRow> { rewardBasis: 'raw_attribution'; cohortBasis: 'observation_start' }
 export interface TimelinePage extends AnalyticsPage<TimelineRow> { nextCursor: string | null }
 export interface ArmSeriesQuery extends ArmQuery { bucketMs: number }
 export interface ArmSeriesRow extends ArmRow { bucketStart: number }
@@ -59,6 +62,7 @@ export interface PolicyHistoryRow { occurredAt: number; recordId: string; genera
 export interface AttributeKeyRow { key: string; type: 'string' | 'number' | 'boolean' | 'null'; source: 'event' | 'user'; latestReceivedAt: number }
 export interface AttributeKeyReport extends AnalyticsPage<AttributeKeyRow> { coverage: { basis: 'utc_day'; from: number; to: number } }
 export interface AnalyticsAPI {
+  learning(query: LearningQuery): Promise<LearningReport>;
   armSeries(query: ArmSeriesQuery): Promise<AnalyticsPage<ArmSeriesRow>>;
   traffic(query: TrafficQuery): Promise<AnalyticsPage<TrafficRow>>;
   policies(query: PolicyQuery): Promise<AnalyticsPage<PolicyHistoryRow>>;
@@ -69,3 +73,12 @@ export interface AnalyticsAPI {
   series(query: SeriesQuery): Promise<AnalyticsPage<SeriesRow>>;
   attributeValues(query: AttributeValuesQuery): Promise<AnalyticsPage<AttributeValueRow>>;
 }
+
+/** 확정된 관측 결과만 집계한다. 기간은 관측 시작 시각이며 실험을 생략하면 사이트 전체를 조회한다. */
+export interface LearningQuery extends QueryRange { experimentId?: string }
+export interface LearningRow {
+  experimentId: string; armId: string; generation: number; observationWindowMs: number;
+  completed: number; learningValue: number; meanValue: number; latestReceivedAt: number;
+}
+/** 감쇠된 정책 점수와 다르다. 확정된 표본 보상의 합계·평균이며 늦은 골로 재계산하지 않는다. */
+export interface LearningReport extends AnalyticsPage<LearningRow> { rewardBasis: 'closed_learning'; cohortBasis: 'observation_start' }
