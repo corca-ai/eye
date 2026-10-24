@@ -42,3 +42,13 @@ fixture seed는 과거 골 등록 절차를 생략하는 벤치마크 전용 RPC
 격리된 `eye-i1-*` 환경에서 `node roll-provision.mjs`는 같은 Stream을 읽는 300초 events/identity sink를 `eye_roll300`에 만든다. 기존 60초 sink를 변경하지 않는다. `node roll-bench.mjs --seed`는 1분 간격 여섯 배치를 보내며 중간 재시도는 같은 ID를 재사용한다. 전송이 끝난 뒤 `node roll-bench.mjs`로 양쪽의 arm·신원별 수집 수를 비교하고, `node roll-snapshots.mjs`로 시험 구간 append 파일/레코드 수와 snapshot 이력 누락 여부를 확인한다. `node roll-learning.mjs`는 실제 LearningSource의 1000표본 분할과 보상 일치를 검사한다.
 
 가시성이 아직 부족하면 조회 비교는 exit code 1이다. 다시 seed하지 말고 원래 fixture와 실행 중 전송 프로세스를 보존한 채 조회만 재시도한다. 파일 간격은 end-to-end 가시성 상한이 아니다. 비교용 Pipeline도 별도 처리·저장 비용이 발생하므로 최종 비용 모델에서 운영 Pipeline과 구분하며, 시험 종료 후 해당 Pipeline을 중단/정리한다.
+
+## v2 상태를 유지하는 직접 요청 시험
+
+`node stateful-run.mjs --smoke`로 먼저 짧은 검증을 실행한다. 이후 `node stateful-run.mjs`는 별도 사이트에 3실험 × 3arm, 최소 유지 1일·기본 관측 7일을 설정하고 1분 warmup 후 10/100/200 RPS 각각 baseline/Eye 5분씩 측정한다. 총 약 31분이다. 배포된 호스트에 최신 `/fast-page` 구현이 있어야 한다.
+
+각 k6 VU는 반복 사용자 한 명의 서명 상태를 응답에서 받아 다음 요청에 전달한다. 별도 5% 신규 사용자는 상태를 재사용하지 않는다. 초기 VU 요청도 신규로 분류하며 익명/로그인 사용자와 arm별 지표를 분리한다. 이 시험은 로그인 전환·다중 기기 동시 상태 병합 시험은 아니다. `/fast-page`는 session DO를 기다리지 않으며 실제 노출 후 `eye.state()`의 로컬 서명을 포함한다. baseline도 같은 헤더 파싱과 8192바이트 응답을 사용하지만 Eye 상태 검증/서명은 생략한다. baseline에는 Eye 토큰 전송량이 없으므로 헤더 오버헤드를 포함한 전체 도입 비용 비교다.
+
+`state_churn`은 유지 기간 중 배정이나 관측 표본이 바뀌면 실패한다. HTTP/이벤트 거부/누락된 iteration과 응답·상태 계약도 검사한다. 미참여율은 신규·반복·신원별로 보고하며 임의의 통과 기준으로 숨기지 않는다. 정책 cold start가 있는 최초 요청은 정상적으로 미참여할 수 있다. 외부 지연은 단일 지역 생성기에서 측정한 값이며 `eye_local_ms=0`은 CPU 사용 0을 뜻하지 않는다.
+
+`results/stateful-*/manifest.json`에 사이트, phase별 시작/종료 시각과 종료 코드가 남는다. 오류 시 해당 결과와 실행 프로세스를 확인하고, 관찰 timeout만으로 새 부하를 중복 실행하지 않는다. 각 실행은 독립 사이트이므로 다시 실행하면 새 데이터가 생긴다. 생성기 로그/요약과 Cloudflare 계측의 시간 범위를 맞춰 비교한다. 원본 결과와 자격 증명은 커밋하지 않는다.

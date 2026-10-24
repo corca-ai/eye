@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { literal } from '../../dist/analytics/sql.js';
 const directory = dirname(fileURLToPath(import.meta.url));
 const state = JSON.parse(await readFile(join(directory, '.state/resources.json')));
-if (!state.roll300?.pipeline) throw new Error('Run roll-provision.mjs first');
+if (process.argv.includes('--seed') && !state.roll300?.pipeline) throw new Error('Run roll-provision.mjs first');
 const original = JSON.parse(await readFile(join(directory, '.state/cohort-fixture.json')));
 const path = join(directory, '.state/roll-fixture.json');
 let fixture;

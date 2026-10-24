@@ -114,6 +114,7 @@ export default {
     const submissions: Submission[] = [];
     const eyeStart = performance.now();
     const mode = url.searchParams.get('mode') === 'baseline' ? 'baseline' : 'eye';
+    let responseTokens = tokens;
     if (mode === 'eye') {
       const eye = createEye({ service: env.EYE, ctx, siteId,
         decisions: { secret: env.EYE_DECISION_SECRET, cache, tokens,
@@ -132,12 +133,13 @@ export default {
           value: goal === 'refund' ? -100 : goal === 'signup' ? 1000 : 100,
           attributes: { run } }));
       }
+      if (inline) responseTokens = await eye.state();
     }
     const eyeMs = performance.now() - eyeStart;
-    const data = { mode, sessionMs, eyeMs, metrics,
+    const data = { mode, sessionMs, eyeMs, metrics, ...(inline ? { tokens: responseTokens } : {}),
       submitted: submissions.filter(s => s.accepted).length,
       rejected: submissions.filter(s => !s.accepted).length, fill: '' };
-    data.fill = 'x'.repeat(Math.max(0, 4096 - new TextEncoder().encode(JSON.stringify(data)).length));
+    data.fill = 'x'.repeat(Math.max(0, (inline ? 8192 : 4096) - new TextEncoder().encode(JSON.stringify(data)).length));
     return new Response(JSON.stringify(data),
       { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Server-Timing': `session;dur=${sessionMs},eye;dur=${eyeMs}` } });
   },
