@@ -474,11 +474,12 @@ getOrCreateCid(request: Request, options?: CidCookieOptions): CidCookie
 
 ## DecisionCache
 
-정책만 저장하는 isolate 캐시. capacity 기본 1000, 양의 정수. 호스트는 생성 후 decisions.cache에 전달하며 read/begin/put은 SDK 내부 갱신용이다.
+정책만 저장하는 isolate 캐시. capacity 기본 1000, 양의 정수. 호스트는 생성 후 decisions.cache에 전달하며 read/checkedAt/begin/put은 SDK 내부 갱신용이다.
 
 ```ts
 constructor(capacity?: number): DecisionCache
 read: (key: string) => PublishedPolicy | undefined
+checkedAt: (key: string) => number | undefined
 begin: (key: string, now: number) => boolean
 put: (key: string, policy: PublishedPolicy) => void
 ```

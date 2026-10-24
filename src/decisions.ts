@@ -1,3 +1,4 @@
+import { policyFreshMs, DEFAULT_POLICY_MAX_AGE_MS } from './policy-timing.js';
 import { invariant } from './core/errors.js';
 import { selectLocal, exposeLocal } from './core/local-assignment.js';
 import type { LocalAssignmentContext, LocalSelection } from './core/local-assignment.js';
@@ -18,20 +19,21 @@ export interface DecisionOptions {
   tokens?: Readonly<Record<string, string>>;
   /** 서비스 바인딩별 모듈 범위 캐시. 생략하면 바인딩 객체 기준 내부 캐시를 사용한다. */
   cache?: DecisionCache;
-  /** 기본 60000ms, 양의 정수. 이후에는 오래된 정책을 재사용하면서 갱신한다. */
+  /** 기본 900000ms(15분), 양의 정수. 생략 시 더 짧은 maxAgeMs를 지정하면 그 절반 이하(최소 1ms)로 줄인다. 마지막 성공한 정책 확인 후 이 시간이 지나면 백그라운드 재확인한다. */
   freshMs?: number;
-  /** 기본 300000ms, freshMs 이상 정수. 발행 시각부터 이 나이를 넘으면 미참여한다. */
+  /** 기본 21600000ms(6시간), freshMs 이상 정수. 발행 시각부터 이 나이를 넘으면 미참여한다. */
   maxAgeMs?: number;
   /** 로컬 결정마다 동기 호출. 미참여율 측정용이며 느린 I/O를 여기서 기다리지 않는다. */
   onDecision?: (metric: DecisionMetric) => void;
   /** 로컬 배정 또는 실제 노출로 상태가 바뀌면 서명 후 호출한다. 다음 요청이 읽을 서버 세션에 저장한다. 쿠키는 state()를 기다린 뒤 응답에 쓴다. */
   onPrepared?: (experimentId: string, token: string) => Promise<void> | void;
 }
-/** 정책만 저장하는 isolate 캐시. capacity 기본 1000, 양의 정수. 호스트는 생성 후 decisions.cache에 전달하며 read/begin/put은 SDK 내부 갱신용이다. */
+/** 정책만 저장하는 isolate 캐시. capacity 기본 1000, 양의 정수. 호스트는 생성 후 decisions.cache에 전달하며 read/checkedAt/begin/put은 SDK 내부 갱신용이다. */
 export class DecisionCache {
-  private readonly entries = new Map<string, { policy?: PublishedPolicy; retryAt: number }>();
+  private readonly entries = new Map<string, { policy?: PublishedPolicy; retryAt: number; checkedAt?: number }>();
   constructor(private readonly capacity = 1000) { invariant(Number.isSafeInteger(capacity) && capacity > 0, 'invalid_input', 'Invalid policy cache capacity'); }
   read(key: string): PublishedPolicy | undefined { return this.entries.get(key)?.policy; }
+  checkedAt(key: string): number | undefined { return this.entries.get(key)?.checkedAt; }
   begin(key: string, now: number): boolean {
     if ((this.entries.get(key)?.retryAt ?? 0) > now) return false;
     const entry = this.entries.get(key);
@@ -42,8 +44,8 @@ export class DecisionCache {
   }
   put(key: string, policy: PublishedPolicy): void {
     const old = this.entries.get(key);
-    if (old?.policy && old.policy.sequence >= policy.sequence) return;
-    this.entries.set(key, { policy, retryAt: 0 });
+    if (old?.policy && old.policy.sequence > policy.sequence) return;
+    this.entries.set(key, { policy: old?.policy?.sequence === policy.sequence ? old.policy : policy, retryAt: 0, checkedAt: Date.now() });
     while (this.entries.size > this.capacity) this.entries.delete(this.entries.keys().next().value!);
   }
 }
@@ -56,7 +58,7 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
   let shared = caches.get(service);
   if (!shared) { shared = new DecisionCache(); caches.set(service, shared); }
   const cache = options?.cache ?? shared;
-  const fresh = options?.freshMs ?? 60_000, maxAge = options?.maxAgeMs ?? 300_000;
+  const fresh = policyFreshMs(options), maxAge = options?.maxAgeMs ?? DEFAULT_POLICY_MAX_AGE_MS;
   invariant(fresh > 0 && Number.isSafeInteger(fresh) && Number.isSafeInteger(maxAge) && maxAge >= fresh, 'invalid_input', 'Invalid policy freshness settings');
   const contexts = new Map<string, LocalAssignmentContext>();
   const restored = new Map<string, Promise<void>>();
@@ -70,7 +72,7 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
   };
   const key = (experimentId: string) => JSON.stringify([siteId, experimentId]);
   const background = (work: Promise<unknown>) => ctx.waitUntil(work.catch(report));
-  const fetchPolicy = async (experimentId: string) => { const policy = await service.getPublishedPolicy(siteId, experimentId); cache.put(key(experimentId), policy); return policy; };
+  const fetchPolicy = async (experimentId: string) => { const policy = await service.getPublishedPolicy(siteId, experimentId, maxAge); cache.put(key(experimentId), policy); return policy; };
   const refresh = (experimentId: string) => { if (cache.begin(key(experimentId), Date.now())) background(fetchPolicy(experimentId)); };
   const seal = async (context: LocalAssignmentContext) => {
     const payload = b64(encoder.encode(JSON.stringify({ version: 2, context })));
@@ -116,7 +118,7 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
     const previous = contexts.get(experimentId), now = Date.now();
     const selection = selectLocal({ siteId, experimentId, subject, now, newId: () => crypto.randomUUID(),
       ...(previous === undefined ? {} : { previous }), ...(policy === undefined ? {} : { policy: {
-        ...policy, siteId, active: policy.status === 'active', freshUntil: policy.publishedAt + fresh, usableUntil: policy.publishedAt + maxAge,
+        ...policy, siteId, active: policy.status === 'active', freshUntil: (cache.checkedAt(key(experimentId)) ?? policy.publishedAt) + fresh, usableUntil: policy.publishedAt + maxAge,
         attributionWindowMs: policy.settings.attributionWindowMs ?? 7 * 86_400_000,
       } }) });
     if (selection.refreshPolicy) refresh(experimentId);
@@ -126,7 +128,7 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
     } : { status: selection.status, experimentId };
     if (selection.status === 'assigned' && selection.context !== previous) persist(experimentId, selection.context);
     try { options?.onDecision?.({ experimentId, outcome: selection.status === 'unavailable' ? 'skipped' : selection.status,
-      reason: !policy ? 'cold' : selection.refreshPolicy ? 'stale' : 'fresh', authenticated: subject.uid !== undefined, at: now }); } catch (error) { report(error); }
+      reason: !policy ? 'cold' : now >= policy.publishedAt + maxAge ? 'expired' : selection.status === 'no_active_arm' ? 'inactive' : selection.refreshPolicy ? 'stale' : 'fresh', authenticated: subject.uid !== undefined, at: now }); } catch (error) { report(error); }
     return { decision, selection };
   };
   const decide = async (subject: Subject, experimentId: string): Promise<Decision> => {

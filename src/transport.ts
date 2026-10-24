@@ -21,7 +21,7 @@ export interface EyeService {
   analyticsJobPage(siteId: string, input: Parameters<AnalyticsJobsAPI['page']>[0]): Promise<string>;
   analyticsJobCancel(siteId: string, input: Parameters<AnalyticsJobsAPI['cancel']>[0]): ReturnType<AnalyticsJobsAPI['cancel']>;
 
-  getPublishedPolicy(siteId: string, experimentId: string): Promise<PublishedPolicy>;
+  getPublishedPolicy(siteId: string, experimentId: string, maxAgeMs?: number): Promise<PublishedPolicy>;
   ingest(events: readonly EventEnvelope[]): Promise<void>;
   createExperiment(siteId: string, input: CreateExperiment): Promise<Experiment>;
   getExperiment(siteId: string, experimentId: string): Promise<Experiment>;

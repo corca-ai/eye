@@ -17,7 +17,7 @@ import type { AnalyticsAPI } from '../analytics/types.js';
 
 export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements EyeService {
   override fetch(): Response { return new Response('Not found', { status: 404 }); }
-  async getPublishedPolicy(siteId: string, experimentId: string): Promise<PublishedPolicy> { return this.experiment(siteId, experimentId).publishedPolicy(siteId); }
+  async getPublishedPolicy(siteId: string, experimentId: string, maxAgeMs?: number): Promise<PublishedPolicy> { return this.experiment(siteId, experimentId).publishedPolicy(siteId, maxAgeMs); }
   async ingest(inputs: readonly EventEnvelope[]): Promise<void> {
     invariant(Array.isArray(inputs) && inputs.length <= 100, 'invalid_input', 'An ingestion batch must contain at most 100 events');
     const envelopes = inputs.map(input => parseEnvelope(input, Date.now()));

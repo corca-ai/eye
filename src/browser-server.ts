@@ -1,3 +1,4 @@
+import { DEFAULT_POLICY_MAX_AGE_MS, policyFreshMs } from './policy-timing.js';
 import { createEye, type EyeOptions } from './client.js';
 import { parseAssignment } from './core/events.js';
 import { parseLocalContext } from './decisions.js';
@@ -71,11 +72,12 @@ export function createEyeBrowserServer(options: BrowserServerOptions) {
           const prepared = await eye.prepare({ subject, experimentId, ...(context === undefined ? {} : { context }) });
           if (prepared.decision.status !== 'assigned') continue;
           const issuedAt = Date.now();
-          const applyUntil = Math.min(prepared.reuseUntil, prepared.policy.publishedAt + (options.decisions?.maxAgeMs ?? 300_000));
+          const applyUntil = Math.min(prepared.reuseUntil, prepared.policy.publishedAt + (options.decisions?.maxAgeMs ?? DEFAULT_POLICY_MAX_AGE_MS));
           if (applyUntil <= issuedAt || !prepared.policy.activeArms.includes(prepared.decision.assignment.armId) || prepared.policy.status !== 'active') continue;
           const receipt = await seal({ binding, scope, subject, decision: prepared.decision, issuedAt, applyUntil,
             userAttributes: options.userAttributes ?? {} });
           choices.push({ experimentId, armId: prepared.decision.assignment.armId, applyUntil, receipt,
+            refreshAfter: Math.min(applyUntil, issuedAt + policyFreshMs(options.decisions)),
             assignmentId: prepared.decision.assignment.assignmentId, observationWindowMs: prepared.decision.assignment.settings.observationWindowMs,
             ...(prepared.decision.localContext?.sample === undefined ? {} : { sample: prepared.decision.localContext.sample }) });
         } catch (error) { try { options.onError?.(error); } catch { /* host hook */ } }

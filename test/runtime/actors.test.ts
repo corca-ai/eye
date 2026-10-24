@@ -43,3 +43,29 @@ it('validates cohort input atomically without poisoning the retry ID', async () 
     expect(actor.getPolicy().arms[0]!.weight).toBeCloseTo(1, 3);
   });
 });
+it('reuses policy publication until aging, invalidates on new learning/config, and retains the learning timestamp', async () => {
+  const { vi } = await import('vitest');
+  const stub = env.EXPERIMENTS.getByName(crypto.randomUUID());
+  await stub.create({ experimentId: 'exp', arms: ['a'], settings: { minHoldMs: 0 } });
+  await runInDurableObject(stub, async actor => {
+    let now = Date.now(); const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    try {
+      const first = await actor.publishedPolicy();
+      now += 20 * 60_000;
+      expect((await actor.publishedPolicy()).sequence).toBe(first.sequence);
+      const asOf = now;
+      const arms = [{ experimentId: 'exp', armId: 'a', generation: 1, samples: 10, moments: addSample(emptyMoments(asOf), 50, 10) }];
+      actor.applyCohort({ cohortId: 'one', asOf, arms });
+      const learned = await actor.publishedPolicy();
+      expect(learned.sequence).toBe(first.sequence + 1); expect(learned.statsAsOf).toBe(asOf);
+      actor.applyCohort({ cohortId: 'two', asOf, arms });
+      expect((await actor.publishedPolicy()).sequence).toBe(learned.sequence + 1);
+      now += 3_600_001;
+      const aged = await actor.publishedPolicy();
+      expect(aged.sequence).toBe(learned.sequence + 2); expect(aged.statsAsOf).toBe(asOf);
+      actor.addArm('b'); expect((await actor.publishedPolicy()).activeArms).toEqual(['a', 'b']);
+      now += 1001;
+      expect((await actor.publishedPolicy(undefined, 1000)).sequence).toBe(aged.sequence + 2);
+    } finally { clock.mockRestore(); }
+  });
+});

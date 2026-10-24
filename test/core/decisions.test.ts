@@ -52,7 +52,7 @@ it('auth switches and invalid signatures cannot reuse the prior context', async 
   expect(error).toHaveBeenCalled();
 });
 it('stale policies refresh in background and expired policies skip even with a valid held context', async () => {
-  const f = fixture(), runtime = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache }, () => {});
+  const f = fixture(), runtime = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache, freshMs: 60_000, maxAgeMs: 300_000 }, () => {});
   await runtime.prepare({ cid: 'c' }, 'exp'); f.advance(60_001);
   expect((await runtime.decide({ cid: 'c' }, 'exp')).status).toBe('assigned');
   await Promise.all(f.pending); f.advance(240_000);
@@ -79,4 +79,31 @@ it('signs and returns current state while ordered host persistence is still bloc
   } finally { release(); await local; await Promise.all(f.pending); }
   expect(saved).toHaveLength(2); expect(saved[1]).toBe(result!.exp);
   expect(saved[0]).not.toBe(saved[1]);
+});
+it('rechecking an unchanged policy avoids repeated RPCs but never extends its hard expiry', async () => {
+  const f = fixture(), runtime = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache }, () => {});
+  await runtime.prepare({ cid: 'c' }, 'exp');
+  f.advance(15 * 60_000 + 1);
+  expect((await runtime.decide({ cid: 'c' }, 'exp')).status).toBe('assigned');
+  await Promise.all(f.pending);
+  expect(f.service.getPublishedPolicy).toHaveBeenCalledTimes(2);
+  f.advance(60_000);
+  expect((await runtime.decide({ cid: 'c' }, 'exp')).status).toBe('assigned');
+  expect(f.service.getPublishedPolicy).toHaveBeenCalledTimes(2);
+  f.advance(6 * 3_600_000);
+  expect((await runtime.decide({ cid: 'c' }, 'exp')).status).toBe('unavailable');
+  await Promise.all(f.pending);
+  expect((await runtime.decide({ cid: 'c' }, 'exp')).status).toBe('unavailable');
+});
+it('accepts a legacy maxAge-only configuration and refreshes before its explicit hard deadline', async () => {
+  const f = fixture(), runtime = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache, maxAgeMs: 300_000 }, () => {});
+  await runtime.prepare({ cid: 'c' }, 'exp');
+  f.advance(150_001);
+  expect((await runtime.decide({ cid: 'c' }, 'exp')).status).toBe('assigned');
+  await Promise.all(f.pending);
+  expect(f.service.getPublishedPolicy).toHaveBeenCalledTimes(2);
+  f.advance(150_000);
+  expect((await runtime.decide({ cid: 'c' }, 'exp')).status).toBe('unavailable');
+  await Promise.all(f.pending);
+  expect(() => decisionRuntime(f.service, f.ctx, 'site', { secret, freshMs: 300_001, maxAgeMs: 300_000 }, () => {})).toThrow();
 });

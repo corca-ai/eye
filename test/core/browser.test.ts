@@ -132,3 +132,21 @@ it('retains preparation state across reloads without requiring browser storage',
   expect(prepare.mock.calls[0]).toEqual([['checkout'], expect.objectContaining({ checkout: expect.objectContaining({ sample: expect.objectContaining({ sampleId: expect.any(String) }) }) })]);
   next.dispose();
 });
+it('refreshes long-lived choices on the next view without waiting for hard expiry or replacing mounted views', async () => {
+  vi.useFakeTimers();
+  const initial = snapshot(); initial.choices[0]!.applyUntil = Date.now() + 6 * 3_600_000;
+  initial.choices[0]!.refreshAfter = Date.now() + 900_000;
+  let finish!: (value: BrowserSnapshot) => void;
+  const prepare = vi.fn(() => new Promise<BrowserSnapshot>(resolve => { finish = resolve; }));
+  const client = createEyeBrowser({ scope: 'a', initial, prepare });
+  const mounted = client.beginView(), selection = mounted.variant(definition);
+  await vi.advanceTimersByTimeAsync(900_001);
+  expect(prepare).not.toHaveBeenCalled();
+  expect(client.beginView().variant(definition).value).toBe('small');
+  await vi.advanceTimersByTimeAsync(1);
+  expect(prepare).toHaveBeenCalledTimes(1);
+  finish({ scope: 'a', serverNow: Date.now(), choices: [] }); await vi.advanceTimersByTimeAsync(1);
+  expect(mounted.variant(definition)).toBe(selection);
+  expect(client.beginView().variant(definition).value).toBe('standard');
+  client.dispose();
+});

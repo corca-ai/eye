@@ -1,5 +1,10 @@
 /** Wire format shared by the browser and host Worker; receipts are opaque. */
-export interface BrowserChoice { experimentId: string; armId: string; receipt: string; applyUntil: number; assignmentId?: string; observationWindowMs?: number; sample?: BrowserSample }
+export interface BrowserChoice {
+  experimentId: string; armId: string; receipt: string;
+  /** 새 view에서 이 시각 이후 백그라운드 재준비한다. 기존 view를 교체하지 않는다. */
+  refreshAfter?: number;
+  applyUntil: number; assignmentId?: string; observationWindowMs?: number; sample?: BrowserSample;
+}
 export interface BrowserSnapshot { scope: string; serverNow: number; choices: BrowserChoice[] }
 export interface BrowserSample { sampleId: string; startAt: number }
 export interface BrowserState { receipt: string; sample?: BrowserSample }

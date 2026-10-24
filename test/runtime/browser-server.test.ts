@@ -92,3 +92,12 @@ it('preserves browser sample IDs across a window boundary, replay and subsequent
   } finally { clock.mockRestore(); }
   await waitOnExecutionContext(f.options.ctx);
 });
+it('keeps maxAge-only hosts compatible and gives CSR the same shortened refresh interval', async () => {
+  const f = await fixture(), before = Date.now();
+  const snapshot = await createEyeBrowserServer({ ...f.options, decisions: { secret, maxAgeMs: 300_000 } }).prepare(['checkout']);
+  const choice = snapshot.choices[0]!;
+  expect(choice.refreshAfter).toBeGreaterThanOrEqual(before + 150_000);
+  expect(choice.refreshAfter).toBeLessThanOrEqual(snapshot.serverNow + 150_000);
+  expect(choice.refreshAfter).toBeLessThan(choice.applyUntil);
+  await waitOnExecutionContext(f.options.ctx);
+});

@@ -1,3 +1,4 @@
+import { POLICY_REEVALUATION_MS } from '../policy-timing.js';
 import { analyticsRecord } from '../analytics/records.js';
 import { exportRecords, exportBatches } from '../analytics/export.js';
 import type { AnalyticsRecord } from '../analytics/records.js';
@@ -120,25 +121,30 @@ export class ExperimentObject extends StoredObject {
         this.sql.exec('INSERT INTO arm_moments VALUES (?, ?, ?) ON CONFLICT(generation, arm_id) DO UPDATE SET data = excluded.data', arm.generation, arm.armId, JSON.stringify(next));
       }
       this.sql.exec('INSERT INTO applied_cohorts VALUES (?, ?)', cohort.cohortId, cohort.asOf);
+      if (!this.kv.get('policyDirty')) this.kv.put('policyDirty', true);
       this.kv.put('statsAsOf', Math.max(this.kv.get<number>('statsAsOf') ?? 0, cohort.asOf));
       this.sql.exec('DELETE FROM applied_cohorts WHERE as_of < ?', Date.now() - RETENTION_MS);
       return true;
     });
   }
-  async publishedPolicy(siteId?: string): Promise<import('../transport.js').PublishedPolicy> {
+  async publishedPolicy(siteId?: string, maxAgeMs = POLICY_REEVALUATION_MS): Promise<import('../transport.js').PublishedPolicy> {
     if (siteId !== undefined) id(siteId, 'siteId');
+    invariant(Number.isSafeInteger(maxAgeMs) && maxAgeMs > 0, 'invalid_input', 'Invalid policy maximum age');
     let config = this.getConfig();
     let previous = this.kv.get<import('../transport.js').PublishedPolicy>('publishedPolicy');
-    if (previous && Date.now() - previous.publishedAt < 60_000 && previous.revision === config.revision) return previous;
+    if (previous && Date.now() - previous.publishedAt < Math.min(POLICY_REEVALUATION_MS, maxAgeMs, Math.max(1, Math.floor(config.settings.learningHalfLifeMs / 8)))
+      && previous.revision === config.revision && !this.kv.get('policyDirty')) return previous;
     if (siteId) await this.wakeAt(Date.now() + 1000);
     config = this.getConfig();
     previous = this.kv.get<import('../transport.js').PublishedPolicy>('publishedPolicy');
-    if (previous && Date.now() - previous.publishedAt < 60_000 && previous.revision === config.revision) return previous;
+    if (previous && Date.now() - previous.publishedAt < Math.min(POLICY_REEVALUATION_MS, maxAgeMs, Math.max(1, Math.floor(config.settings.learningHalfLifeMs / 8)))
+      && previous.revision === config.revision && !this.kv.get('policyDirty')) return previous;
     const policy = this.getPolicy();
     const result = { ...policy, settings: config.settings, publishedAt: Date.now(), sequence: (previous?.sequence ?? 0) + 1,
       status: config.status ?? 'active' as const, activeArms: config.arms.filter(a => a.status === 'active').map(a => a.armId) };
     this.atomic(() => {
       this.kv.put('publishedPolicy', result);
+      if (this.kv.get('policyDirty')) this.kv.delete('policyDirty');
       if (siteId) {
         const history = config.arms.map(configured => result.arms.find(a => a.armId === configured.armId) ?? { armId: configured.armId, probability: 0, meanReward: null, score: null });
         const records = history.map(arm => analyticsRecord({ siteId, subjectKey: '' }, 'policies',

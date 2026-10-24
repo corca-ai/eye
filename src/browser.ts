@@ -1,3 +1,4 @@
+import { DEFAULT_POLICY_FRESH_MS } from './policy-timing.js';
 import type { VariantDefinition } from './browser-types.js';
 import type { BrowserSnapshot, BrowserExposure, BrowserEventResult, BrowserState } from './browser-types.js';
 export type { BrowserSnapshot, BrowserExposure, BrowserEventResult, BrowserState } from './browser-types.js';
@@ -72,7 +73,8 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
     const received = performance.now();
     for (const choice of snapshot.choices) {
       if (!choice || typeof choice.experimentId !== 'string' || typeof choice.armId !== 'string' || typeof choice.receipt !== 'string'
-        || !Number.isFinite(choice.applyUntil) || choice.applyUntil <= snapshot.serverNow) continue;
+        || !Number.isFinite(choice.applyUntil) || choice.applyUntil <= snapshot.serverNow
+        || (choice.refreshAfter !== undefined && !Number.isFinite(choice.refreshAfter))) continue;
       if (!states.has(choice.experimentId) && states.size >= 1000) { report(new Error('Eye choice cache full')); continue; }
       if (choice.assignmentId && choice.sample) samples.set(choice.assignmentId, choice.sample);
       while (samples.size > 1000) samples.delete(samples.keys().next().value!);
@@ -207,7 +209,7 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
                   queue.push({ event: { eventId, receipt: cached.choice.receipt, occurredAt: at, ...(sample === undefined ? {} : { sample }) }, tries: 0, queuedAt: performance.now() });
                   emitted = true; scheduleSend(); return true;
                 } };
-              if (cached.choice.applyUntil - now < 60_000) { wanted.add(definition.experimentId); schedulePrepare(); }
+              if (now + cached.safetyMs >= (cached.choice.refreshAfter ?? cached.serverNow + DEFAULT_POLICY_FRESH_MS) || cached.choice.applyUntil - now < 60_000) { wanted.add(definition.experimentId); schedulePrepare(); }
             } else report(new Error(`Unsupported Eye arm: ${cached.choice.armId}`));
           }
           selections.set(key, selection); return selection;

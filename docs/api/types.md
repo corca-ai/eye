@@ -510,6 +510,8 @@ export interface BrowserChoice {
     experimentId: string;
     armId: string;
     receipt: string;
+    /** 새 view에서 이 시각 이후 백그라운드 재준비한다. 기존 view를 교체하지 않는다. */
+    refreshAfter?: number;
     applyUntil: number;
     assignmentId?: string;
     observationWindowMs?: number;
@@ -521,7 +523,7 @@ export interface BrowserChoice {
 
 ## BrowserEventResult
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/browser-types.ts#L7)
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser-types.ts#L12)
 
 ```ts
 export interface BrowserEventResult {
@@ -534,7 +536,7 @@ export interface BrowserEventResult {
 
 ## BrowserExposure
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/browser-types.ts#L6)
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser-types.ts#L11)
 
 ```ts
 export interface BrowserExposure {
@@ -549,7 +551,7 @@ export interface BrowserExposure {
 
 ## BrowserOptions
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L4)
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L5)
 
 ```ts
 export interface BrowserOptions {
@@ -575,7 +577,7 @@ export interface BrowserOptions {
 
 ## BrowserSample
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/browser-types.ts#L4)
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser-types.ts#L9)
 
 ```ts
 export interface BrowserSample {
@@ -588,7 +590,7 @@ export interface BrowserSample {
 
 ## BrowserSelection
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L17)
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L18)
 
 ```ts
 export interface BrowserSelection<T> {
@@ -603,7 +605,7 @@ export interface BrowserSelection<T> {
 
 ## BrowserServerOptions
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/browser-server.ts#L11)
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser-server.ts#L12)
 
 ```ts
 export interface BrowserServerOptions extends EyeOptions {
@@ -622,7 +624,7 @@ export interface BrowserServerOptions extends EyeOptions {
 
 ## BrowserSnapshot
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/browser-types.ts#L3)
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser-types.ts#L8)
 
 ```ts
 export interface BrowserSnapshot {
@@ -636,7 +638,7 @@ export interface BrowserSnapshot {
 
 ## BrowserState
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/browser-types.ts#L5)
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser-types.ts#L10)
 
 ```ts
 export interface BrowserState {
@@ -649,7 +651,7 @@ export interface BrowserState {
 
 ## BrowserView
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L23)
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L24)
 
 ```ts
 export interface BrowserView {
@@ -726,7 +728,7 @@ export type Decision = {
 
 ## DecisionMetric
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/decisions.ts#L9)
+[소스](https://github.com/corca-ai/eye/blob/main/src/decisions.ts#L10)
 
 ```ts
 export interface DecisionMetric {
@@ -742,7 +744,7 @@ export interface DecisionMetric {
 
 ## DecisionOptions
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/decisions.ts#L14)
+[소스](https://github.com/corca-ai/eye/blob/main/src/decisions.ts#L15)
 
 ```ts
 export interface DecisionOptions {
@@ -752,9 +754,9 @@ export interface DecisionOptions {
     tokens?: Readonly<Record<string, string>>;
     /** 서비스 바인딩별 모듈 범위 캐시. 생략하면 바인딩 객체 기준 내부 캐시를 사용한다. */
     cache?: DecisionCache;
-    /** 기본 60000ms, 양의 정수. 이후에는 오래된 정책을 재사용하면서 갱신한다. */
+    /** 기본 900000ms(15분), 양의 정수. 생략 시 더 짧은 maxAgeMs를 지정하면 그 절반 이하(최소 1ms)로 줄인다. 마지막 성공한 정책 확인 후 이 시간이 지나면 백그라운드 재확인한다. */
     freshMs?: number;
-    /** 기본 300000ms, freshMs 이상 정수. 발행 시각부터 이 나이를 넘으면 미참여한다. */
+    /** 기본 21600000ms(6시간), freshMs 이상 정수. 발행 시각부터 이 나이를 넘으면 미참여한다. */
     maxAgeMs?: number;
     /** 로컬 결정마다 동기 호출. 미참여율 측정용이며 느린 I/O를 여기서 기다리지 않는다. */
     onDecision?: (metric: DecisionMetric) => void;
@@ -923,7 +925,7 @@ export interface ExposureInput {
 
 ## EyeBrowser
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L27)
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L28)
 
 ```ts
 export interface EyeBrowser {
@@ -1015,7 +1017,7 @@ export interface EyeService {
     analyticsJobStatus(siteId: string, input: Parameters<AnalyticsJobsAPI['status']>[0]): ReturnType<AnalyticsJobsAPI['status']>;
     analyticsJobPage(siteId: string, input: Parameters<AnalyticsJobsAPI['page']>[0]): Promise<string>;
     analyticsJobCancel(siteId: string, input: Parameters<AnalyticsJobsAPI['cancel']>[0]): ReturnType<AnalyticsJobsAPI['cancel']>;
-    getPublishedPolicy(siteId: string, experimentId: string): Promise<PublishedPolicy>;
+    getPublishedPolicy(siteId: string, experimentId: string, maxAgeMs?: number): Promise<PublishedPolicy>;
     ingest(events: readonly EventEnvelope[]): Promise<void>;
     createExperiment(siteId: string, input: CreateExperiment): Promise<Experiment>;
     getExperiment(siteId: string, experimentId: string): Promise<Experiment>;
@@ -1462,7 +1464,7 @@ export type UnreservedPolicyEvaluation = Omit<PolicyEvaluation, 'arms'> & {
 
 ## VariantDefinition
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/browser-types.ts#L10)
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser-types.ts#L15)
 
 ```ts
 /** 서비스가 지원하는 arm → 화면 값. fallback은 배정과 별개의 미참여 값이다. */
