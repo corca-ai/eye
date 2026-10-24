@@ -53,3 +53,7 @@ R2 결과는 정상 완료 후 삭제한다. cursor 전진 직후 장애로 남�
 비동기 조회를 추가할 때는 `ReportObject` export, `REPORTS` binding, 추가 migration `v2-reports`를 함께 배포한다. 기존 v2 migration 이력은 보존한다. 조회 결과도 COHORTS bucket의 `eye/reports/`에 저장하므로 별도 bucket은 필요 없다.
 
 Cloudflare 참고: [DO SQLite](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/), [R2 Workers API](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/), [Basin SQL](https://developers.cloudflare.com/basin-sql/), [Pipelines](https://developers.cloudflare.com/pipelines/). 로컬 SQL 호환 테스트는 실제 Basin 실행 계획·비용·처리량 검증을 대신하지 않는다.
+
+### 기본 보고서 재사용
+
+ReportObject는 명시적으로 등록한 골·확정 학습 요약만 1~24시간 간격으로 생성한다. 학습 요약은 저장된 complete 관측을 재사용해 원본 귀속 SQL을 실행하지 않는다. 사이트당 32개 일정과 기존 8개 미완료/256개 보관 작업 한도를 공유한다. 화면은 일정 상태와 R2 결과를 읽으며 학습을 실행하지 않는다. 결과·기간·실패·보관 계약은 [분석 문서](docs/ANALYTICS.md#기본-보고서-자동-생성)를 따른다.

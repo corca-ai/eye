@@ -36,19 +36,28 @@ export default {
       }
       return Response.json(results);
     }
+    if (url.pathname === '/benchmark/schedules') {
+      if (request.method === 'POST') {
+        const input = await request.json() as Omit<import('../../../src/analytics/jobs').ReportScheduleInput, 'scope'>;
+        return Response.json(await admin.analytics.jobs.schedule({ ...input, scope: 'benchmark' }));
+      }
+      const ref = { scope: 'benchmark', scheduleId: url.searchParams.get('scheduleId') ?? '' };
+      if (request.method === 'DELETE') { await admin.analytics.jobs.unschedule(ref); return new Response(null, { status: 204 }); }
+      return Response.json(await admin.analytics.jobs.scheduled(ref));
+    }
     if (url.pathname === '/benchmark/jobs') {
       if (request.method === 'POST') return Response.json(await admin.analytics.jobs.create({ scope: 'benchmark',
         request: await request.json() as import('../../../src/analytics/jobs').AnalyticsRequest }));
       const ref = { scope: 'benchmark', jobId: url.searchParams.get('jobId') ?? '' };
-      return Response.json(url.searchParams.has('page') ? await admin.analytics.jobs.page({ ...ref, limit: 1 }) : await admin.analytics.jobs.status(ref));
+      return Response.json(url.searchParams.has('page') ? await admin.analytics.jobs.page({ ...ref, limit: 1, offset: Number(url.searchParams.get('offset') ?? 0) }) : await admin.analytics.jobs.status(ref));
     }
     if (url.pathname === '/benchmark/seed' && request.method === 'POST') {
       const input = await request.json() as unknown[];
       return Response.json(await (env.EYE as unknown as { benchmarkSeed(input: unknown[]): Promise<unknown> }).benchmarkSeed(input));
     }
     if (url.pathname === '/benchmark/learn' && request.method === 'POST') {
-      return Response.json(await (env.EYE as unknown as { benchmarkLearn(site: string, from: number, until: number): Promise<unknown> })
-        .benchmarkLearn(siteId, Number(url.searchParams.get('from')), Number(url.searchParams.get('until'))));
+      return Response.json(await (env.EYE as unknown as { benchmarkLearn(site: string, from: number, until: number, publish: boolean): Promise<unknown> })
+        .benchmarkLearn(siteId, Number(url.searchParams.get('from')), Number(url.searchParams.get('until')), url.searchParams.get('publish') === '1'));
     }
     if (url.pathname === '/setup' && request.method === 'POST') {
       for (const goal of ['purchase', 'signup', 'refund']) await admin.goals.create(goal);

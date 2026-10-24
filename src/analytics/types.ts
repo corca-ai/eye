@@ -62,6 +62,7 @@ export interface PolicyHistoryRow { occurredAt: number; recordId: string; genera
 export interface AttributeKeyRow { key: string; type: 'string' | 'number' | 'boolean' | 'null'; source: 'event' | 'user'; latestReceivedAt: number }
 export interface AttributeKeyReport extends AnalyticsPage<AttributeKeyRow> { coverage: { basis: 'utc_day'; from: number; to: number } }
 export interface AnalyticsAPI {
+  learning(query: LearningQuery): Promise<LearningReport>;
   armSeries(query: ArmSeriesQuery): Promise<AnalyticsPage<ArmSeriesRow>>;
   traffic(query: TrafficQuery): Promise<AnalyticsPage<TrafficRow>>;
   policies(query: PolicyQuery): Promise<AnalyticsPage<PolicyHistoryRow>>;
@@ -72,3 +73,12 @@ export interface AnalyticsAPI {
   series(query: SeriesQuery): Promise<AnalyticsPage<SeriesRow>>;
   attributeValues(query: AttributeValuesQuery): Promise<AnalyticsPage<AttributeValueRow>>;
 }
+
+/** 확정된 관측 결과만 집계한다. 기간은 관측 시작 시각이며 실험을 생략하면 사이트 전체를 조회한다. */
+export interface LearningQuery extends QueryRange { experimentId?: string }
+export interface LearningRow {
+  experimentId: string; armId: string; generation: number; observationWindowMs: number;
+  completed: number; learningValue: number; meanValue: number; latestReceivedAt: number;
+}
+/** 감쇠된 정책 점수와 다르다. 확정된 표본 보상의 합계·평균이며 늦은 골로 재계산하지 않는다. */
+export interface LearningReport extends AnalyticsPage<LearningRow> { rewardBasis: 'closed_learning'; cohortBasis: 'observation_start' }

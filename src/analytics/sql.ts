@@ -83,8 +83,8 @@ export function decodeCursor(raw: string): Cursor {
 export class AnalyticsSQL {
   private readonly namespace: string;
   constructor(namespace: string, private readonly siteId: string, private readonly now = Date.now()) { this.namespace = identifier(namespace); id(siteId, 'siteId'); }
-  private latest(table: AnalyticsTable, alias: string, from: number, to: number, receivedBefore: number, extra = ''): string {
-    if (table === 'observations' || table === 'decisions') return exposureProjection(table, alias, this.namespace, literal(this.siteId), Math.max(0, this.now - RETENTION_MS), from, to, receivedBefore, extra);
+  private latest(table: AnalyticsTable, alias: string, from: number, to: number, receivedBefore: number, extra = '', reconstruct = true): string {
+    if (reconstruct && (table === 'observations' || table === 'decisions')) return exposureProjection(table, alias, this.namespace, literal(this.siteId), Math.max(0, this.now - RETENTION_MS), from, to, receivedBefore, extra);
     return `${alias} AS (SELECT * FROM (SELECT ${recordColumns}, ROW_NUMBER() OVER (PARTITION BY record_id ORDER BY revision DESC, received_at ASC) AS _revision_rank
 FROM ${this.namespace}."${table}" WHERE site_id = ${literal(this.siteId)} AND occurred_at >= ${from} AND occurred_at < ${to} AND received_at <= ${receivedBefore}${extra}) ranked WHERE _revision_rank = 1)`;
   }
@@ -121,6 +121,22 @@ COUNT(DISTINCT state_key) AS subjects, SUM(reward) AS total_value, SUM(CASE WHEN
 AVG(CASE WHEN status = 'complete' THEN reward ELSE NULL END) AS mean_value, MAX(received_at) AS latest_received_at
 FROM cohort GROUP BY ${dimensions.join(', ')} ORDER BY ${dimensions.join(', ')} LIMIT ${limit + 1}`;
     return { sql, limit, receivedBefore: this.now, fingerprint: fingerprint(this.siteId, 'arms', q) };
+  }
+  learning(q: import('./types.js').LearningQuery): QueryPlan {
+    const limit = range(q, this.now);
+    const latest = this.latest('observations', 'closed_latest', q.from, q.to, this.now,
+      q.experimentId === undefined ? '' : ` AND experiment_id = ${literal(id(q.experimentId, 'experimentId'))}`, false);
+    const dimensions = 'experiment_id, arm_id, generation, window_ms';
+    return { sql: `WITH ${latest}, closed AS (
+SELECT experiment_id, arm_id, json_get_int(payload_json, 'generation') AS generation,
+json_get_int(payload_json, 'endAt') - occurred_at AS window_ms, value, received_at
+FROM closed_latest WHERE status = 'complete'), scaled AS (
+SELECT *, MAX(ABS(value)) OVER (PARTITION BY ${dimensions}) AS scale FROM closed)
+SELECT ${dimensions}, COUNT(*) AS completed,
+COALESCE(SUM(value / NULLIF(scale, 0)) * MAX(scale), 0) AS learning_value,
+COALESCE(AVG(value / NULLIF(scale, 0)) * MAX(scale), 0) AS mean_value,
+MAX(received_at) AS latest_received_at FROM scaled GROUP BY ${dimensions} ORDER BY ${dimensions} LIMIT ${limit + 1}`,
+      limit, receivedBefore: this.now, fingerprint: fingerprint(this.siteId, 'learning', q) };
   }
   timeline(q: TimelineQuery): QueryPlan {
     const limit = range(q, this.now), subject = record(q.subject, 'timeline subject');

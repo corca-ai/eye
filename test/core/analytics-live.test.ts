@@ -29,6 +29,11 @@ it('computes live rewards with the same decay as learning while exposing their l
     const report = await f.api.arms({ from: start, to: now, experimentId: 'exp', groupBy: [{ key: 'country', type: 'string' }] });
     expect(report.rewardBasis).toBe('raw_attribution');
     expect(report.rows[0]).toMatchObject({ completed: 2, totalValue: 55, learningValue: 50, meanValue: 27.5, groups: ['KR'] });
+    const frozen = await f.api.learning({ from: start, to: now });
+    expect(frozen.rewardBasis).toBe('closed_learning');
+    expect(frozen.rows).toHaveLength(1);
+    expect(frozen.rows[0]).toMatchObject({ experimentId: 'exp', completed: 2, learningValue: 50, meanValue: 25 });
+    expect((await f.api.learning({ from: start, to: now, experimentId: 'absent' })).rows).toEqual([]);
     const traffic = await f.api.traffic({ from: start - 2, to: now, experimentId: 'exp', bucketMs: 60000 });
     expect(traffic.rows.reduce((n, r) => n + r.exposures, 0)).toBe(2);
     expect(traffic.rows.reduce((n, r) => n + r.assignments, 0)).toBe(2);

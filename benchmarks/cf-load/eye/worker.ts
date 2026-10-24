@@ -16,7 +16,7 @@ export default class BenchmarkEye extends EyeWorker {
     for (const batch of exportBatches(rows.map(record => ({ record })))) await this.env.ANALYTICS.send(exportRecords(batch));
     return { events: input.length, records: rows.length };
   }
-  async benchmarkLearn(siteId: string, from: number, until: number) {
+  async benchmarkLearn(siteId: string, from: number, until: number, publish = false) {
     const queries: unknown[] = [];
     const measured: typeof fetch = async (input, init) => {
       const started = performance.now(), response = await fetch(input, init);
@@ -30,6 +30,7 @@ export default class BenchmarkEye extends EyeWorker {
     try { do {
       const page = await source.page(from, until, after);
       pages.push(page);
+      if (publish) for (const batch of exportBatches(page.records.map(record => ({ record })))) await this.env.ANALYTICS.send(exportRecords(batch));
       if (page.next === null) break;
       after = page.next;
     } while (pages.length < 40);

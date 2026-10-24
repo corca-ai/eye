@@ -32,6 +32,7 @@
 - [Attributes](#attributes)
 - [AttributeValueRow](#attributevaluerow)
 - [AttributeValuesQuery](#attributevaluesquery)
+- [BasicReport](#basicreport)
 - [BrowserChoice](#browserchoice)
 - [BrowserEventResult](#browsereventresult)
 - [BrowserExposure](#browserexposure)
@@ -70,6 +71,9 @@
 - [GoalRow](#goalrow)
 - [GoalStatus](#goalstatus)
 - [IdentityEvent](#identityevent)
+- [LearningQuery](#learningquery)
+- [LearningReport](#learningreport)
+- [LearningRow](#learningrow)
 - [ObservationStatus](#observationstatus)
 - [PolicyEvaluation](#policyevaluation)
 - [PolicyHistoryRow](#policyhistoryrow)
@@ -78,6 +82,9 @@
 - [PreparedDecision](#prepareddecision)
 - [PublishedPolicy](#publishedpolicy)
 - [QueryRange](#queryrange)
+- [ReportSchedule](#reportschedule)
+- [ReportScheduleInput](#reportscheduleinput)
+- [ReportScheduleRef](#reportscheduleref)
 - [Scalar](#scalar)
 - [SeriesQuery](#seriesquery)
 - [SeriesRow](#seriesrow)
@@ -99,6 +106,7 @@
 
 ```ts
 export interface AnalyticsAPI {
+    learning(query: LearningQuery): Promise<LearningReport>;
     armSeries(query: ArmSeriesQuery): Promise<AnalyticsPage<ArmSeriesRow>>;
     traffic(query: TrafficQuery): Promise<AnalyticsPage<TrafficRow>>;
     policies(query: PolicyQuery): Promise<AnalyticsPage<PolicyHistoryRow>>;
@@ -111,7 +119,7 @@ export interface AnalyticsAPI {
 }
 ```
 
-타입: [AnalyticsAPI](types.md#analyticsapi) · [AnalyticsPage](types.md#analyticspage) · [ArmQuery](types.md#armquery) · [ArmReport](types.md#armreport) · [ArmSeriesQuery](types.md#armseriesquery) · [ArmSeriesRow](types.md#armseriesrow) · [AttributeKeyReport](types.md#attributekeyreport) · [AttributeValueRow](types.md#attributevaluerow) · [AttributeValuesQuery](types.md#attributevaluesquery) · [GoalQuery](types.md#goalquery) · [GoalRow](types.md#goalrow) · [PolicyHistoryRow](types.md#policyhistoryrow) · [PolicyQuery](types.md#policyquery) · [QueryRange](types.md#queryrange) · [SeriesQuery](types.md#seriesquery) · [SeriesRow](types.md#seriesrow) · [TimelinePage](types.md#timelinepage) · [TimelineQuery](types.md#timelinequery) · [TrafficQuery](types.md#trafficquery) · [TrafficRow](types.md#trafficrow)
+타입: [AnalyticsAPI](types.md#analyticsapi) · [AnalyticsPage](types.md#analyticspage) · [ArmQuery](types.md#armquery) · [ArmReport](types.md#armreport) · [ArmSeriesQuery](types.md#armseriesquery) · [ArmSeriesRow](types.md#armseriesrow) · [AttributeKeyReport](types.md#attributekeyreport) · [AttributeValueRow](types.md#attributevaluerow) · [AttributeValuesQuery](types.md#attributevaluesquery) · [GoalQuery](types.md#goalquery) · [GoalRow](types.md#goalrow) · [LearningQuery](types.md#learningquery) · [LearningReport](types.md#learningreport) · [PolicyHistoryRow](types.md#policyhistoryrow) · [PolicyQuery](types.md#policyquery) · [QueryRange](types.md#queryrange) · [SeriesQuery](types.md#seriesquery) · [SeriesRow](types.md#seriesrow) · [TimelinePage](types.md#timelinepage) · [TimelineQuery](types.md#timelinequery) · [TrafficQuery](types.md#trafficquery) · [TrafficRow](types.md#trafficrow)
 
 ## AnalyticsJob
 
@@ -155,13 +163,14 @@ export interface AnalyticsJobInput {
 ```ts
 export interface AnalyticsJobPage {
     job: AnalyticsJob;
+    request: AnalyticsRequest;
     result: AnalyticsResult;
     offset: number;
     nextOffset: number | null;
 }
 ```
 
-타입: [AnalyticsJob](types.md#analyticsjob) · [AnalyticsJobPage](types.md#analyticsjobpage) · [AnalyticsResult](types.md#analyticsresult)
+타입: [AnalyticsJob](types.md#analyticsjob) · [AnalyticsJobPage](types.md#analyticsjobpage) · [AnalyticsRequest](types.md#analyticsrequest) · [AnalyticsResult](types.md#analyticsresult)
 
 ## AnalyticsJobRef
 
@@ -182,9 +191,15 @@ export interface AnalyticsJobRef {
 
 ```ts
 export interface AnalyticsJobsAPI {
+    /** site당 최대 32개. 같은 scope/ID/설정은 재등록해도 재실행하지 않는다. 설정 변경은 새 결과를 생성한다. */
+    schedule(input: ReportScheduleInput): Promise<ReportSchedule>;
+    /** 조회는 새 작업을 시작하지 않는다. latestJob의 저장 결과는 page로 읽는다. */
+    scheduled(input: ReportScheduleRef): Promise<ReportSchedule>;
+    /** 향후 실행을 중단한다. 이미 만들어진 공유 job과 저장 결과는 자체 만료까지 유지한다. */
+    unschedule(input: ReportScheduleRef): Promise<void>;
     /** 같은 site/scope/정규화 조건의 실행 중 작업을 공유하고 완료 결과는 15분 재사용한다. 등록은 SQL 완료를 기다리지 않는다. */
     create(input: AnalyticsJobInput): Promise<AnalyticsJob>;
-    /** 작업/결과는 등록 후 1시간 보관한다. 다른 scope 또는 만료된 ID는 not_found. */
+    /** 일반 작업/결과는 등록 후 1시간 보관한다. 자동 보고서는 생성 당시 intervalMs × 2 + 1시간 보관한다. 다른 scope 또는 만료된 ID는 not_found. */
     status(input: AnalyticsJobRef): Promise<AnalyticsJob>;
     /** 저장된 결과를 읽는다. 기본 100행, 최대 1000행. offset은 결과 내 위치이며 SQL을 재실행하지 않는다. 원래 조회의 meta.truncated도 확인한다. */
     page(input: AnalyticsJobRef & {
@@ -196,7 +211,7 @@ export interface AnalyticsJobsAPI {
 }
 ```
 
-타입: [AnalyticsJob](types.md#analyticsjob) · [AnalyticsJobInput](types.md#analyticsjobinput) · [AnalyticsJobPage](types.md#analyticsjobpage) · [AnalyticsJobRef](types.md#analyticsjobref) · [AnalyticsJobsAPI](types.md#analyticsjobsapi)
+타입: [AnalyticsJob](types.md#analyticsjob) · [AnalyticsJobInput](types.md#analyticsjobinput) · [AnalyticsJobPage](types.md#analyticsjobpage) · [AnalyticsJobRef](types.md#analyticsjobref) · [AnalyticsJobsAPI](types.md#analyticsjobsapi) · [ReportSchedule](types.md#reportschedule) · [ReportScheduleInput](types.md#reportscheduleinput) · [ReportScheduleRef](types.md#reportscheduleref)
 
 ## AnalyticsKind
 
@@ -387,7 +402,7 @@ export type ArmStatus = 'active' | 'paused' | 'deleted';
 
 ## AssignedDecision
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L48)
+[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L52)
 
 ```ts
 export type AssignedDecision = Extract<Decision, {
@@ -499,6 +514,22 @@ export interface AttributeValuesQuery extends QueryRange {
 ```
 
 타입: [AttributeField](types.md#attributefield) · [AttributeValuesQuery](types.md#attributevaluesquery) · [Filter](types.md#filter) · [QueryRange](types.md#queryrange)
+
+## BasicReport
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/jobs.ts#L39)
+
+```ts
+/** 자주 사용하는 기본 보고서만 자동 생성한다. 임의 필터 조합은 jobs.create를 사용한다. */
+export type BasicReport = {
+    kind: 'learning';
+    experimentId?: string;
+} | {
+    kind: 'goals';
+};
+```
+
+타입: [BasicReport](types.md#basicreport)
 
 ## BrowserChoice
 
@@ -1013,6 +1044,9 @@ export interface EyeRequestOptions extends EyeOptions {
 ```ts
 /** Structural RPC contract: hosts may name their Service Binding freely. */
 export interface EyeService {
+    analyticsJobSchedule(siteId: string, input: Parameters<AnalyticsJobsAPI['schedule']>[0]): ReturnType<AnalyticsJobsAPI['schedule']>;
+    analyticsJobScheduled(siteId: string, input: Parameters<AnalyticsJobsAPI['scheduled']>[0]): ReturnType<AnalyticsJobsAPI['scheduled']>;
+    analyticsJobUnschedule(siteId: string, input: Parameters<AnalyticsJobsAPI['unschedule']>[0]): ReturnType<AnalyticsJobsAPI['unschedule']>;
     analyticsJobCreate(siteId: string, input: Parameters<AnalyticsJobsAPI['create']>[0]): ReturnType<AnalyticsJobsAPI['create']>;
     analyticsJobStatus(siteId: string, input: Parameters<AnalyticsJobsAPI['status']>[0]): ReturnType<AnalyticsJobsAPI['status']>;
     analyticsJobPage(siteId: string, input: Parameters<AnalyticsJobsAPI['page']>[0]): Promise<string>;
@@ -1035,6 +1069,7 @@ export interface EyeService {
     analyticsTraffic(siteId: string, query: Parameters<AnalyticsAPI['traffic']>[0]): ReturnType<AnalyticsAPI['traffic']>;
     analyticsPolicies(siteId: string, query: Parameters<AnalyticsAPI['policies']>[0]): ReturnType<AnalyticsAPI['policies']>;
     analyticsAttributeKeys(siteId: string, query: Parameters<AnalyticsAPI['attributeKeys']>[0]): ReturnType<AnalyticsAPI['attributeKeys']>;
+    analyticsLearning(siteId: string, query: Parameters<AnalyticsAPI['learning']>[0]): ReturnType<AnalyticsAPI['learning']>;
     analyticsArms(siteId: string, query: Parameters<AnalyticsAPI['arms']>[0]): ReturnType<AnalyticsAPI['arms']>;
     analyticsTimeline(siteId: string, query: Parameters<AnalyticsAPI['timeline']>[0]): ReturnType<AnalyticsAPI['timeline']>;
     analyticsGoals(siteId: string, query: Parameters<AnalyticsAPI['goals']>[0]): ReturnType<AnalyticsAPI['goals']>;
@@ -1157,6 +1192,52 @@ export type IdentityEvent = EventBase & {
 
 타입: [EventBase](types.md#eventbase) · [IdentityEvent](types.md#identityevent)
 
+## LearningQuery
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L78)
+
+```ts
+/** 확정된 관측 결과만 집계한다. 기간은 관측 시작 시각이며 실험을 생략하면 사이트 전체를 조회한다. */
+export interface LearningQuery extends QueryRange {
+    experimentId?: string;
+}
+```
+
+타입: [LearningQuery](types.md#learningquery) · [QueryRange](types.md#queryrange)
+
+## LearningReport
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L84)
+
+```ts
+/** 감쇠된 정책 점수와 다르다. 확정된 표본 보상의 합계·평균이며 늦은 골로 재계산하지 않는다. */
+export interface LearningReport extends AnalyticsPage<LearningRow> {
+    rewardBasis: 'closed_learning';
+    cohortBasis: 'observation_start';
+}
+```
+
+타입: [AnalyticsPage](types.md#analyticspage) · [LearningReport](types.md#learningreport) · [LearningRow](types.md#learningrow)
+
+## LearningRow
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L79)
+
+```ts
+export interface LearningRow {
+    experimentId: string;
+    armId: string;
+    generation: number;
+    observationWindowMs: number;
+    completed: number;
+    learningValue: number;
+    meanValue: number;
+    latestReceivedAt: number;
+}
+```
+
+타입: [LearningRow](types.md#learningrow)
+
 ## ObservationStatus
 
 [소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L9)
@@ -1277,6 +1358,51 @@ export interface QueryRange {
 ```
 
 타입: [QueryRange](types.md#queryrange)
+
+## ReportSchedule
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/jobs.ts#L48)
+
+```ts
+export interface ReportSchedule extends ReportScheduleInput {
+    intervalMs: number;
+    nextAt: number;
+    currentJob: AnalyticsJob | null;
+    latestJob: AnalyticsJob | null;
+    error: string | null;
+}
+```
+
+타입: [AnalyticsJob](types.md#analyticsjob) · [ReportSchedule](types.md#reportschedule) · [ReportScheduleInput](types.md#reportscheduleinput)
+
+## ReportScheduleInput
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/jobs.ts#L41)
+
+```ts
+export interface ReportScheduleInput extends ReportScheduleRef {
+    report: BasicReport;
+    /** 최근 windowMs 구간. 1시간~59일. 실행 시각을 끝으로 하며 누락된 실행을 소급 반복하지 않는다. */
+    windowMs: number;
+    /** 기본 1시간, 1~24시간. 실제 완료는 저장소 지연·대기열·재시도만큼 늦을 수 있다. */
+    intervalMs?: number;
+}
+```
+
+타입: [BasicReport](types.md#basicreport) · [ReportScheduleInput](types.md#reportscheduleinput) · [ReportScheduleRef](types.md#reportscheduleref)
+
+## ReportScheduleRef
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/jobs.ts#L40)
+
+```ts
+export interface ReportScheduleRef {
+    scope: string;
+    scheduleId: string;
+}
+```
+
+타입: [ReportScheduleRef](types.md#reportscheduleref)
 
 ## Scalar
 

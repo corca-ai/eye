@@ -104,7 +104,15 @@ export function createEye(options: EyeOptions) {
     /** Optional for jobs/tests that need to await Queue ingestion. Normal request handlers need not await this. */
     flush,
     analytics: {
+      /** 원본 귀속을 다시 계산하지 않고 확정 학습 표본의 합계·평균을 조회한다. */
+      learning: query => service.analyticsLearning(siteId, query),
       jobs: {
+        /** 기본 골·확정 학습 보고서를 1~24시간 간격으로 생성한다. */
+        schedule: input => service.analyticsJobSchedule(siteId, input),
+        /** 새 작업을 시작하지 않고 자동 보고서와 이전 완료 결과를 확인한다. */
+        scheduled: input => service.analyticsJobScheduled(siteId, input),
+        /** 이후 자동 실행을 중단한다. 이미 생성된 작업은 자체 만료까지 남는다. */
+        unschedule: input => service.analyticsJobUnschedule(siteId, input),
         /** 동일 권한 범위·조건의 작업과 완료 결과를 재사용한다. 등록은 SQL 완료를 기다리지 않는다. */
         create: input => service.analyticsJobCreate(siteId, input),
         /** 작업 진행 상태·시각·만료·실패 이유를 조회한다. */

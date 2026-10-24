@@ -16,6 +16,9 @@ export interface PublishedPolicy extends PolicySnapshot {
 export interface PreparedDecision { decision: Decision; reuseUntil: number; policy: PublishedPolicy }
 /** Structural RPC contract: hosts may name their Service Binding freely. */
 export interface EyeService {
+  analyticsJobSchedule(siteId: string, input: Parameters<AnalyticsJobsAPI['schedule']>[0]): ReturnType<AnalyticsJobsAPI['schedule']>;
+  analyticsJobScheduled(siteId: string, input: Parameters<AnalyticsJobsAPI['scheduled']>[0]): ReturnType<AnalyticsJobsAPI['scheduled']>;
+  analyticsJobUnschedule(siteId: string, input: Parameters<AnalyticsJobsAPI['unschedule']>[0]): ReturnType<AnalyticsJobsAPI['unschedule']>;
   analyticsJobCreate(siteId: string, input: Parameters<AnalyticsJobsAPI['create']>[0]): ReturnType<AnalyticsJobsAPI['create']>;
   analyticsJobStatus(siteId: string, input: Parameters<AnalyticsJobsAPI['status']>[0]): ReturnType<AnalyticsJobsAPI['status']>;
   analyticsJobPage(siteId: string, input: Parameters<AnalyticsJobsAPI['page']>[0]): Promise<string>;
@@ -39,6 +42,7 @@ export interface EyeService {
   analyticsTraffic(siteId: string, query: Parameters<AnalyticsAPI['traffic']>[0]): ReturnType<AnalyticsAPI['traffic']>;
   analyticsPolicies(siteId: string, query: Parameters<AnalyticsAPI['policies']>[0]): ReturnType<AnalyticsAPI['policies']>;
   analyticsAttributeKeys(siteId: string, query: Parameters<AnalyticsAPI['attributeKeys']>[0]): ReturnType<AnalyticsAPI['attributeKeys']>;
+  analyticsLearning(siteId: string, query: Parameters<AnalyticsAPI['learning']>[0]): ReturnType<AnalyticsAPI['learning']>;
   analyticsArms(siteId: string, query: Parameters<AnalyticsAPI['arms']>[0]): ReturnType<AnalyticsAPI['arms']>;
   analyticsTimeline(siteId: string, query: Parameters<AnalyticsAPI['timeline']>[0]): ReturnType<AnalyticsAPI['timeline']>;
   analyticsGoals(siteId: string, query: Parameters<AnalyticsAPI['goals']>[0]): ReturnType<AnalyticsAPI['goals']>;

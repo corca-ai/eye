@@ -30,3 +30,6 @@ export type { BrowserServerOptions } from './browser-server.js';
 export type { BrowserSnapshot, BrowserChoice, BrowserExposure, BrowserEventResult, BrowserSample, BrowserState } from './browser-types.js';
 
 export type { AnalyticsKind, AnalyticsRequest, AnalyticsResult, AnalyticsJobInput, AnalyticsJobRef, AnalyticsJob, AnalyticsJobPage, AnalyticsJobsAPI } from './analytics/jobs.js';
+
+export type { LearningQuery, LearningRow, LearningReport } from './analytics/types.js';
+export type { BasicReport, ReportScheduleRef, ReportScheduleInput, ReportSchedule } from './analytics/jobs.js';

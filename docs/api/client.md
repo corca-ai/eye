@@ -24,6 +24,10 @@ createEye(options: EyeOptions): EyeClient
 - [eye.logout](#eyelogout)
 - [eye.decide](#eyedecide)
 - [eye.flush](#eyeflush)
+- [eye.analytics.learning](#eyeanalyticslearning)
+- [eye.analytics.jobs.schedule](#eyeanalyticsjobsschedule)
+- [eye.analytics.jobs.scheduled](#eyeanalyticsjobsscheduled)
+- [eye.analytics.jobs.unschedule](#eyeanalyticsjobsunschedule)
 - [eye.analytics.jobs.create](#eyeanalyticsjobscreate)
 - [eye.analytics.jobs.status](#eyeanalyticsjobsstatus)
 - [eye.analytics.jobs.page](#eyeanalyticsjobspage)
@@ -141,6 +145,46 @@ Optional for jobs/tests that need to await Queue ingestion. Normal request handl
 ```ts
 eye.flush(): Promise<void>
 ```
+
+## eye.analytics.learning
+
+원본 귀속을 다시 계산하지 않고 확정 학습 표본의 합계·평균을 조회한다.
+
+```ts
+eye.analytics.learning(query: LearningQuery): Promise<LearningReport>
+```
+
+타입: [LearningQuery](types.md#learningquery) · [LearningReport](types.md#learningreport)
+
+## eye.analytics.jobs.schedule
+
+기본 골·확정 학습 보고서를 1~24시간 간격으로 생성한다.
+
+```ts
+eye.analytics.jobs.schedule(input: ReportScheduleInput): Promise<ReportSchedule>
+```
+
+타입: [ReportSchedule](types.md#reportschedule) · [ReportScheduleInput](types.md#reportscheduleinput)
+
+## eye.analytics.jobs.scheduled
+
+새 작업을 시작하지 않고 자동 보고서와 이전 완료 결과를 확인한다.
+
+```ts
+eye.analytics.jobs.scheduled(input: ReportScheduleRef): Promise<ReportSchedule>
+```
+
+타입: [ReportSchedule](types.md#reportschedule) · [ReportScheduleRef](types.md#reportscheduleref)
+
+## eye.analytics.jobs.unschedule
+
+이후 자동 실행을 중단한다. 이미 생성된 작업은 자체 만료까지 남는다.
+
+```ts
+eye.analytics.jobs.unschedule(input: ReportScheduleRef): Promise<void>
+```
+
+타입: [ReportScheduleRef](types.md#reportscheduleref)
 
 ## eye.analytics.jobs.create
 

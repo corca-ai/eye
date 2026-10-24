@@ -91,6 +91,9 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
   async getGoal(siteId: string, goalId: string) { return this.env.SITES.getByName(id(siteId, 'siteId')).getGoal(goalId); }
   async listGoals(siteId: string, after = '', limit = 100) { return this.env.SITES.getByName(id(siteId, 'siteId')).listGoals(after, limit); }
   async setGoalStatus(siteId: string, goalId: string, status: GoalStatus) { return this.env.SITES.getByName(id(siteId, 'siteId')).setGoalStatus(goalId, status); }
+  async analyticsJobSchedule(siteId: string, input: Parameters<AnalyticsJobsAPI['schedule']>[0]) { id(siteId, 'siteId'); return this.env.REPORTS.getByName(siteId).schedule(siteId, input); }
+  async analyticsJobScheduled(siteId: string, input: Parameters<AnalyticsJobsAPI['scheduled']>[0]) { id(siteId, 'siteId'); return this.env.REPORTS.getByName(siteId).getSchedule(input); }
+  async analyticsJobUnschedule(siteId: string, input: Parameters<AnalyticsJobsAPI['unschedule']>[0]) { id(siteId, 'siteId'); return this.env.REPORTS.getByName(siteId).unschedule(input); }
   async analyticsJobCreate(siteId: string, input: Parameters<AnalyticsJobsAPI['create']>[0]) { id(siteId, 'siteId'); return this.env.REPORTS.getByName(siteId).create(siteId, input); }
   async analyticsJobStatus(siteId: string, input: Parameters<AnalyticsJobsAPI['status']>[0]) { id(siteId, 'siteId'); return this.env.REPORTS.getByName(siteId).status(input); }
   async analyticsJobPage(siteId: string, input: Parameters<AnalyticsJobsAPI['page']>[0]) { id(siteId, 'siteId'); return this.env.REPORTS.getByName(siteId).page(input); }
@@ -99,6 +102,7 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
   async analyticsTraffic(siteId: string, query: Parameters<AnalyticsAPI['traffic']>[0]) { return new BasinAnalytics(this.env, siteId).traffic(query); }
   async analyticsPolicies(siteId: string, query: Parameters<AnalyticsAPI['policies']>[0]) { return new BasinAnalytics(this.env, siteId).policies(query); }
   async analyticsAttributeKeys(siteId: string, query: Parameters<AnalyticsAPI['attributeKeys']>[0]) { return new BasinAnalytics(this.env, siteId).attributeKeys(query); }
+  async analyticsLearning(siteId: string, query: Parameters<AnalyticsAPI['learning']>[0]) { return new BasinAnalytics(this.env, siteId).learning(query); }
   async analyticsArms(siteId: string, query: Parameters<AnalyticsAPI['arms']>[0]) { return new BasinAnalytics(this.env, siteId).arms(query); }
   async analyticsTimeline(siteId: string, query: Parameters<AnalyticsAPI['timeline']>[0]) { return new BasinAnalytics(this.env, siteId).timeline(query); }
   async analyticsGoals(siteId: string, query: Parameters<AnalyticsAPI['goals']>[0]) { return new BasinAnalytics(this.env, siteId).goals(query); }

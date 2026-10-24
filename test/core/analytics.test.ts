@@ -123,3 +123,15 @@ describe('Workers fetch invocation', () => {
     } finally { vi.unstubAllGlobals(); }
   });
 });
+
+it('summarizes frozen observations without raw queries, deduplicates retries and safely sums signed rewards', async () => {
+  const rows = [1e308, 1e308, -1e308, -1e308, 0].map((value, i) => observation(`closed-${i}`, 'complete', value, { revision: 2 }));
+  const db = database([...rows, rows[0]!, observation('pending', 'pending', 999)]);
+  try {
+    const query = sql().learning({ from, to });
+    expect(query.sql).not.toContain('.events'); expect(query.sql).not.toContain('.identity_links');
+    const report = await new BasinAnalytics(config, 'site', db.request, () => now).learning({ from, to });
+    expect(report.rewardBasis).toBe('closed_learning');
+    expect(report.rows[0]).toMatchObject({ completed: 5, learningValue: 0, meanValue: 0 });
+  } finally { db.close(); }
+});

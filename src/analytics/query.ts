@@ -126,6 +126,14 @@ export class BasinAnalytics implements AnalyticsAPI {
       meanValue: row.mean_value === null ? null : numeric(row, 'mean_value'), latestReceivedAt: numeric(row, 'latest_received_at'),
     })) };
   }
+  async learning(query: import('./types.js').LearningQuery): Promise<import('./types.js').LearningReport> {
+    const result = await this.execute(this.sql().learning(query));
+    return { rewardBasis: 'closed_learning', cohortBasis: 'observation_start', meta: result.meta, rows: result.rows.map(row => ({
+      experimentId: text(row, 'experiment_id'), armId: text(row, 'arm_id'), generation: numeric(row, 'generation'),
+      observationWindowMs: numeric(row, 'window_ms'), completed: numeric(row, 'completed'), learningValue: numeric(row, 'learning_value'),
+      meanValue: numeric(row, 'mean_value'), latestReceivedAt: numeric(row, 'latest_received_at'),
+    })) };
+  }
   async arms(query: ArmQuery): Promise<ArmReport> { return this.armReport(query); }
   async armSeries(query: import('./types.js').ArmSeriesQuery) {
     invariant(Number.isSafeInteger(query.bucketMs) && query.bucketMs > 0, 'invalid_input', 'bucketMs must be positive integer milliseconds');

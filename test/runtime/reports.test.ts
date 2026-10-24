@@ -115,3 +115,106 @@ it('SDK returns typed report pages over the service binding and separates sites'
     });
   } finally { query.mockRestore(); await waitOnExecutionContext(ctx); }
 });
+
+it('schedules basic reports without reads triggering SQL, retains the previous result and survives eviction', async () => {
+  const site = crypto.randomUUID(), actor = env.REPORTS.getByName(site);
+  const request = { scope: 'admins', scheduleId: 'daily', report: { kind: 'goals' as const }, windowMs: 86400000 };
+  const query = vi.spyOn(BasinAnalytics.prototype, 'goals').mockResolvedValue(result());
+  try {
+    await actor.schedule(site, request);
+    expect((await actor.getSchedule(request)).currentJob).toBeNull(); expect(query).not.toHaveBeenCalled();
+    await runInDurableObject(actor, a => a.alarm());
+    const first = await actor.getSchedule(request);
+    expect(first.latestJob?.status).toBe('complete');
+    expect(first.latestJob!.expiresAt - first.latestJob!.createdAt).toBe(3 * 3600000);
+    expect(query).toHaveBeenCalledTimes(1);
+    await evictDurableObject(actor);
+    expect((await actor.schedule(site, request)).latestJob?.jobId).toBe(first.latestJob!.jobId);
+    expect((await actor.getSchedule(request)).latestJob?.jobId).toBe(first.latestJob!.jobId);
+    const page = JSON.parse(await actor.page({ scope: 'admins', jobId: first.latestJob!.jobId })) as AnalyticsJobPage;
+    expect(page.request.query.to - page.request.query.from).toBe(request.windowMs);
+    await runInDurableObject(actor, async a => { await expect(a.getSchedule({ ...request, scope: 'other' })).rejects.toThrow('not found'); });
+    query.mockRejectedValue(new Error('temporary'));
+    await runInDurableObject(actor, async (a, state) => {
+      // Expire the old request's cache so even a frozen test clock creates a new attempt.
+      state.storage.sql.exec('UPDATE report_jobs SET completed_at=?', Date.now() - 900001);
+      state.storage.sql.exec('UPDATE report_schedules SET next_at=0');
+      await a.alarm();
+    });
+    const pending = await actor.getSchedule(request);
+    expect(pending.currentJob?.status).toBe('queued');
+    expect(pending.latestJob?.jobId).toBe(first.latestJob!.jobId);
+    await actor.unschedule(request);
+    await runInDurableObject(actor, async a => { await expect(a.getSchedule(request)).rejects.toThrow('not found'); });
+    expect((await actor.status({ scope: 'admins', jobId: first.latestJob!.jobId })).status).toBe('complete');
+  } finally { query.mockRestore(); }
+});
+
+it('validates schedules, isolates sites, and drops the previous result when report settings change', async () => {
+  const site = crypto.randomUUID(), actor = env.REPORTS.getByName(site);
+  const request = { scope: 'admins', scheduleId: 'report', report: { kind: 'goals' as const }, windowMs: 86400000 };
+  await runInDurableObject(actor, async a => {
+    await expect(a.schedule(site, { ...request, intervalMs: 59999 })).rejects.toThrow('intervalMs');
+    await expect(a.schedule(site, { ...request, windowMs: 60 * 86400000 })).rejects.toThrow('windowMs');
+  });
+  const query = vi.spyOn(BasinAnalytics.prototype, 'goals').mockResolvedValue(result());
+  try {
+    await actor.schedule(site, request); await runInDurableObject(actor, a => a.alarm());
+    await runInDurableObject(actor, async a => { await expect(a.schedule('other', request)).rejects.toThrow('another site'); });
+    const changed = await actor.schedule(site, { ...request, report: { kind: 'learning' } });
+    expect(changed.latestJob).toBeNull(); expect(changed.currentJob).toBeNull();
+    expect(changed.nextAt).toBeLessThanOrEqual(Date.now());
+  } finally { query.mockRestore(); }
+});
+
+it('does not publish an in-flight result into a changed schedule and bounds scheduled admission', async () => {
+  const site = crypto.randomUUID(), actor = env.REPORTS.getByName(site);
+  const request = { scope: 'admins', scheduleId: 'report', report: { kind: 'goals' as const }, windowMs: 86400000 };
+  let entered!: () => void, release!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const query = vi.spyOn(BasinAnalytics.prototype, 'goals').mockImplementation(async () => { entered(); await held; return result(); });
+  try {
+    await actor.schedule(site, request);
+    await runInDurableObject(actor, async a => {
+      const work = a.alarm(); await started;
+      await a.schedule(site, { ...request, windowMs: 2 * 86400000 });
+      release(); await work;
+      expect((await a.getSchedule(request)).latestJob).toBeNull();
+    });
+    await actor.unschedule(request);
+    // Existing queued jobs have priority; automatic reports wait rather than
+    // exceeding the shared eight-job bound.
+    for (let i = 0; i < 8; i++) await actor.create(site, { ...input(), scope: `scope-${i}` });
+    await actor.schedule(site, request);
+    await runInDurableObject(actor, async (a, state) => {
+      await a.alarm();
+      const scheduled = await a.getSchedule(request);
+      expect(scheduled.currentJob).toBeNull(); expect(scheduled.error).toBe('registration_unavailable');
+      expect(state.storage.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM report_jobs WHERE status IN ('queued','running')").one().n).toBeLessThanOrEqual(8);
+    });
+  } finally { release(); query.mockRestore(); }
+});
+
+it('does not attach a job to a deleted and recreated schedule during async registration', async () => {
+  const site = crypto.randomUUID(), actor = env.REPORTS.getByName(site);
+  const request = { scope: 'admins', scheduleId: 'replace', report: { kind: 'goals' as const }, windowMs: 86400000 };
+  let entered!: () => void, release!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const digest = crypto.subtle.digest.bind(crypto.subtle);
+  const paused = vi.spyOn(crypto.subtle, 'digest').mockImplementation(async (...args) => { entered(); await held; return digest(...args); });
+  const query = vi.spyOn(BasinAnalytics.prototype, 'goals').mockResolvedValue(result());
+  try {
+    await actor.schedule(site, request);
+    await runInDurableObject(actor, async a => {
+      const work = a.alarm(); await started;
+      await a.unschedule(request);
+      await a.schedule(site, { ...request, windowMs: 2 * 86400000 });
+      release(); await work;
+      const current = await a.getSchedule(request);
+      expect(current.currentJob).toBeNull(); expect(current.latestJob).toBeNull();
+      expect(current.windowMs).toBe(2 * 86400000);
+    });
+  } finally { release(); paused.mockRestore(); query.mockRestore(); }
+});
