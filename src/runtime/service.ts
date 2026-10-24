@@ -10,7 +10,7 @@ import type { ArmStatus, CreateExperiment, EventEnvelope, ExperimentSettings, Go
 import type { EyeService, PublishedPolicy } from '../transport.js';
 import { rawRecords, validateRawEnvelope } from '../analytics/raw.js';
 import { type AnalyticsRecord } from '../analytics/records.js';
-import { exportRecords, exportBatches } from '../analytics/export.js';
+import { exportBatches } from '../analytics/export.js';
 import { BasinAnalytics } from '../analytics/query.js';
 import type { AnalyticsEnv } from '../analytics/query.js';
 import type { AnalyticsAPI } from '../analytics/types.js';
@@ -63,8 +63,8 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
       items.push({ message, records: rawRecords(envelope, accepted) });
     }
     // One durable raw export path. No Subject, Identity or observation-shard RPC.
-    for (const group of exportBatches(items.flatMap(item => item.records.map(record => ({ record, message: item.message }))))) {
-      try { await this.env.ANALYTICS.send(exportRecords(group)); }
+    for (const group of exportBatches(items.flatMap(item => item.records.map(record => ({ record }))))) {
+      try { await this.env.ANALYTICS.send(group); }
       catch (error) { for (const item of items) item.message.retry(); throw error; }
     }
     for (const message of batch.messages) { if (retries.has(message)) message.retry(); else message.ack(); }

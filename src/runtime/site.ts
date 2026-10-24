@@ -5,7 +5,7 @@ import type { GoalStatus } from '../core/types.js';
 import { compareIdentifiers } from '../core/attribution.js';
 import { StoredObject } from './base.js';
 import { LearningSource, COHORT_INTERVAL_MS, COHORT_PAGE_SIZE, type LearningPage } from './learning.js';
-import { exportRecords, exportBatches } from '../analytics/export.js';
+import { exportBatches } from '../analytics/export.js';
 import { experimentKey, RETENTION_MS } from '../core/validation.js';
 import { AnalyticsCapacityError, type AnalyticsEnv } from '../analytics/query.js';
 
@@ -142,7 +142,7 @@ export class SiteControl extends StoredObject {
       await this.env.EXPERIMENTS.getByName(experimentKey(siteId, experimentId)).applyCohort({ ...page.cohort,
         arms: page.cohort.arms.filter(a => a.experimentId === experimentId) });
     }
-    for (const batch of exportBatches(page.records.map(record => ({ record })))) await this.env.ANALYTICS.send(exportRecords(batch));
+    for (const batch of exportBatches(page.records.map(record => ({ record })))) await this.env.ANALYTICS.send(batch);
     this.atomic(() => {
       if (page.next === null) { this.kv.put('learningFrom', until); this.kv.delete('learningAfter'); this.kv.delete('learningLimit'); }
       else this.kv.put('learningAfter', page.next);

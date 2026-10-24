@@ -1,6 +1,6 @@
 import { POLICY_REEVALUATION_MS } from '../policy-timing.js';
 import { analyticsRecord } from '../analytics/records.js';
-import { exportRecords, exportBatches } from '../analytics/export.js';
+import { exportBatches } from '../analytics/export.js';
 import type { AnalyticsRecord } from '../analytics/records.js';
 import type { RuntimeEnv as Env } from './environment.generated.js';
 import { invariant } from '../core/errors.js';
@@ -159,7 +159,7 @@ export class ExperimentObject extends StoredObject {
   override async alarm(): Promise<void> {
     await this.retryAlarm(async () => {
       for (const row of this.sql.exec<{ id: number; data: string }>('SELECT * FROM policy_outbox ORDER BY id LIMIT 100').toArray()) {
-        for (const batch of exportBatches(storedJson<AnalyticsRecord[]>(row.data).map(record => ({ record })))) await this.env.ANALYTICS.send(exportRecords(batch));
+        for (const batch of exportBatches(storedJson<AnalyticsRecord[]>(row.data).map(record => ({ record })))) await this.env.ANALYTICS.send(batch);
         this.sql.exec('DELETE FROM policy_outbox WHERE id = ?', row.id);
       }
       if (this.sql.exec('SELECT id FROM policy_outbox LIMIT 1').toArray().length) await this.wakeAt(Date.now() + 1000);

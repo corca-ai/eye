@@ -82,8 +82,8 @@ describe('Basin boundary', () => {
   it('bounds encoded UTF-8 export batches and rejects nonfinite data before Stream acceptance', () => {
     const records = Array.from({ length: 60 }, (_, i) => ({ record: row('events', String(i), { payload_json: JSON.stringify({ text: '한'.repeat(50_000) }) }) }));
     const batches = [...exportBatches(records)];
-    expect(batches.length).toBeGreaterThan(1); expect(batches.flat()).toEqual(records);
-    for (const batch of batches) expect(new TextEncoder().encode(JSON.stringify(batch.map(r => r.record))).byteLength).toBeLessThanOrEqual(EXPORT_BATCH_BYTES);
+    expect(batches.length).toBeGreaterThan(1); expect(batches.flat()).toEqual(records.map(r => r.record));
+    for (const batch of batches) expect(new TextEncoder().encode(JSON.stringify(batch)).byteLength).toBeLessThanOrEqual(EXPORT_BATCH_BYTES);
     expect(() => validateExport(row('credits', 'bad', { value: Infinity }))).toThrow('analytics value');
   });
 });
