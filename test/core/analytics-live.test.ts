@@ -71,3 +71,54 @@ it('uses first-login ownership for live rewards, post-login event cohorts and ui
     expect(new Set(records.map(r => `${r.table}/${r.recordId}`)).size).toBe(records.length);
   } finally { f.db.close(); }
 });
+
+it('reconstructs one pending sample and assignment from repeated receipts, using first-exposure attributes', async () => {
+  const first = exposure('first', 'browser');
+  const later = { ...first, eventId: 'later', occurredAt: start + 100, userAttributes: { country: 'US' } };
+  const rows = [later, first, first].flatMap((event, i) => rawRecords({ siteId: 'site', receivedAt: now - 10 + i, event }));
+  expect(rows.every(row => row.table_name === 'events')).toBe(true);
+  const db = database(exportRecords(rows.map(record => ({ record }))));
+  const api = new BasinAnalytics(env, 'site', db.request, () => now);
+  try {
+    const report = await api.arms({ from: start, to: now, experimentId: 'exp', groupBy: [{ key: 'country', type: 'string' }] });
+    expect(report.rows).toHaveLength(1);
+    expect(report.rows[0]).toMatchObject({ pending: 1, completed: 0, groups: ['KR'] });
+    // Assignment time can precede the receipt and the requested range's end.
+    const traffic = await api.traffic({ from: start - 2, to: start, experimentId: 'exp', bucketMs: 60000 });
+    expect(traffic.rows[0]).toMatchObject({ assignments: 1, exposures: 0 });
+    const timeline = await api.timeline({ from: start - 2, to: now, subject: { cid: 'browser' } });
+    expect(timeline.rows.filter(r => r.table === 'decisions')).toHaveLength(1);
+    expect(timeline.rows.filter(r => r.table === 'observations')).toHaveLength(1);
+    expect(timeline.rows.filter(r => r.table === 'events')).toHaveLength(2);
+  } finally { db.close(); }
+});
+
+it('recovers pending projections when the first receipt is lost and preserves legacy-only rows', async () => {
+  const first = exposure('survivor', 'browser');
+  const event = { ...first, eventId: 'later-only', occurredAt: start + 100 };
+  const rows = rawRecords({ siteId: 'site', receivedAt: now - 1, event });
+  const legacy = { ...rows[0]!, table_name: 'observations' as const, record_id: 'legacy', observation_id: 'legacy',
+    occurred_at: start, status: 'pending', value: 0, attributes_json: '{"country":"old"}',
+    payload_json: JSON.stringify({ generation: 1, endAt: start + 1000 }) };
+  const db = database([...rows, legacy]);
+  try {
+    const api = new BasinAnalytics(env, 'site', db.request, () => now);
+    const report = await api.arms({ from: start, to: now, experimentId: 'exp' });
+    expect(report.rows[0]).toMatchObject({ pending: 2, completed: 0 });
+  } finally { db.close(); }
+});
+
+it('retains earlier legacy projection attributes during a rolling upgrade without double counting', async () => {
+  const event = exposure('shared-sample', 'browser');
+  const rows = rawRecords({ siteId: 'site', receivedAt: now - 1, event });
+  const legacy = { ...rows[0]!, table_name: 'observations' as const, record_id: 'shared-sample',
+    occurred_at: start, received_at: now - 20, status: 'pending', value: 0, attributes_json: '{"country":"legacy"}',
+    payload_json: JSON.stringify({ generation: 1, endAt: start + 1000 }) };
+  const db = database([...rows, legacy, legacy]);
+  try {
+    const api = new BasinAnalytics(env, 'site', db.request, () => now);
+    const report = await api.arms({ from: start, to: now, experimentId: 'exp', groupBy: [{ key: 'country', type: 'string' }] });
+    expect(report.rows).toHaveLength(1);
+    expect(report.rows[0]).toMatchObject({ pending: 1, completed: 0, groups: ['legacy'] });
+  } finally { db.close(); }
+});

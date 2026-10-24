@@ -40,7 +40,7 @@ if (state.status === 'complete') {
 
 `meta`에는 `queriedAt`, `receivedBefore`, `consistency: 'eventual'`, `truncated`, `bytesScanned`가 있다. `receivedBefore`는 처리 시각 상한이지 수신 완료 watermark가 아니다. 행별 `latestReceivedAt`도 관측한 최댓값일 뿐이다. 파일 반영 지연과 테이블 간 반영 차이로 최근 결과가 바뀔 수 있다. 현재 정책 상태는 별도의 `experiments.policy()`에서 읽는다. 정책 응답의 `meanReward`는 원래 가치 단위이며 `score`는 공통 `scoreScale`로 나눈 비교용 점수다. 현재 정책의 asOf는 통계를 감쇠해 평가한 기준 시각이다. statsAsOf는 마지막 적용한 마감 구간의 기준이다.
 
-원본 subject는 입력 당시 cid·uid를 보존한다. 로그인 이력으로 익명 구간의 첫 uid를 조회 시 연결하며 영구 상태 인계를 하지 않는다. 수집 원본과 projection은 같은 Stream 경로로 보내지만 테이블 간 가시성 시각은 다를 수 있다.
+원본 subject는 입력 당시 cid·uid를 보존한다. 로그인 이력으로 익명 구간의 첫 uid를 조회 시 연결하며 영구 상태 인계를 하지 않는다. 수집 원본과 신원 projection은 같은 Stream 경로로 보내지만 테이블 간 가시성 시각은 다를 수 있다. pending 관측과 selected 배정은 보관된 노출 원본에서 조회 시 재구성한다. 첫 전송을 잃어도 후속 노출로 복구할 수 있으며, 학습이 확정한 관측 결과는 별도로 저장한다. 기존 물리 projection도 함께 읽되 ID별 한 행만 반환한다.
 
 ## Arm 비교
 
@@ -127,3 +127,9 @@ if (first.nextCursor) {
 ```
 
 위 `filter/groupBy`는 첫 expose의 userAttributes, `hasEvent.filter`는 track의 attributes를 검사한다. `attributeValues`는 원본 사건 속성 빈도이므로 같은 키라도 관측 사용자군의 빈도와 일치할 필요가 없다. 상세 필드 타입은 [생성 레퍼런스](api/types.md#filter)를 따른다.
+
+### projection 전송 축소 버전으로 전환
+
+추가 테이블이나 DO migration은 없다. 새 조회 코드는 기존 pending·selected 행과 새 원본을 함께 읽으며 complete 학습 결과가 pending보다 우선한다. 새 원본만 있는 표본은 발생 시각·event ID 순으로 최초 노출의 속성을 고른다. 기존 projection과 겹치면 기존 조회처럼 먼저 수신한 행을 우선해 전환 중 속성을 보존한다.
+
+조회 코드와 Queue consumer를 함께 업데이트한다. 이전 조회 코드로 되돌리면 새로 수집한 표본의 pending·배정 내역을 읽지 못한다. 롤백 시 이 조회 호환 코드는 유지해야 한다. 기존 observations·decisions 테이블은 삭제하지 않는다. 운영자 조회는 원본을 추가로 읽으므로 비동기 작업·결과 캐시 사용을 권장한다. 사용자 선택 경로는 바뀌지 않는다.

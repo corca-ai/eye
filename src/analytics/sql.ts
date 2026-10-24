@@ -1,3 +1,4 @@
+import { exposureProjection } from './projections-sql.js';
 import { attributionCTEs, anonymousLink, anonymousMatch, identitySegments } from './attribution-sql.js';
 import { invariant } from '../core/errors.js';
 import { id, record, timestamp, RETENTION_MS } from '../core/validation.js';
@@ -83,6 +84,7 @@ export class AnalyticsSQL {
   private readonly namespace: string;
   constructor(namespace: string, private readonly siteId: string, private readonly now = Date.now()) { this.namespace = identifier(namespace); id(siteId, 'siteId'); }
   private latest(table: AnalyticsTable, alias: string, from: number, to: number, receivedBefore: number, extra = ''): string {
+    if (table === 'observations' || table === 'decisions') return exposureProjection(table, alias, this.namespace, literal(this.siteId), Math.max(0, this.now - RETENTION_MS), from, to, receivedBefore, extra);
     return `${alias} AS (SELECT * FROM (SELECT ${recordColumns}, ROW_NUMBER() OVER (PARTITION BY record_id ORDER BY revision DESC, received_at ASC) AS _revision_rank
 FROM ${this.namespace}."${table}" WHERE site_id = ${literal(this.siteId)} AND occurred_at >= ${from} AND occurred_at < ${to} AND received_at <= ${receivedBefore}${extra}) ranked WHERE _revision_rank = 1)`;
   }
