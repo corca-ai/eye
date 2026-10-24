@@ -62,10 +62,10 @@ createEye(options: EyeOptions): EyeClient
 
 ## eye.prepare
 
-정책을 가져온 뒤 로컬 배정을 준비한다. decisions.secret 필요. 반환 token은 미배정이면 null이며 호출자가 저장한다. 문맥이 바뀌면 onPrepared에도 전달한다.
+사용 가능한 정책 캐시로 준비하고 오래된 캐시는 백그라운드 갱신한다. 캐시가 없거나 forceRefresh=true이면 정책 조회를 기다린다. decisions.secret 필요. 반환 token은 미배정이면 null이며 호출자가 저장한다. 문맥이 바뀌면 onPrepared에도 전달한다.
 
 ```ts
-eye.prepare(input: { subject: Subject; experimentId: string; context?: import("./core/local-assignment.js").LocalAssignmentContext; }): Promise<PreparedDecision & { token: string | null; }>
+eye.prepare(input: { subject: Subject; experimentId: string; context?: import("./core/local-assignment.js").LocalAssignmentContext; forceRefresh?: boolean; }): Promise<PreparedDecision & { token: string | null; }>
 ```
 
 타입: [PreparedDecision](types.md#prepareddecision) · [Subject](types.md#subject)

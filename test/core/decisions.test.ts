@@ -117,7 +117,7 @@ it('explicit preparation never selects a policy older than one already cached', 
   const newer: PublishedPolicy = { ...f.policy, sequence: 2, revision: 2, status: 'paused', arms: [], activeArms: [] };
   f.service.getPublishedPolicy.mockResolvedValueOnce(newer);
   const freshRuntime = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache }, () => {});
-  expect((await freshRuntime.prepare({ cid: 'new-request' }, 'exp')).decision.status).toBe('no_active_arm');
+  expect((await freshRuntime.prepare({ cid: 'new-request' }, 'exp', undefined, true)).decision.status).toBe('no_active_arm');
   release(f.policy);
   expect((await slow).decision.status).toBe('no_active_arm');
   await Promise.all(f.pending);
@@ -184,7 +184,7 @@ it('keeps an exposure recorded while preparation fetches the policy', async () =
   let entered!: () => void;
   const fetching = new Promise<void>(resolve => { entered = resolve; });
   f.service.getPublishedPolicy.mockImplementation(() => new Promise(resolve => { release = resolve; entered(); }));
-  const pending = runtime.prepare({ cid: 'c' }, 'exp', first.decision.localContext);
+  const pending = runtime.prepare({ cid: 'c' }, 'exp', first.decision.localContext, true);
   await fetching;
   const exposure = runtime.expose(first.decision, now, 'during-fetch');
   release(f.policy);
@@ -196,5 +196,84 @@ it('keeps an exposure recorded while preparation fetches the policy', async () =
   expect(await restored.decide({ cid: 'c' }, 'exp')).toMatchObject({ status: 'assigned', localContext: {
     sample: { sampleId: exposure.sampleId, startAt: now },
   } });
+  await Promise.all(f.pending);
+});
+
+it('persists only new sample state while preserving every exposure receipt', async () => {
+  const f = fixture(), onPrepared = vi.fn();
+  const runtime = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache, onPrepared }, () => {});
+  const prepared = await runtime.prepare({ cid: 'c' }, 'exp');
+  if (prepared.decision.status !== 'assigned') throw new Error('Expected assignment');
+  const decision = prepared.decision;
+  const receipts = Array.from({ length: 10 }, (_, i) => runtime.expose(decision, now + i, String(i)));
+  await runtime.state(); await Promise.all(f.pending);
+  expect(onPrepared).toHaveBeenCalledTimes(2);
+  expect(new Set(receipts.map(r => r.sampleId)).size).toBe(1);
+  expect(receipts.map(r => r.event.eventId)).toEqual(Array.from({ length: 10 }, (_, i) => String(i)));
+});
+
+it('reuses fresh preparation policy and explicitly refreshes when requested', async () => {
+  const f = fixture(), runtime = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache }, () => {});
+  await runtime.prepare({ cid: 'c' }, 'exp');
+  await runtime.prepare({ cid: 'c' }, 'exp');
+  expect(f.service.getPublishedPolicy).toHaveBeenCalledTimes(1);
+  f.service.getPublishedPolicy.mockResolvedValue({ ...f.policy, status: 'paused', sequence: 2, arms: [], activeArms: [] });
+  expect((await runtime.prepare({ cid: 'c' }, 'exp', undefined, true)).decision.status).toBe('no_active_arm');
+  expect(f.service.getPublishedPolicy).toHaveBeenCalledTimes(2);
+  await Promise.all(f.pending);
+});
+
+it('shares concurrent cold preparation but retries a failed load', async () => {
+  const f = fixture();
+  const runtime = () => decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache }, () => {});
+  f.service.getPublishedPolicy.mockRejectedValueOnce(new Error('offline'));
+  await expect(runtime().prepare({ cid: 'c' }, 'exp')).rejects.toThrow('offline');
+  const result = await Promise.all(Array.from({ length: 20 }, () => runtime().prepare({ cid: 'c' }, 'exp')));
+  expect(result.every(r => r.decision.status === 'assigned')).toBe(true);
+  expect(f.service.getPublishedPolicy).toHaveBeenCalledTimes(2);
+  await Promise.all(f.pending);
+});
+
+it('opens and persists another sample when the observation window ends', async () => {
+  const f = fixture(), onPrepared = vi.fn();
+  f.policy.settings = settings({ minHoldMs: 0, observationWindowMs: 1000 });
+  const runtime = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache, onPrepared }, () => {});
+  const prepared = await runtime.prepare({ cid: 'c' }, 'exp');
+  if (prepared.decision.status !== 'assigned') throw new Error('Expected assignment');
+  const first = runtime.expose(prepared.decision, now, 'first');
+  const repeated = runtime.expose(prepared.decision, now + 999, 'repeat');
+  const next = runtime.expose(prepared.decision, now + 1000, 'next');
+  expect(repeated.sampleId).toBe(first.sampleId);
+  expect(next.sampleId).not.toBe(first.sampleId);
+  await runtime.state(); await Promise.all(f.pending);
+  expect(onPrepared).toHaveBeenCalledTimes(3);
+});
+
+it('prepares from stale policy without waiting, but never applies it after hard expiry', async () => {
+  const f = fixture(), runtime = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache, freshMs: 1000, maxAgeMs: 2000 }, () => {});
+  await runtime.prepare({ cid: 'c' }, 'exp');
+  f.advance(1001);
+  let release!: (policy: PublishedPolicy) => void;
+  f.service.getPublishedPolicy.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+  expect((await runtime.prepare({ cid: 'c' }, 'exp')).decision.status).toBe('assigned');
+  release(f.policy); await Promise.all(f.pending);
+  f.advance(1000);
+  f.service.getPublishedPolicy.mockRejectedValueOnce(new Error('offline'));
+  await expect(runtime.prepare({ cid: 'c' }, 'exp')).rejects.toThrow('offline');
+});
+
+it('stops sharing a hung policy load after ten seconds', async () => {
+  const f = fixture();
+  let release!: (policy: PublishedPolicy) => void;
+  f.service.getPublishedPolicy.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+  const make = () => decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache }, () => {});
+  const slow = make().prepare({ cid: 'c' }, 'exp');
+  await vi.waitFor(() => expect(f.service.getPublishedPolicy).toHaveBeenCalledTimes(1));
+  f.advance(10_001);
+  const paused = { ...f.policy, sequence: 2, revision: 2, status: 'paused' as const, arms: [], activeArms: [] };
+  f.service.getPublishedPolicy.mockResolvedValueOnce(paused);
+  expect((await make().prepare({ cid: 'other' }, 'exp')).decision.status).toBe('no_active_arm');
+  release(f.policy);
+  expect((await slow).decision.status).toBe('no_active_arm');
   await Promise.all(f.pending);
 });

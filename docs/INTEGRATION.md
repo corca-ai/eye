@@ -93,7 +93,7 @@ const eye = createEye({
 });
 ```
 
-응답 반환 전에 `cookie.setCookie`가 있으면 `response.headers.append('Set-Cookie', cookie.setCookie)`로 추가한다. `onPrepared`는 응답 후 실행될 수 있으므로 이미 보낸 응답 쿠키를 수정할 수 없다. 서버 세션이 없다면 실제 노출 후 `await eye.state()`의 문맥을 응답 쿠키에 저장한다. 이 함수는 로컬 서명 완료를 기다린다. 명시적 `prepare()`만 정책 RPC를 기다린다. [세션·SWR 계약](FAST-DECISIONS.md)을 참고한다.
+응답 반환 전에 `cookie.setCookie`가 있으면 `response.headers.append('Set-Cookie', cookie.setCookie)`로 추가한다. `onPrepared`는 응답 후 실행될 수 있으므로 이미 보낸 응답 쿠키를 수정할 수 없다. 서버 세션이 없다면 실제 노출 후 `await eye.state()`의 문맥을 응답 쿠키에 저장한다. 이 함수는 로컬 서명 완료를 기다린다. `prepare()`는 캐시가 없거나 만료된 경우, 또는 forceRefresh=true인 경우 정책 RPC를 기다린다. [세션·SWR 계약](FAST-DECISIONS.md)을 참고한다.
 
 로그인 시 `eye.identify({ subject: { cid, uid } })`, 로그아웃 시 `eye.logout({ subject: { cid } })`을 호출한다. 로그인·로그아웃·계정 변경 시 이전 배정 토큰도 비운다. uid를 우선해 새 신원으로 선택한다. 익명 노출은 첫 로그인 이력으로 연결하지만 배정·보상 상태를 인계하지 않는다. 같은 uid의 기기별 arm은 다를 수 있다. 신원 전환을 이유로 이미 보낸 골을 다른 subject로 다시 보내지 않는다.
 
@@ -172,6 +172,8 @@ const result = eye.track({ subject, name: 'page_view' });
 if (!result.accepted) console.error(result.error.code, result.error.message);
 // 필요할 때만: await eye.flush(); // Queue 수신을 기다림. 분석 반영까지 기다리지는 않음.
 ```
+
+수집 전송은 다음 event-loop turn에 시작해 같은 요청의 microtask 사이에서 들어온 사건도 묶는다. 응답 경로에서 타이머를 기다리지 않으며 waitUntil로 전송을 이어간다. 100사건·배치 바이트 기준에 도달하거나 명시적으로 flush()를 호출하면 바로 전송을 시작한다.
 
 수집은 로컬 검증 실패를 `Submission`으로 반환하고 비동기 전송 오류를 `onError`로 보고한다. 관리·조회·prepare는 Promise가 reject될 수 있으므로 호출 경로에서 catch한다. RPC 경계를 포함한 오류는 `instanceof`만 가정하지 말고 가용한 code/message를 확인하며, code가 없는 전송 오류도 처리한다. [공개 오류 코드](api/types.md#errorcode)는 `invalid_input`, `not_found`, `conflict`, `deleted`, `outside_retention`, `numeric_range`, `unavailable`이다. message 문자열을 조건 분기에 사용하지 않는다.
 

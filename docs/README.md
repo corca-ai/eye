@@ -37,3 +37,5 @@
 API 설명은 `src/`의 JSDoc, 함수 시그니처와 타입을 원본으로 한다. `npm run docs:api`로 `docs/api/`를 갱신하고 `npm run docs:check`로 최신성을 검사한다. 생성 문서는 커밋·패키지에 포함하므로 별도 문서 서버 없이 읽을 수 있다. 호출 순서·업무 예제는 연동 가이드, 집계 의미는 분석 가이드에만 상세히 둔다.
 
 저장소 검사 명령은 [README](../README.md#개발과-문서-갱신)에 있다. `src/`는 SDK·런타임, `test/`는 순수 로직·workerd 검사, `templates/`는 계정 설치 구성, `scripts/`는 도구다. 루트 Wrangler Stream ID는 로컬 검사용 placeholder이며 실제 설정은 `eye init`으로 만든다. 자격 증명은 환경 변수·secrets로 공급하고 실제 계정 설치 디렉터리는 소스 저장소 밖에 둔다.
+
+- [SDK 반복 작업 최적화 평가](PERFORMANCE-SDK.md): 서명·준비 RPC·수집 묶음의 전후 측정과 학습 페이지 크기 비교.

@@ -134,3 +134,27 @@ it.each([false, true])('exports admitted high-cardinality attributes in bounded 
     expect(new Set(rows.filter(r => r.table_name === 'attribute_keys').map(r => JSON.parse(r.payload_json).key)).size).toBe(10000);
   } finally { send.mockRestore(); await waitOnExecutionContext(ctx); }
 });
+
+it('collects across microtasks without losing events or waiting for an explicit flush', async () => {
+  const ctx = createExecutionContext(), service = new EyeWorker(ctx, env), received: EventEnvelope[] = [];
+  const ingest = vi.spyOn(service, 'ingest').mockImplementation(async batch => { received.push(...batch); });
+  const eye = createEye({ siteId: 'batch-microtasks', ctx, service });
+  for (let i = 0; i < 5; i++) {
+    expect(eye.track({ subject: { cid: 'c' }, name: 'view', eventId: String(i) }).accepted).toBe(true);
+    await Promise.resolve();
+  }
+  await waitOnExecutionContext(ctx);
+  expect(received.map(e => e.event.eventId)).toEqual(['0', '1', '2', '3', '4']);
+  expect(ingest).toHaveBeenCalledTimes(1);
+});
+
+it('explicit flush bypasses the scheduled send and exposes delivery failures', async () => {
+  const ctx = createExecutionContext(), service = new EyeWorker(ctx, env), onError = vi.fn();
+  const ingest = vi.spyOn(service, 'ingest').mockRejectedValue(new Error('offline'));
+  const eye = createEye({ siteId: 'batch-failure', ctx, service, onError });
+  eye.track({ subject: { cid: 'c' }, name: 'view' });
+  await expect(eye.flush()).rejects.toThrow('offline');
+  await waitOnExecutionContext(ctx);
+  expect(onError).toHaveBeenCalledTimes(1);
+  expect(ingest).toHaveBeenCalledTimes(1);
+});
