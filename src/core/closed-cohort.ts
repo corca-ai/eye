@@ -145,17 +145,23 @@ export function reduceClosedCohort(input: CohortInput): ClosedCohort {
   for (const [sampleId, reward] of rewards) {
     samples.set(sampleId, { ...samples.get(sampleId)!, reward: finite((reward.sum + reward.correction) * reward.scale, 'Sample reward') });
   }
+  return { cohortId: input.cohortId, asOf: input.asOf, samples: [...samples.values()], arms: closedSampleMoments([...samples.values()], input.asOf), credits };
+}
+
+/** Preserve each observation's original evaluation time when folding batch results. */
+export function closedSampleMoments(samples: readonly ClosedSample[], asOf: number): ClosedArmMoments[] {
   const arms = new Map<string, ClosedArmMoments>();
-  for (const sample of samples.values()) {
+  for (const sample of samples) {
     const { experimentId, generation, armId, settings } = sample.assignment;
     const key = JSON.stringify([experimentId, generation, armId]);
-    const previous = arms.get(key) ?? { experimentId, generation, armId, moments: emptyMoments(input.asOf), samples: 0 };
+    const previous = arms.get(key) ?? { experimentId, generation, armId, moments: emptyMoments(asOf), samples: 0 };
     // A late batch is never fresh evidence: age from evaluation end, not query time.
-    const weight = decayFactor(input.asOf - sample.endAt, settings.learningHalfLifeMs);
+    const weight = decayFactor(asOf - sample.endAt, settings.learningHalfLifeMs);
     arms.set(key, { ...previous, moments: addSample(previous.moments, sample.reward, weight), samples: previous.samples + 1 });
   }
-  return { cohortId: input.cohortId, asOf: input.asOf, samples: [...samples.values()], arms: [...arms.values()], credits };
+  return [...arms.values()];
 }
+
 
 
 interface ScaledReward { scale: number; sum: number; correction: number }

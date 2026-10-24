@@ -4,6 +4,11 @@ import type { Cursor, QueryPlan } from './sql.js';
 import type { AnalyticsTable } from './records.js';
 import type { AnalyticsAPI, AnalyticsMeta, AnalyticsPage, ArmQuery, ArmReport, AttributeValuesQuery, AttributeValueRow, GoalQuery, GoalRow, Scalar, SeriesQuery, SeriesRow, TimelinePage, TimelineQuery, TimelineRow } from './types.js';
 
+/** Internal signal for retrying a smaller result partition, not a transient outage. */
+export class AnalyticsCapacityError extends EyeError {
+  constructor(message: string) { super('invalid_input', message); }
+}
+
 /** Runtime configuration is supplied by the customer's Worker; the token is a Worker secret. */
 export interface AnalyticsEnv {
   EYE_ANALYTICS_WAREHOUSE?: string;
@@ -42,7 +47,7 @@ async function readResponse(response: Response): Promise<unknown> {
       const part = await reader.read();
       if (part.done) break;
       bytes += part.value.byteLength;
-      invariant(bytes <= 16 * 1024 * 1024, 'invalid_input', 'Analytics response exceeds 16 MiB; reduce the limit or time range');
+      if (bytes > 16 * 1024 * 1024) throw new AnalyticsCapacityError('Analytics response exceeds 16 MiB; reduce the limit or time range');
       body += decoder.decode(part.value, { stream: true });
     }
     body += decoder.decode();
@@ -82,7 +87,7 @@ export class BasinAnalytics implements AnalyticsAPI {
   /** Internal bounded learning query; never returns a silently truncated input. */
   async learningQuery(sql: string, limit: number): Promise<Record<string, unknown>[]> {
     const result = await this.execute({ sql, limit, receivedBefore: this.clock(), fingerprint: 'learning' });
-    invariant(!result.meta.truncated, 'unavailable', 'Learning partition exceeds its row budget');
+    if (result.meta.truncated) throw new AnalyticsCapacityError('Learning partition exceeds its row budget');
     return result.rows;
   }
   private sql(): AnalyticsSQL { return new AnalyticsSQL(this.namespace, this.siteId, this.clock()); }

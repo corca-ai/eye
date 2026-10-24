@@ -36,12 +36,20 @@ export default {
       }
       return Response.json(results);
     }
+    if (url.pathname === '/benchmark/seed' && request.method === 'POST') {
+      const input = await request.json() as unknown[];
+      return Response.json(await (env.EYE as unknown as { benchmarkSeed(input: unknown[]): Promise<unknown> }).benchmarkSeed(input));
+    }
+    if (url.pathname === '/benchmark/learn' && request.method === 'POST') {
+      return Response.json(await (env.EYE as unknown as { benchmarkLearn(site: string, from: number, until: number): Promise<unknown> })
+        .benchmarkLearn(siteId, Number(url.searchParams.get('from')), Number(url.searchParams.get('until'))));
+    }
     if (url.pathname === '/setup' && request.method === 'POST') {
       for (const goal of ['purchase', 'signup', 'refund']) await admin.goals.create(goal);
       for (const experimentId of experiments) await admin.experiments.create({ experimentId,
         arms: ['a', 'b', 'c'], settings: url.searchParams.get('profile') === 'long' || experimentId === 'checkout' ? { minHoldMs: 86_400_000 }
           : { minHoldMs: 30_000, observationWindowMs: 120_000, allowedLatenessMs: 10_000,
-              attributionHalfLifeMs: 120_000, learningHalfLifeMs: 600_000, correctionWindowMs: 600_000 } });
+              attributionHalfLifeMs: 120_000, learningHalfLifeMs: 600_000 } });
       return Response.json({ siteId, experiments });
     }
     if (url.pathname === '/identity' && request.method === 'POST') {

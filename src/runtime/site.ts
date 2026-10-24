@@ -7,7 +7,7 @@ import { StoredObject } from './base.js';
 import { LearningSource, COHORT_INTERVAL_MS, COHORT_PAGE_SIZE, type LearningPage } from './learning.js';
 import { exportRecords, exportBatches } from '../analytics/export.js';
 import { experimentKey, RETENTION_MS } from '../core/validation.js';
-import type { AnalyticsEnv } from '../analytics/query.js';
+import { AnalyticsCapacityError, type AnalyticsEnv } from '../analytics/query.js';
 
 export interface GoalDefinition { goalId: string; status: GoalStatus; createdAt: number; changedAt: number; revision: number }
 export class SiteControl extends StoredObject {
@@ -120,13 +120,15 @@ export class SiteControl extends StoredObject {
     if (existing) { invariant(existing.size <= 16 * 1024 * 1024, 'unavailable', 'Oversized frozen cohort'); page = await existing.json<LearningPage>(); }
     else {
       const limit = this.kv.get<number>('learningLimit') ?? COHORT_PAGE_SIZE;
-      try { page = await new LearningSource(this.env as Env & AnalyticsEnv, siteId, this.kv.get('learningBounds')).page(from, until, after, limit); }
+      try {
+        page = await new LearningSource(this.env as Env & AnalyticsEnv, siteId, this.kv.get('learningBounds')).page(from, until, after, limit);
+        if (new TextEncoder().encode(JSON.stringify(page)).length > 16 * 1024 * 1024) throw new AnalyticsCapacityError('Oversized cohort result');
+      }
       catch (error) {
-        if (limit > 1) this.kv.put('learningLimit', Math.max(1, Math.floor(limit / 2)));
+        if (error instanceof AnalyticsCapacityError && limit > 1) this.kv.put('learningLimit', Math.max(1, Math.floor(limit / 2)));
         throw error;
       }
       const json = JSON.stringify(page);
-      invariant(new TextEncoder().encode(json).length <= 16 * 1024 * 1024, 'unavailable', 'Oversized cohort result');
       const written = await this.env.COHORTS.put(objectKey, json, { onlyIf: { etagDoesNotMatch: '*' } });
       if (!written) {
         const winner = await this.env.COHORTS.get(objectKey);
@@ -142,9 +144,8 @@ export class SiteControl extends StoredObject {
     }
     for (const batch of exportBatches(page.records.map(record => ({ record })))) await this.env.ANALYTICS.send(exportRecords(batch));
     this.atomic(() => {
-      if (page.next === null) { this.kv.put('learningFrom', until); this.kv.delete('learningAfter'); }
+      if (page.next === null) { this.kv.put('learningFrom', until); this.kv.delete('learningAfter'); this.kv.delete('learningLimit'); }
       else this.kv.put('learningAfter', page.next);
-      this.kv.delete('learningLimit');
     });
     // Result deletion is safe only after advancing the durable cursor. A crash
     // before deletion can leave an orphan; bucket lifecycle may remove old results.

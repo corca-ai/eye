@@ -2,11 +2,11 @@
  * and bounds are already validated/quoted by AnalyticsSQL. CTEs keep latest-touch
  * selection before the finite-horizon filter, and split before learning eligibility.
  */
-export function attributionCTEs(table: string, site: string, min: number, from: number, to: number, receivedBefore: number): string[] {
+export function attributionCTEs(table: string, site: string, min: number, from: number, to: number, receivedBefore: number, eventMin = min): string[] {
   const before = (a: string, b: string) => `(${a}.occurred_at < ${b}.occurred_at OR (${a}.occurred_at = ${b}.occurred_at AND ${a}.record_id <= ${b}.record_id))`;
   return [
     `ac_events AS (SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY record_id ORDER BY received_at ASC) AS rn FROM ${table}.events
-WHERE site_id = ${site} AND occurred_at >= ${min} AND occurred_at < ${to} AND received_at <= ${receivedBefore} AND status = 'accepted') a WHERE rn = 1)`,
+WHERE site_id = ${site} AND occurred_at >= ${eventMin} AND occurred_at < ${to} AND received_at <= ${receivedBefore} AND status = 'accepted') a WHERE rn = 1)`,
     `ac_links AS (SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY record_id ORDER BY received_at ASC) AS rn FROM ${table}.identity_links
 WHERE site_id = ${site} AND occurred_at >= ${min} AND occurred_at < ${to} AND received_at <= ${receivedBefore} AND status IN ('identify','logout')) a WHERE rn = 1)`,
     `ac_exposures AS (SELECT * FROM ac_events WHERE json_get_str(payload_json, 'kind') = 'exposure')`,

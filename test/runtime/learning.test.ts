@@ -51,3 +51,25 @@ it('schedules an idle site at the next cohort boundary instead of polling every 
     expect(await state.storage.getAlarm()).toBe(boundary);
   });
 });
+
+it('reduces result partitions only for capacity failures, not transient query outages', async () => {
+  const { AnalyticsCapacityError } = await import('../../src/analytics/query.js');
+  const { settings } = await import('../../src/core/validation.js');
+  const siteId = crypto.randomUUID(), site = env.SITES.getByName(siteId);
+  await site.registerExperiment('exp', siteId, settings({ minHoldMs: 0 }));
+  const from = Math.floor(Date.now() / COHORT_INTERVAL_MS) * COHORT_INTERVAL_MS - COHORT_INTERVAL_MS;
+  const page = vi.spyOn(LearningSource.prototype, 'page')
+    .mockRejectedValueOnce(new Error('temporary SQL outage'))
+    .mockRejectedValueOnce(new AnalyticsCapacityError('response too large'));
+  try {
+    await runInDurableObject(site, async (actor, state) => {
+      state.storage.kv.put('learningFrom', from);
+      await actor.alarm();
+      expect(state.storage.kv.get('learningLimit')).toBeUndefined();
+      state.storage.kv.delete('alarmRetryAt');
+      await actor.alarm();
+      expect(state.storage.kv.get('learningLimit')).toBe(500);
+      expect(state.storage.kv.get('learningFrom')).toBe(from);
+    });
+  } finally { page.mockRestore(); }
+});

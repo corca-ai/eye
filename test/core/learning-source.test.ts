@@ -24,7 +24,9 @@ it('executes bounded learner SQL against raw events, deduplicates retries, and j
     expect(page.next).toBeNull(); expect(page.cohort.samples).toHaveLength(1);
     expect(page.cohort.samples[0]!.reward).toBeCloseTo(100 * 2 ** -0.5);
     expect(page.records.find(r => r.table_name === 'observations')?.status).toBe('complete');
-    expect(page.records.filter(r => r.table_name === 'credits')).toHaveLength(1);
+    // Per-goal attribution is queried from raw events; freeze only the sample total.
+    expect(page.records.filter(r => r.table_name === 'credits')).toHaveLength(0);
+    expect(page.records.find(r => r.table_name === 'observations')?.value).toBe(page.cohort.samples[0]!.reward);
   } finally { db.close(); }
 });
 it('paginates by logical sample ID and preserves zero rewards without including later-visible goals', async () => {
@@ -39,5 +41,17 @@ it('paginates by logical sample ID and preserves zero rewards without including 
     expect(first.cohort.samples.map(s => s.sampleId)).toEqual(['sample']);
     expect(second.cohort.samples.map(s => s.sampleId)).toEqual(['zero']);
     expect(first.cohort.samples[0]!.reward).toBe(0); expect(second.cohort.samples[0]!.reward).toBe(0);
+  } finally { db.close(); }
+});
+
+it.each(['arm', 'start', 'horizon'] as const)('rejects conflicting repeated sample %s before freezing a reward', async field => {
+  const changed: ExposureEvent = { ...exposure, eventId: 'changed', occurredAt: exposure.occurredAt + 100,
+    ...(field === 'arm' ? { assignment: { ...exposure.assignment, armId: 'b' } } : {}),
+    ...(field === 'start' ? { sample: { sampleId: exposure.sample!.sampleId, startAt: exposure.sample!.startAt + 50 } } : {}),
+    ...(field === 'horizon' ? { attributionWindowMs: 500 } : {}) };
+  const db = database([exposure, changed, identity, goal].flatMap(event => rawRecords(envelope(event))));
+  try {
+    const source = new LearningSource(env, 'site', { windowMs: 1000, graceMs: 10, attributionMs: 1000 }, db.request, () => now);
+    await expect(source.page(now - 2100, now - 1000, '')).rejects.toThrow('Conflicting sample context');
   } finally { db.close(); }
 });

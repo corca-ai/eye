@@ -40,7 +40,7 @@ await step('queue', ['queues','create','--queue-name',`${prefix}-events`]);
 await step('failed', ['queues','create','--queue-name',`${prefix}-failed`]);
 if (!state.token) {
   const result = JSON.parse(await cf(['user','tokens','create','--name',`${prefix}-analytics`,
-    '--expires-on', new Date(Date.now() + 3 * 3_600_000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    '--expires-on', new Date(Date.now() + 24 * 3_600_000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
     '--policies', JSON.stringify([{ effect:'allow', resources:{ [`com.cloudflare.api.account.${account}`]:'*' },
       permission_groups:[{id:'d229766a2f7f4d299f20eaa8c9b1fde9'},{id:'f45430d92e2b4a6cb9f94f2594c141b8'},{id:'bf7481a1826f439697cb59a20b22293e'}] }]) ]));
   if (!result.value) throw new Error('Token response has no value');
