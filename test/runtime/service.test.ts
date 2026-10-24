@@ -64,3 +64,39 @@ it('raw-only track and identity ingestion performs no site/user lookup', async (
   expect(records.some(r => r.table_name === 'identity_links')).toBe(true);
   site.mockRestore(); send.mockRestore(); await waitOnExecutionContext(ctx);
 });
+it('packs ingestion and keeps valid siblings when a Queue event is malformed', async () => {
+  const ctx = createExecutionContext(), at = Date.now(), service = new EyeWorker(ctx, env);
+  const envelopes: EventEnvelope[] = ['one', 'two'].map(eventId => ({ siteId: 'batch-site', receivedAt: at,
+    event: { kind: 'track', eventId, occurredAt: at, subject: { cid: 'c' }, name: 'view' } }));
+  const enqueue = vi.spyOn(env.EVENTS, 'sendBatch').mockResolvedValue({ metadata: { metrics: { backlogCount: 0, backlogBytes: 0 } } });
+  const rows: AnalyticsRecord[] = [];
+  const send = vi.spyOn(env.ANALYTICS, 'send').mockImplementation(async records => { rows.push(...records as AnalyticsRecord[]); });
+  try {
+    await service.ingest(envelopes);
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect(enqueue.mock.calls[0]![0]).toEqual([{ body: { version: 2, events: envelopes }, contentType: 'json' }]);
+    await service.ingest([envelopes[0]!, { ...envelopes[1]!, event: { kind: 'track', eventId: 'large', occurredAt: at,
+      subject: { cid: 'c' }, name: 'large', attributes: { detail: 'x'.repeat(70_000) } } }, envelopes[1]!]);
+    expect(enqueue.mock.calls[1]![0]).toHaveLength(3);
+    const batch = createMessageBatch('eye-events', [{ id: 'packed', timestamp: at, attempts: 1,
+      body: { version: 2, events: [envelopes[0], { invalid: true }, envelopes[1]] } }]);
+    await service.queue(batch);
+    expect((await getQueueResult(batch, ctx)).retryMessages).toHaveLength(0);
+    expect(rows.filter(row => row.table_name === 'events').map(row => row.record_id)).toEqual(['one', 'two']);
+  } finally { enqueue.mockRestore(); send.mockRestore(); await waitOnExecutionContext(ctx); }
+});
+it('retries a packed message if one sibling needs goal configuration, even after exporting track siblings', async () => {
+  const ctx = createExecutionContext(), at = Date.now(), service = new EyeWorker(ctx, env);
+  const site = vi.spyOn(env.SITES, 'getByName').mockImplementation(() => { throw new Error('transient outage'); });
+  const send = vi.spyOn(env.ANALYTICS, 'send').mockResolvedValue(undefined);
+  const body = { version: 2, events: [
+    { siteId: 'site', receivedAt: at, event: { kind: 'track', eventId: 'track', occurredAt: at, subject: { cid: 'c' }, name: 'view' } },
+    { siteId: 'site', receivedAt: at, event: { kind: 'goal', eventId: 'goal', occurredAt: at, subject: { cid: 'c' }, goalId: 'pay', value: 5 } },
+  ] };
+  try {
+    const batch = createMessageBatch('eye-events', [{ id: 'packed', timestamp: at, attempts: 1, body }]);
+    await service.queue(batch);
+    expect((await getQueueResult(batch, ctx)).retryMessages).toHaveLength(1);
+    expect(send).toHaveBeenCalledTimes(1);
+  } finally { site.mockRestore(); send.mockRestore(); await waitOnExecutionContext(ctx); }
+});

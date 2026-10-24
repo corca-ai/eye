@@ -1,3 +1,4 @@
+import { packEvents, unpackEvents } from './queue-batch.js';
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { RuntimeEnv as Env } from './environment.generated.js';
 import { MAX_BATCH_BYTES, MAX_EVENT_BYTES, encodedSize } from '../client.js';
@@ -21,19 +22,33 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
     const envelopes = inputs.map(input => parseEnvelope(input, Date.now()));
     const sizes = envelopes.map(e => encodedSize(e) + 200);
     invariant(sizes.every(size => size <= MAX_EVENT_BYTES) && sizes.reduce((a, b) => a + b, 0) <= MAX_BATCH_BYTES, 'invalid_input', 'Ingestion batch exceeds encoded size limits');
-    if (envelopes.length > 0) await this.env.EVENTS.sendBatch(envelopes.map(body => ({ body, contentType: 'json' })));
+    if (envelopes.length > 0) await this.env.EVENTS.sendBatch(packEvents(envelopes).map(body => ({ body, contentType: 'json' })));
   }
   override async queue(batch: MessageBatch<unknown>): Promise<void> {
     const work: { message: Message<unknown>; envelope: EventEnvelope }[] = [];
+    const retries = new Set<Message<unknown>>();
     for (const message of batch.messages) {
-      try { const envelope = parseEnvelope(message.body, Date.now()); validateRawEnvelope(envelope); work.push({ message, envelope }); }
-      catch (error) { this.consumeFailure(message, error); }
+      let inputs: unknown[];
+      try { inputs = unpackEvents(message.body); }
+      catch { message.ack(); continue; }
+      for (const input of inputs) {
+        try { const envelope = parseEnvelope(input, Date.now()); validateRawEnvelope(envelope); work.push({ message, envelope }); }
+        catch (error) {
+          const code = errorCode(error);
+          console.warn(JSON.stringify({ component: 'eye', operation: 'consume', code: code ?? 'unavailable', messageId: message.id }));
+          if (code !== 'invalid_input' && code !== 'outside_retention' && code !== 'conflict') retries.add(message);
+        }
+      }
     }
     const statuses = new Map<string, boolean[]>();
     for (const siteId of new Set(work.filter(w => w.envelope.event.kind === 'goal').map(w => w.envelope.siteId))) {
       const goals = work.filter(w => w.envelope.siteId === siteId && w.envelope.event.kind === 'goal');
-      try { statuses.set(siteId, await this.env.SITES.getByName(siteId).acceptedGoals(goals.map(w => w.envelope.event).filter((e): e is import('../core/types.js').GoalEvent => e.kind === 'goal'))); }
-      catch { for (const item of goals) item.message.retry(); }
+      try {
+        const accepted: boolean[] = [];
+        for (let i = 0; i < goals.length; i += 100) accepted.push(...await this.env.SITES.getByName(siteId).acceptedGoals(
+          goals.slice(i, i + 100).map(w => w.envelope.event).filter((e): e is import('../core/types.js').GoalEvent => e.kind === 'goal')));
+        statuses.set(siteId, accepted);
+      } catch { for (const item of goals) retries.add(item.message); }
     }
     const indices = new Map<string, number>();
     const items: { message: Message<unknown>; records: AnalyticsRecord[] }[] = [];
@@ -51,13 +66,7 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
       try { await this.env.ANALYTICS.send(exportRecords(group)); }
       catch (error) { for (const item of items) item.message.retry(); throw error; }
     }
-    for (const item of items) item.message.ack();
-  }
-  private consumeFailure(message: Message<unknown>, error: unknown): void {
-    const code = errorCode(error);
-    console.warn(JSON.stringify({ component: 'eye', operation: 'consume', code: code ?? 'unavailable', messageId: message.id }));
-    if (code === 'invalid_input' || code === 'outside_retention' || code === 'conflict') message.ack();
-    else message.retry();
+    for (const message of batch.messages) { if (retries.has(message)) message.retry(); else message.ack(); }
   }
   async createExperiment(siteId: string, input: CreateExperiment) {
     id(siteId, 'siteId');

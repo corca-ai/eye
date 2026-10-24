@@ -14,6 +14,8 @@
 
 `track/goal/expose/identify/logout → waitUntil → Queue → Stream → Catalog tables`가 원본 전달 경로다. 한 배치에서 원본과 분석용 projection을 함께 보낸다. 재시도는 같은 record ID를 사용하고 조회 시 중복 제거한다. Queue goal 배치만 SiteControl에서 발생 당시 골 상태를 조회한다. 수집 과정에 사용자별 DO나 학습 상태 쓰기는 없다.
 
+한 ingest 호출의 일반 이벤트는 JSON 기준 60,000바이트·100건 이내의 Queue 메시지로 묶는다. 기존 100,000바이트 이벤트 상한 내에서 묶음 기준보다 큰 사건은 단독 메시지로 전송하며 과금 단위가 두 개가 될 수 있다. 묶음을 채우기 위한 대기는 없고 호출 간 전역 버퍼도 없다. 기존 단일 이벤트 메시지도 소비한다. 잘못된 이벤트는 같은 메시지의 유효한 이벤트와 분리해 버리며, 골 설정 조회나 export가 실패하면 해당 메시지를 재시도한다. 이때 이미 전송한 형제 이벤트가 다시 전송될 수 있으므로 원본 ID 기반 조회 중복 제거를 유지한다.
+
 Stream fan-out은 events, observations, credits, decisions, identity_links, policies, attribute_keys 일곱 테이블을 쓴다. decisions는 실제 노출된 배정만 포함한다. observations는 최초 노출의 pending 행과 마감 후 complete 행이다. credits의 저장 행은 확정 학습의 근거이며, 공개 분석 API의 귀속 보상은 원본에서 다시 계산한다. 테이블 간 가시성은 원자적이지 않다.
 
 ## 학습
