@@ -5,7 +5,7 @@ const definition = { experimentId: 'checkout', variants: { compact: 'small' }, f
 function snapshot(scope = 'a'): BrowserSnapshot {
   return { scope, serverNow: Date.now(), choices: [{ experimentId: 'checkout', armId: 'compact', receipt: 'opaque', applyUntil: Date.now() + 300_000 }] };
 }
-afterEach(() => { vi.useRealTimers(); });
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 it('renders fallback immediately while preparation hangs and never changes an existing view', async () => {
   vi.useFakeTimers();
   let complete!: (value: BrowserSnapshot) => void;
@@ -85,7 +85,7 @@ it('flush joins an active send and drains every bounded batch before disposal', 
 
 it('flush drops events that cannot fit including array framing instead of spinning at the byte boundary', async () => {
   vi.useFakeTimers();
-  for (const size of [15_998, 15_999, 16_000]) {
+  for (const size of [47_998, 47_999, 48_000]) {
     const initial = snapshot();
     const overhead = new TextEncoder().encode(JSON.stringify({ eventId: 'x'.repeat(36), receipt: '', occurredAt: initial.serverNow })).length + 1;
     initial.choices[0]!.receipt = 'x'.repeat(size - overhead);
@@ -93,8 +93,8 @@ it('flush drops events that cannot fit including array framing instead of spinni
     const onError = vi.fn(), client = createEyeBrowser({ scope: 'a', initial, send, onError });
     client.beginView().variant(definition).expose();
     await client.flush(); client.dispose();
-    expect(send).toHaveBeenCalledTimes(size === 15_998 ? 1 : 0);
-    expect(onError).toHaveBeenCalledTimes(size === 15_998 ? 0 : 1);
+    expect(send).toHaveBeenCalledTimes(size === 47_998 ? 1 : 0);
+    expect(onError).toHaveBeenCalledTimes(size === 47_998 ? 0 : 1);
   }
 });
 
@@ -149,4 +149,95 @@ it('refreshes long-lived choices on the next view without waiting for hard expir
   expect(mounted.variant(definition)).toBe(selection);
   expect(client.beginView().variant(definition).value).toBe('standard');
   client.dispose();
+});
+
+
+it('splits preparation state across requests that fit the host body limit', async () => {
+  vi.useFakeTimers();
+  const sizes: number[] = [], received: string[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
+    const body = String(init.body), size = new TextEncoder().encode(body).length;
+    sizes.push(size);
+    if (size > 48_000) return new Response(null, { status: 413 });
+    const request = JSON.parse(body) as { experimentIds: string[] };
+    received.push(...request.experimentIds);
+    return Response.json({ scope: 'a', serverNow: Date.now(), choices: [] });
+  }));
+  const now = Date.now();
+  const initial: BrowserSnapshot = { scope: 'a', serverNow: now, choices: Array.from({ length: 20 }, (_, i) => ({
+    experimentId: `exp-${i}`, armId: 'a', receipt: 'r'.repeat(3000), applyUntil: now + 300000, refreshAfter: now,
+  })) };
+  const client = createEyeBrowser({ scope: 'a', initial });
+  try {
+    const view = client.beginView();
+    for (const choice of initial.choices) view.variant({ experimentId: choice.experimentId, variants: { a: 1 }, fallback: 0 });
+    await vi.advanceTimersByTimeAsync(5001);
+    expect(sizes.every(size => size <= 48_000)).toBe(true);
+    expect(new Set(received).size).toBe(20);
+  } finally { client.dispose(); }
+});
+
+it('an older mounted view updates the latest receipt state when both share an assignment', async () => {
+  vi.useFakeTimers();
+  const initial = snapshot();
+  Object.assign(initial.choices[0]!, { assignmentId: 'held', observationWindowMs: 86400000, refreshAfter: Date.now() });
+  const prepare = vi.fn(async () => {
+    const next = snapshot();
+    Object.assign(next.choices[0]!, { assignmentId: 'held', observationWindowMs: 86400000, receipt: 'latest-receipt', refreshAfter: Date.now() });
+    return next;
+  });
+  const client = createEyeBrowser({ scope: 'a', initial, prepare,
+    send: async events => events.map(e => ({ eventId: e.eventId, accepted: true })) });
+  try {
+    const oldView = client.beginView().variant(definition);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(oldView.expose()).toBe(true);
+    client.beginView().variant(definition);
+    await vi.advanceTimersByTimeAsync(5001);
+    expect(prepare.mock.calls[1]).toEqual([['checkout'], { checkout: {
+      receipt: 'latest-receipt', sample: { sampleId: expect.any(String), startAt: expect.any(Number) },
+    } }]);
+  } finally { client.dispose(); }
+});
+
+it('delivers a valid receipt larger than the former 16 KB batch limit', async () => {
+  vi.useFakeTimers();
+  const initial = snapshot();
+  initial.choices[0]!.receipt = 'x'.repeat(23000);
+  const send = vi.fn(async (events: BrowserExposure[]) => events.map(e => ({ eventId: e.eventId, accepted: true })));
+  const client = createEyeBrowser({ scope: 'a', initial, send });
+  try {
+    expect(client.beginView().variant(definition).expose()).toBe(true);
+    await client.flush();
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0]![0][0]!.receipt).toBe(initial.choices[0]!.receipt);
+  } finally { client.dispose(); }
+});
+
+it.each(['clock', 'scope', 'choice'])('retains usable cached choices when preparation returns an invalid %s', async kind => {
+  vi.useFakeTimers();
+  const initial = snapshot(); initial.choices[0]!.refreshAfter = initial.serverNow;
+  const onError = vi.fn();
+  const client = createEyeBrowser({ scope: 'a', initial, onError,
+    prepare: async () => kind === 'choice' ? JSON.parse('{"scope":"a","serverNow":1,"choices":[null]}') as BrowserSnapshot
+      : { scope: kind === 'scope' ? 'other' : 'a', serverNow: kind === 'clock' ? NaN : Date.now(), choices: [] } });
+  try {
+    expect(client.beginView().variant(definition).armId).toBe('compact');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(client.beginView().variant(definition).armId).toBe('compact');
+    expect(onError).toHaveBeenCalled();
+  } finally { client.dispose(); }
+});
+
+it('clears a cached choice when a valid preparation omits a paused experiment', async () => {
+  vi.useFakeTimers();
+  const initial = snapshot(); initial.choices[0]!.refreshAfter = initial.serverNow;
+  const client = createEyeBrowser({ scope: 'a', initial,
+    prepare: async () => ({ scope: 'a', serverNow: Date.now(), choices: [] }) });
+  try {
+    expect(client.beginView().variant(definition).armId).toBe('compact');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(client.beginView().variant(definition).armId).toBeNull();
+  } finally { client.dispose(); }
 });

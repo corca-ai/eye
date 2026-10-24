@@ -28,7 +28,9 @@ it('computes live rewards with the same decay as learning while exposing their l
   try {
     const report = await f.api.arms({ from: start, to: now, experimentId: 'exp', groupBy: [{ key: 'country', type: 'string' }] });
     expect(report.rewardBasis).toBe('raw_attribution');
-    expect(report.rows[0]).toMatchObject({ completed: 2, totalValue: 55, learningValue: 50, meanValue: 27.5, groups: ['KR'] });
+    expect(report.rows[0]).toMatchObject({ completed: 2, learningValue: 50, groups: ['KR'] });
+    expect(report.rows[0]!.totalValue).toBeCloseTo(55, 10);
+    expect(report.rows[0]!.meanValue).toBeCloseTo(27.5, 10);
     const frozen = await f.api.learning({ from: start, to: now });
     expect(frozen.rewardBasis).toBe('closed_learning');
     expect(frozen.rows).toHaveLength(1);
@@ -126,4 +128,54 @@ it('retains earlier legacy projection attributes during a rolling upgrade withou
     expect(report.rows).toHaveLength(1);
     expect(report.rows[0]).toMatchObject({ pending: 1, completed: 0, groups: ['legacy'] });
   } finally { db.close(); }
+});
+
+it('goal totals remain finite when a finite signed total has overflowing partial sums', async () => {
+  const f = fixture([goal('a', start, 1e308), goal('b', start + 1, 1e308), goal('c', start + 2, -1e308)]);
+  try {
+    const report = await f.api.goals({ from: start, to: now });
+    expect(report.rows[0]!.totalValue).toBeCloseTo(1e308, -294);
+    const series = await f.api.series({ from: start, to: now, bucketMs: 60000 });
+    expect(series.rows[0]!.totalValue).toBeCloseTo(1e308, -294);
+  } finally { f.db.close(); }
+});
+
+it.each([false, true])('arm reports preserve cancelling large rewards within and across samples (%s)', async separateSamples => {
+  const events: EyeEvent[] = separateSamples
+    ? [exposure('00-a', 'a'), exposure('00-b', 'b'), exposure('00-c', 'c'),
+      goal('a', start, 1e308, 'a'), goal('b', start, 1e308, 'b'), goal('c', start, -1e308, 'c')]
+    : [exposure('00', 'paid'), goal('a', start, 1e308), goal('b', start, 1e308), goal('c', start, -1e308)];
+  const f = fixture(events);
+  try {
+    for (const report of [await f.api.arms({ from: start, to: now, experimentId: 'exp' }),
+      await f.api.armSeries({ from: start, to: now, experimentId: 'exp', bucketMs: 60000 })]) {
+      expect(report.rows[0]!.totalValue / 1e308).toBeCloseTo(1);
+      expect(report.rows[0]!.learningValue / 1e308).toBeCloseTo(1);
+      expect(report.rows[0]!.meanValue! / 1e308).toBeCloseTo(separateSamples ? 1 / 3 : 1);
+    }
+  } finally { f.db.close(); }
+});
+
+it('hasEvent respects identifier ordering for a logout before the first exposure in the same millisecond', async () => {
+  const f = fixture([
+    { kind: 'logout', eventId: 'a-logout', occurredAt: start, subject: { cid: 'paid' } },
+    { ...exposure('m-exposure', 'paid'), sample: { sampleId: 'opaque-sample', startAt: start } },
+    { kind: 'track', eventId: 'z-track', occurredAt: start, subject: { cid: 'paid' }, name: 'read' },
+  ]);
+  try {
+    const report = await f.api.arms({ from: start, to: now, experimentId: 'exp', hasEvent: { name: 'read' } });
+    expect(report.rows).toHaveLength(1);
+    expect(report.rows[0]!.completed).toBe(1);
+  } finally { f.db.close(); }
+});
+
+it('hasEvent does not use a login that follows the track event in the same millisecond', async () => {
+  const f = fixture([
+    exposure('exposure', 'paid'),
+    { kind: 'track', eventId: 'a-track', occurredAt: start + 10, subject: { cid: 'device-2', uid: 'u' }, name: 'read' },
+    { kind: 'identify', eventId: 'z-login', occurredAt: start + 10, subject: { cid: 'paid', uid: 'u' } },
+  ]);
+  try {
+    expect((await f.api.arms({ from: start, to: now, experimentId: 'exp', hasEvent: { name: 'read' } })).rows).toEqual([]);
+  } finally { f.db.close(); }
 });

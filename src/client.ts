@@ -62,13 +62,14 @@ export function createEye(options: EyeOptions) {
     options.ctx.waitUntil(delivery.catch(report));
     return delivery;
   };
-  const submit = (build: () => object): Submission => {
+  const submit = (build: () => object, onAccepted?: () => void): Submission => {
     try {
       const event = build();
       const receivedAt = Date.now();
       const envelope = parseEnvelope({ siteId, receivedAt, event }, receivedAt);
       const bytes = encodedSize(envelope) + 200;
       invariant(bytes <= MAX_EVENT_BYTES, 'invalid_input', 'Event exceeds the 100 KB encoded envelope limit');
+      onAccepted?.();
       pending.push({ envelope, bytes });
       void flush();
       return { accepted: true, eventId: envelope.event.eventId };
@@ -88,13 +89,18 @@ export function createEye(options: EyeOptions) {
     /** 사이트가 확정한 골을 전달한다. goalId는 먼저 등록한다. value는 모든 골에서 같은 단위의 유한한 값이며 음수·0도 허용한다. */
     goal: (input: EventInput<GoalEvent>): Submission => submit(() => ({ ...base(input), kind: 'goal' })),
     /** arm을 실제 적용한 뒤 assigned decision을 그대로 전달한다. userAttributes는 첫 노출 때 관측 속성으로 고정하고, attributes는 개별 노출 사건 속성으로 보관한다. */
-    expose: (input: { subject: Subject; decision: AssignedDecision; eventId?: string; occurredAt?: number; userAttributes?: Attributes; attributes?: Attributes }): Submission => submit(() => {
-      const { decision, ...rest } = input;
-      const event = base(rest);
-      invariant(event.subject.cid === decision.localContext?.subject.cid && event.subject.uid === decision.localContext.subject.uid, 'invalid_input', 'Exposure identity must match its original decision');
-      const exposed = decisions.expose(decision, event.occurredAt, event.eventId);
-      return { ...event, kind: 'exposure', assignment: decision.assignment, sample: { sampleId: exposed.sampleId, startAt: exposed.startAt }, attributionWindowMs: exposed.attributionWindowMs };
-    }),
+    expose: (input: { subject: Subject; decision: AssignedDecision; eventId?: string; occurredAt?: number; userAttributes?: Attributes; attributes?: Attributes }): Submission => {
+      let commit: (() => void) | undefined;
+      return submit(() => {
+        const { decision, ...rest } = input;
+        const event = base(rest);
+        invariant(event.subject.cid === decision.localContext?.subject.cid && event.subject.uid === decision.localContext.subject.uid, 'invalid_input', 'Exposure identity must match its original decision');
+        const staged = decisions.stageExposure(decision, event.occurredAt, event.eventId);
+        commit = staged.commit;
+        const exposed = staged.exposure;
+        return { ...event, kind: 'exposure', assignment: decision.assignment, sample: { sampleId: exposed.sampleId, startAt: exposed.startAt }, attributionWindowMs: exposed.attributionWindowMs };
+      }, () => commit?.());
+    },
     /** 로그인 시 cid와 인증된 uid를 함께 전달한다. 마감 집계에서 익명 구간을 uid에 연결한다. 호스트의 이전 배정 토큰도 비운다. */
     identify: (input: EventInput<IdentityEvent> & { subject: Subject & { uid: string } }): Submission => submit(() => ({ ...base(input), kind: 'identify' })),
     /** 로그아웃 시 uid 없이 현재 cid를 전달한다. 새 익명 구간을 시작한다. 호스트의 이전 배정 토큰도 비운다. */

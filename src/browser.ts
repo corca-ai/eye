@@ -68,13 +68,16 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
     if (!response.ok) throw new Error(`Eye HTTP ${response.status}`);
     return response.json();
   };
+  function validChoice(choice: BrowserSnapshot['choices'][number], serverNow: number): boolean {
+    return !!choice && typeof choice.experimentId === 'string' && typeof choice.armId === 'string' && typeof choice.receipt === 'string'
+      && Number.isFinite(choice.applyUntil) && choice.applyUntil > serverNow
+      && (choice.refreshAfter === undefined || Number.isFinite(choice.refreshAfter));
+  }
   function install(snapshot: BrowserSnapshot, safetyMs = 0) {
     if (!snapshot || snapshot.scope !== scope || !Number.isFinite(snapshot.serverNow) || !Array.isArray(snapshot.choices)) return;
     const received = performance.now();
     for (const choice of snapshot.choices) {
-      if (!choice || typeof choice.experimentId !== 'string' || typeof choice.armId !== 'string' || typeof choice.receipt !== 'string'
-        || !Number.isFinite(choice.applyUntil) || choice.applyUntil <= snapshot.serverNow
-        || (choice.refreshAfter !== undefined && !Number.isFinite(choice.refreshAfter))) continue;
+      if (!validChoice(choice, snapshot.serverNow)) continue;
       if (!states.has(choice.experimentId) && states.size >= 1000) { report(new Error('Eye choice cache full')); continue; }
       if (choice.assignmentId && choice.sample) samples.set(choice.assignmentId, choice.sample);
       while (samples.size > 1000) samples.delete(samples.keys().next().value!);
@@ -92,6 +95,14 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
     if (stopped || preparing) return;
     const ids = [...wanted].slice(0, 20), epoch = generation;
     if (!ids.length) return;
+    const bodySize = () => new TextEncoder().encode(JSON.stringify({ experimentIds: ids,
+      states: Object.fromEntries(ids.flatMap(id => states.has(id) ? [[id, states.get(id)!]] : [])) })).length;
+    // Count both receipts and JSON framing. Remaining experiments stay wanted.
+    while (ids.length > 1 && bodySize() > 48_000) ids.pop();
+    if (bodySize() > 48_000) {
+      states.delete(ids[0]!);
+      report(new Error('Eye preparation state exceeds the request budget; preparing without it'));
+    }
     const started = performance.now();
     const previous = Object.fromEntries(ids.map(id => [id, states.get(id)]));
     const retry = new Set<string>();
@@ -100,6 +111,10 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
       const requestStates = Object.fromEntries(ids.flatMap(id => previous[id] ? [[id, previous[id]!]] : []));
       const snapshot = options.prepare ? await options.prepare(ids, requestStates) : await post(options.prepareUrl ?? '/eye/prepare', { experimentIds: ids, states: requestStates }) as BrowserSnapshot;
       if (epoch === generation && !stopped) {
+        if (!snapshot || snapshot.scope !== scope || !Number.isFinite(snapshot.serverNow) || !Array.isArray(snapshot.choices)
+          || !snapshot.choices.every(choice => validChoice(choice, snapshot.serverNow))) {
+          throw new Error('Invalid Eye preparation snapshot');
+        }
         for (const id of ids) {
           if (states.get(id) !== previous[id]) retry.add(id);
           else ready.delete(id);
@@ -126,8 +141,8 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
     while (queue.length && batch.length < 50) {
       const next = queue[0]!;
       const size = new TextEncoder().encode(JSON.stringify(next.event)).length + 1;
-      if (size + 2 > 16_000) { queue.shift(); report(new Error('Eye event exceeds browser batch budget')); continue; }
-      if (bytes + size > 16_000) break;
+      if (size + 2 > 48_000) { queue.shift(); report(new Error('Eye event exceeds browser batch budget')); continue; }
+      if (bytes + size > 48_000) break;
       queue.shift(); batch.push(next); bytes += size;
     }
     try {
@@ -200,8 +215,12 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
                   let sample = (cached.choice.assignmentId ? samples.get(cached.choice.assignmentId) : undefined) ?? cached.choice.sample;
                   if (cached.choice.assignmentId && cached.choice.observationWindowMs) {
                     if (!sample || at >= sample.startAt + cached.choice.observationWindowMs) sample = { sampleId: crypto.randomUUID(), startAt: at };
-                    // Update only the current preparation; old mounted views retain their own receipt.
-                    if (ready.get(definition.experimentId) === cached) { states.set(definition.experimentId, { receipt: cached.choice.receipt, sample }); save(); }
+                    // Preserve the newest receipt when an older view exposes the same assignment.
+                    const current = ready.get(definition.experimentId);
+                    if (current?.choice.assignmentId === cached.choice.assignmentId) {
+                      current.choice.sample = sample;
+                      states.set(definition.experimentId, { receipt: current.choice.receipt, sample }); save();
+                    }
                     samples.set(cached.choice.assignmentId, sample);
                     while (samples.size > 1000) samples.delete(samples.keys().next().value!);
                     cached.choice.sample = sample;

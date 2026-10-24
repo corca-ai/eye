@@ -27,6 +27,7 @@ function decode(text: string) { return Uint8Array.from(atob(text.replaceAll('-',
 /** Request-scoped adapter. Mount behind host authentication and same-origin POST checks. */
 export function createEyeBrowserServer(options: BrowserServerOptions) {
   const eye = createEye(options), subject = parseSubject(options.subject);
+  const userAttributes = attributes(options.userAttributes ?? {});
   const binding = id(options.browserBinding, 'browserBinding'), scope = id(options.scope, 'scope');
   const audience = encoder.encode(`eye/browser-exposure/v1/${options.siteId}`);
   let importedKey: Promise<CryptoKey> | undefined;
@@ -75,7 +76,8 @@ export function createEyeBrowserServer(options: BrowserServerOptions) {
           const applyUntil = Math.min(prepared.reuseUntil, prepared.policy.publishedAt + (options.decisions?.maxAgeMs ?? DEFAULT_POLICY_MAX_AGE_MS));
           if (applyUntil <= issuedAt || !prepared.policy.activeArms.includes(prepared.decision.assignment.armId) || prepared.policy.status !== 'active') continue;
           const receipt = await seal({ binding, scope, subject, decision: prepared.decision, issuedAt, applyUntil,
-            userAttributes: options.userAttributes ?? {} });
+            userAttributes });
+          invariant(receipt.length <= 24_000, 'invalid_input', 'Exposure receipt exceeds 24 KB');
           choices.push({ experimentId, armId: prepared.decision.assignment.armId, applyUntil, receipt,
             refreshAfter: Math.min(applyUntil, issuedAt + policyFreshMs(options.decisions)),
             assignmentId: prepared.decision.assignment.assignmentId, observationWindowMs: prepared.decision.assignment.settings.observationWindowMs,
