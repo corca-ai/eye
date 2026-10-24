@@ -28,3 +28,5 @@ export type { EyeRequestOptions, EyeRequest, VariantDefinition, VariantSelection
 export { createEyeBrowserServer } from './browser-server.js';
 export type { BrowserServerOptions } from './browser-server.js';
 export type { BrowserSnapshot, BrowserChoice, BrowserExposure, BrowserEventResult, BrowserSample, BrowserState } from './browser-types.js';
+
+export type { AnalyticsKind, AnalyticsRequest, AnalyticsResult, AnalyticsJobInput, AnalyticsJobRef, AnalyticsJob, AnalyticsJobPage, AnalyticsJobsAPI } from './analytics/jobs.js';

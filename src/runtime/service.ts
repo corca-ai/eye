@@ -1,3 +1,4 @@
+import type { AnalyticsJobsAPI } from '../analytics/jobs.js';
 import { packEvents, unpackEvents } from './queue-batch.js';
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { RuntimeEnv as Env } from './environment.generated.js';
@@ -90,6 +91,10 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
   async getGoal(siteId: string, goalId: string) { return this.env.SITES.getByName(id(siteId, 'siteId')).getGoal(goalId); }
   async listGoals(siteId: string, after = '', limit = 100) { return this.env.SITES.getByName(id(siteId, 'siteId')).listGoals(after, limit); }
   async setGoalStatus(siteId: string, goalId: string, status: GoalStatus) { return this.env.SITES.getByName(id(siteId, 'siteId')).setGoalStatus(goalId, status); }
+  async analyticsJobCreate(siteId: string, input: Parameters<AnalyticsJobsAPI['create']>[0]) { id(siteId, 'siteId'); return this.env.REPORTS.getByName(siteId).create(siteId, input); }
+  async analyticsJobStatus(siteId: string, input: Parameters<AnalyticsJobsAPI['status']>[0]) { id(siteId, 'siteId'); return this.env.REPORTS.getByName(siteId).status(input); }
+  async analyticsJobPage(siteId: string, input: Parameters<AnalyticsJobsAPI['page']>[0]) { id(siteId, 'siteId'); return this.env.REPORTS.getByName(siteId).page(input); }
+  async analyticsJobCancel(siteId: string, input: Parameters<AnalyticsJobsAPI['cancel']>[0]) { id(siteId, 'siteId'); return this.env.REPORTS.getByName(siteId).cancel(input); }
   async analyticsArmSeries(siteId: string, query: Parameters<AnalyticsAPI['armSeries']>[0]) { return new BasinAnalytics(this.env, siteId).armSeries(query); }
   async analyticsTraffic(siteId: string, query: Parameters<AnalyticsAPI['traffic']>[0]) { return new BasinAnalytics(this.env, siteId).traffic(query); }
   async analyticsPolicies(siteId: string, query: Parameters<AnalyticsAPI['policies']>[0]) { return new BasinAnalytics(this.env, siteId).policies(query); }

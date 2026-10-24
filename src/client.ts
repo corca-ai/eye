@@ -1,3 +1,4 @@
+import type { AnalyticsJobsAPI, AnalyticsJobPage } from './analytics/jobs.js';
 import { decisionRuntime, type DecisionOptions } from './decisions.js';
 import { EyeError, invariant } from './core/errors.js';
 import type { ErrorCode } from './core/errors.js';
@@ -103,6 +104,16 @@ export function createEye(options: EyeOptions) {
     /** Optional for jobs/tests that need to await Queue ingestion. Normal request handlers need not await this. */
     flush,
     analytics: {
+      jobs: {
+        /** 동일 권한 범위·조건의 작업과 완료 결과를 재사용한다. 등록은 SQL 완료를 기다리지 않는다. */
+        create: input => service.analyticsJobCreate(siteId, input),
+        /** 작업 진행 상태·시각·만료·실패 이유를 조회한다. */
+        status: input => service.analyticsJobStatus(siteId, input),
+        /** R2에 고정된 결과의 페이지를 읽으며 원본 SQL을 다시 계산하지 않는다. */
+        page: async input => JSON.parse(await service.analyticsJobPage(siteId, input)) as AnalyticsJobPage,
+        /** 같은 scope에서 공유하는 미완료 작업을 취소한다. */
+        cancel: input => service.analyticsJobCancel(siteId, input),
+      } satisfies AnalyticsJobsAPI,
       /** 기간에 걸친 UTC 날짜 전체의 속성 키·타입·출처 목록. coverage로 실제 조회 범위를 확인한다. */
       attributeKeys: query => service.analyticsAttributeKeys(siteId, query),
       /** 발행된 arm 선택 확률·평균·점수 이력. 모든 로컬 선택 순간의 기록은 아니다. */
@@ -121,7 +132,7 @@ export function createEye(options: EyeOptions) {
       series: query => service.analyticsSeries(siteId, query),
       /** 원본 사건 attributes의 지정 키 값별 빈도. 관측 userAttributes의 분포와는 다르다. */
       attributeValues: query => service.analyticsAttributeValues(siteId, query),
-    } satisfies AnalyticsAPI,
+    } satisfies AnalyticsAPI & { jobs: AnalyticsJobsAPI },
     /** 신뢰할 수 있는 관리 경로에서 사용한다. */
     experiments: {
       /** 최초 정의를 등록한다. 같은 최초 정의로 재호출하면 현재 정의를 반환하며, 다른 최초 정의는 conflict다. */

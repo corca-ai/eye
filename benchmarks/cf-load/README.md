@@ -31,6 +31,8 @@ For a host path without foreground session RPC, run `client-proxy.mjs` then `val
 
 ## 고정 마감 학습 비교
 
-현재 private Worker는 SiteControl/ExperimentObject 두 DO와 고정 결과용 COHORTS R2 binding을 쓴다. `npm run build`를 저장소 루트에서 실행한 뒤 `node cohort-bench.mjs LABEL --seed`로 과거 발생 fixture를 심고, 파일이 queryable해진 뒤 `node cohort-bench.mjs LABEL`로 측정한다. `.state/cohort-fixture.json`을 유지하면 전후 동일 사건을 비교한다. 5,165사건·300표본이며 일반 track, 0/음수 보상, 로그인과 다른 기기 구매를 포함한다. 실제 각 SQL과 Cloudflare metrics, 로컬 reducer와의 결과 비교를 `results/cohort-LABEL.json`에 기록한다. 오류 때에도 query metrics를 별도 error 파일로 남긴다.
+현재 private Worker는 SiteControl/ExperimentObject 학습 DO, 운영자 조회용 ReportObject와 고정 결과용 COHORTS R2 binding을 쓴다. `npm run build`를 저장소 루트에서 실행한 뒤 `node cohort-bench.mjs LABEL --seed`로 과거 발생 fixture를 심고, 파일이 queryable해진 뒤 `node cohort-bench.mjs LABEL`로 측정한다. `.state/cohort-fixture.json`을 유지하면 전후 동일 사건을 비교한다. 5,165사건·300표본이며 일반 track, 0/음수 보상, 로그인과 다른 기기 구매를 포함한다. 실제 각 SQL과 Cloudflare metrics, 로컬 reducer와의 결과 비교를 `results/cohort-LABEL.json`에 기록한다. 오류 때에도 query metrics를 별도 error 파일로 남긴다.
 
 fixture seed는 과거 골 등록 절차를 생략하는 벤치마크 전용 RPC다. public HTTP가 비활성인 private Worker에만 있고 호스트의 인증된 경로를 통해 접근한다. 설치 템플릿이나 운영 Worker에 이 entrypoint를 사용하지 않는다. 초기 스키마/수집 가시성 지연 중 실패한 측정을 성능 결과로 보고하지 않는다.
+
+`node operator-bench.mjs`는 같은 fixture에 대해 동일 골 조회를 동시 등록하고 같은 작업을 공유하는지, 완료 결과 페이지와 캐시 재등록이 같은 결과를 쓰는지 검증한다. 외부 등록/완료 시간과 SQL 스캔량을 기록한다. 데이터 기준 시각과 작업 완료 시각은 구분하며 사용자 요청 경로 성능으로 해석하지 않는다.

@@ -1,3 +1,4 @@
+import type { AnalyticsJobsAPI } from './analytics/jobs.js';
 import type { ArmStatus, Assignment, CreateExperiment, Decision, EventEnvelope, Experiment, ExperimentSettings, GoalStatus, Subject } from './core/types.js';
 import type { GoalDefinition } from './runtime/site.js';
 import type { UnreservedPolicyEvaluation } from './core/policy.js';
@@ -15,6 +16,11 @@ export interface PublishedPolicy extends PolicySnapshot {
 export interface PreparedDecision { decision: Decision; reuseUntil: number; policy: PublishedPolicy }
 /** Structural RPC contract: hosts may name their Service Binding freely. */
 export interface EyeService {
+  analyticsJobCreate(siteId: string, input: Parameters<AnalyticsJobsAPI['create']>[0]): ReturnType<AnalyticsJobsAPI['create']>;
+  analyticsJobStatus(siteId: string, input: Parameters<AnalyticsJobsAPI['status']>[0]): ReturnType<AnalyticsJobsAPI['status']>;
+  analyticsJobPage(siteId: string, input: Parameters<AnalyticsJobsAPI['page']>[0]): Promise<string>;
+  analyticsJobCancel(siteId: string, input: Parameters<AnalyticsJobsAPI['cancel']>[0]): ReturnType<AnalyticsJobsAPI['cancel']>;
+
   getPublishedPolicy(siteId: string, experimentId: string): Promise<PublishedPolicy>;
   ingest(events: readonly EventEnvelope[]): Promise<void>;
   createExperiment(siteId: string, input: CreateExperiment): Promise<Experiment>;

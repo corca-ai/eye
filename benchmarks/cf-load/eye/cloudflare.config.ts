@@ -1,7 +1,7 @@
 import { bindings, defineConfig, exports, triggers } from 'cf/config';
 const prefix = process.env.EYE_LOAD_PREFIX ?? 'eye-load-20261023';
-const classes = ['SiteControl', 'ExperimentObject'];
-const names = ['SITES', 'EXPERIMENTS'];
+const classes = ['SiteControl', 'ExperimentObject', 'ReportObject'];
+const names = ['SITES', 'EXPERIMENTS', 'REPORTS'];
 export default defineConfig({ ...(process.env.CLOUDFLARE_ACCOUNT_ID ? { accountId: process.env.CLOUDFLARE_ACCOUNT_ID } : {}),
   worker: { name: prefix, entrypoint: './worker.ts', compatibilityDate: '2026-10-23',
     compatibilityFlags: ['nodejs_compat'], workersDev: false,

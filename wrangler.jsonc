@@ -20,6 +20,10 @@
       {
         "name": "EXPERIMENTS",
         "class_name": "ExperimentObject"
+      },
+      {
+        "name": "REPORTS",
+        "class_name": "ReportObject"
       }
     ]
   },
@@ -29,6 +33,12 @@
       "new_sqlite_classes": [
         "SiteControl",
         "ExperimentObject"
+      ]
+    },
+    {
+      "tag": "v2-reports",
+      "new_sqlite_classes": [
+        "ReportObject"
       ]
     }
   ],

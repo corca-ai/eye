@@ -5,4 +5,5 @@ export interface RuntimeEnv {
 	ANALYTICS: import("cloudflare:pipelines").Pipeline<import("cloudflare:pipelines").PipelineRecord>;
 	SITES: DurableObjectNamespace<import("../worker.js").SiteControl>;
 	EXPERIMENTS: DurableObjectNamespace<import("../worker.js").ExperimentObject>;
+	REPORTS: DurableObjectNamespace<import("../worker.js").ReportObject>;
 }

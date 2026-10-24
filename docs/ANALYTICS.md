@@ -4,6 +4,34 @@
 
 `createEye(...).analytics`는 서버 Service Binding을 통해 고객 계정의 Basin SQL을 호출한다. 토큰은 Eye Worker secret에만 둔다. UI와 공개 HTTP API는 호스트가 구성한다.
 
+## 비동기 조회와 결과 재사용
+
+운영자 화면의 무거운 조회에는 `analytics.jobs`를 사용한다. 기존 동기 메서드도 그대로 지원한다.
+
+```ts
+// 호스트가 인증·조회 권한과 조건을 검증한 후 정한 값이다.
+const scope = 'analytics-admins-v1';
+const to = Math.floor(Date.now() / 3_600_000) * 3_600_000;
+const job = await eye.analytics.jobs.create({ scope,
+  request: { kind: 'arms', query: { experimentId: 'hero', from: to - 86_400_000, to } },
+});
+const state = await eye.analytics.jobs.status({ scope, jobId: job.jobId });
+if (state.status === 'complete') {
+  const page = await eye.analytics.jobs.page({ scope, jobId: job.jobId, limit: 100 });
+  // page.result.kind로 응답 타입을 좁힌다. nextOffset은 같은 저장 결과의 다음 페이지다.
+}
+```
+
+등록은 SQL 완료를 기다리지 않는다. 실행 중 같은 사이트·scope·조회 종류·정규화 조건의 요청은 하나의 작업을 공유한다. 객체 키 순서와 생략된 기본 limit은 정규화하지만 배열 순서는 유지한다. 새로고침마다 from/to를 바꾸면 서로 다른 조회이므로, 위 예처럼 화면이 표시할 기준 구간을 고정한다. 완료 결과는 15분 동안 새 등록에도 재사용하고, 작업과 결과는 등록 후 1시간 보관한다. `freshUntil` 이후에는 새 등록이 새 작업을 만들지만 기존 ID의 페이지는 `expiresAt`까지 읽을 수 있다.
+
+`scope`는 인증 기능이 아니라 캐시 격리 키다. 호스트가 인증된 권한 집합과 정책 버전에 따라 공급하고, 실제 조회 조건도 권한에 맞게 제한해야 한다. 브라우저가 임의 scope나 다른 사용자의 job ID로 조회하도록 공개하지 않는다. 같은 job ID라도 다른 사이트·scope에서는 상태와 결과가 `not_found`다. 권한이 변경되면 scope도 바꾼다.
+
+결과의 `meta.queriedAt`/`receivedBefore`, 보상 기준, `truncated`는 원래 계산 당시 값을 유지한다. `completedAt`은 작업 완료 시각이며 데이터 수신 watermark가 아니다. 페이지 이동은 R2의 같은 결과를 읽고 원본 SQL을 다시 실행하지 않는다. 페이지 크기를 늘려도 원래 조회 limit을 넘어 복구하지 않으며, 잘린 집계는 조건을 좁혀 새 작업으로 등록한다. timeline의 `nextCursor`는 기존 원본 조회 계약이고 작업의 `nextOffset`과 다르다.
+
+사이트당 미완료 작업 8개, 보관 작업 256개, 작업 결과 16 MiB로 제한한다. 초과 등록은 `unavailable`이며 호스트가 기존 작업을 기다린 후 재시도한다. alarm은 사이트당 한 작업씩 처리하므로 동시 SQL 실행은 한 개다. 일반 오류는 1분/5분 대기 후 최대 3회 시도하고 잘못된 쿼리는 즉시 실패한다. 실패·취소 작업을 다시 등록하면 새 ID를 만든다. `cancel`은 같은 scope에서 공유하는 작업 전체에 적용되며 이미 실행된 SQL의 과금을 되돌리지는 않는다. API 오류 문자열에는 원격 SQL이나 자격 증명을 포함하지 않는다.
+
+`queued → running → complete/failed` 상태가 저장되며 객체가 재시작되어도 복구한다. R2에 결과를 쓴 뒤 상태 게시 전에 중단되면 같은 결과를 재사용한다. 취소·완료 결과의 물리 삭제는 만료 후 alarm이 처리하므로 장애 중 지연될 수 있다. 논리 만료 후에는 조회할 수 없다. `eye/reports/` prefix에 하루 이상의 lifecycle을 추가하면 비정상 종료로 남은 객체도 정리할 수 있다. 학습의 `eye/cohorts/`와는 별도로 설정한다.
+
 ## 공통 규칙
 
 `from`, `to`는 최근 60일 안의 Unix 밀리초이며 `[from, to)`다. 기본 `limit=100`, 최대 1,000행이다. 한 행을 추가로 조회해 `meta.truncated`를 표시한다. 집계가 잘리면 arm·세대·속성·기간 조건을 좁힌다. 쿼리는 30초, 응답은 16 MiB로 제한하며 초과를 빈 성공 결과로 바꾸지 않는다.

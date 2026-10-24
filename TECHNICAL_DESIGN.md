@@ -20,10 +20,11 @@ Stream fan-out은 events, observations, credits, decisions, identity_links, poli
 
 ## 학습
 
-두 SQLite Durable Object만 사용한다.
+학습·정책에는 두 SQLite Durable Object를 사용하고, 운영자 비동기 조회는 별도 ReportObject가 처리한다.
 
 - SiteControl: 골 상태 이력, 실험 목록, 학습 커서·설정 상한. 시간당 마감 구간을 alarm으로 처리한다.
 - ExperimentObject: 실험 정의, arm별 감쇠 통계, 적용한 cohort ID, 정책 발행 outbox. 사용자별 배정·관측·정정 원장이 없다.
+- ReportObject: 사이트별 비동기 조회 대기열·결과 캐시. 사용자 선택과 학습 alarm을 호출하지 않는다. 작업/결과의 상한·만료·권한 격리는 [분석 API](docs/ANALYTICS.md)를 따른다.
 
 첫 실제 노출 시각 t, 관측 기간 W, 수집 유예 G이면 마감 대상 시각은 t+W+G다. 시간 단위 마감 구간의 신원 연결·last-touch 귀속·표본별 보상을 단일 SQL에서 계산한다. Worker에는 표본별 결과만 반환한다. 기본 결과 상한은 1,000표본이며 그보다 큰 구간은 sample ID 커서로 분할한다. 분배 분모는 결과 대상에 제한하지 않아 다른 분할과 실험의 노출도 포함한다. 보상이 없는 표본은 0으로 확정한다. 큰 양수/음수의 중간 합계 overflow를 줄이려고 표본별 최대 절댓값으로 정규화해 합산하며, 부동소수점 연산 순서에 따른 반올림 차이는 가능하다.
 
@@ -44,5 +45,7 @@ R2 결과는 정상 완료 후 삭제한다. cursor 전진 직후 장애로 남�
 ## 배포 호환성
 
 현재 템플릿의 `v2-fresh`는 신규 설치 전용이다. 기존 v1 Worker에 migration 목록을 그대로 덮어쓰지 않는다. 사용자별 DO 제거와 토큰 형식 변경은 호환 변경이 아니다. 기존 설치는 새 Eye Worker/namespace를 설치하고 호스트 연결과 저장 토큰을 전환하는 방식으로 검증한다. 이 변경은 원격 리소스를 자동 삭제하거나 이전 데이터를 자동 이관하지 않는다.
+
+비동기 조회를 추가할 때는 `ReportObject` export, `REPORTS` binding, 추가 migration `v2-reports`를 함께 배포한다. 기존 v2 migration 이력은 보존한다. 조회 결과도 COHORTS bucket의 `eye/reports/`에 저장하므로 별도 bucket은 필요 없다.
 
 Cloudflare 참고: [DO SQLite](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/), [R2 Workers API](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/), [Basin SQL](https://developers.cloudflare.com/basin-sql/), [Pipelines](https://developers.cloudflare.com/pipelines/). 로컬 SQL 호환 테스트는 실제 Basin 실행 계획·비용·처리량 검증을 대신하지 않는다.

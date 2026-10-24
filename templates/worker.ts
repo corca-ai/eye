@@ -1,1 +1,1 @@
-export { default, SiteControl, ExperimentObject } from '@eye/workers/worker';
+export { default, SiteControl, ExperimentObject, ReportObject } from '@eye/workers/worker';

@@ -7,8 +7,16 @@
 필드의 `?`는 선택 입력을 뜻한다. 기본값·제약·의미는 소스의 설명 주석에서 가져온다. SDK 반환형을 이해하는 데 필요한 내부 보조 타입도 포함하며, 모든 보조 타입을 패키지 루트에서 import할 수 있다는 뜻은 아니다. `EyeClient`의 메서드는 [SDK API](client.md)에 펼쳐 표시한다.
 
 - [AnalyticsAPI](#analyticsapi)
+- [AnalyticsJob](#analyticsjob)
+- [AnalyticsJobInput](#analyticsjobinput)
+- [AnalyticsJobPage](#analyticsjobpage)
+- [AnalyticsJobRef](#analyticsjobref)
+- [AnalyticsJobsAPI](#analyticsjobsapi)
+- [AnalyticsKind](#analyticskind)
 - [AnalyticsMeta](#analyticsmeta)
 - [AnalyticsPage](#analyticspage)
+- [AnalyticsRequest](#analyticsrequest)
+- [AnalyticsResult](#analyticsresult)
 - [ArmEvaluation](#armevaluation)
 - [ArmQuery](#armquery)
 - [ArmReport](#armreport)
@@ -105,6 +113,101 @@ export interface AnalyticsAPI {
 
 타입: [AnalyticsAPI](types.md#analyticsapi) · [AnalyticsPage](types.md#analyticspage) · [ArmQuery](types.md#armquery) · [ArmReport](types.md#armreport) · [ArmSeriesQuery](types.md#armseriesquery) · [ArmSeriesRow](types.md#armseriesrow) · [AttributeKeyReport](types.md#attributekeyreport) · [AttributeValueRow](types.md#attributevaluerow) · [AttributeValuesQuery](types.md#attributevaluesquery) · [GoalQuery](types.md#goalquery) · [GoalRow](types.md#goalrow) · [PolicyHistoryRow](types.md#policyhistoryrow) · [PolicyQuery](types.md#policyquery) · [QueryRange](types.md#queryrange) · [SeriesQuery](types.md#seriesquery) · [SeriesRow](types.md#seriesrow) · [TimelinePage](types.md#timelinepage) · [TimelineQuery](types.md#timelinequery) · [TrafficQuery](types.md#trafficquery) · [TrafficRow](types.md#trafficrow)
 
+## AnalyticsJob
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/jobs.ts#L10)
+
+```ts
+export interface AnalyticsJob {
+    jobId: string;
+    kind: AnalyticsKind;
+    status: 'queued' | 'running' | 'complete' | 'failed' | 'cancelled';
+    createdAt: number;
+    completedAt: number | null;
+    expiresAt: number;
+    attempts: number;
+    /** 결과를 재사용할 수 있는 시각. 이후 같은 조건을 등록하면 새 작업을 만든다. */
+    freshUntil: number | null;
+    error: string | null;
+}
+```
+
+타입: [AnalyticsJob](types.md#analyticsjob) · [AnalyticsKind](types.md#analyticskind)
+
+## AnalyticsJobInput
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/jobs.ts#L8)
+
+```ts
+/** scope는 호스트가 인증·권한·필터를 확인한 뒤 공급하는 캐시 격리 키다. 브라우저 입력을 그대로 쓰지 않는다. */
+export interface AnalyticsJobInput {
+    scope: string;
+    request: AnalyticsRequest;
+}
+```
+
+타입: [AnalyticsJobInput](types.md#analyticsjobinput) · [AnalyticsRequest](types.md#analyticsrequest)
+
+## AnalyticsJobPage
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/jobs.ts#L17)
+
+```ts
+export interface AnalyticsJobPage {
+    job: AnalyticsJob;
+    result: AnalyticsResult;
+    offset: number;
+    nextOffset: number | null;
+}
+```
+
+타입: [AnalyticsJob](types.md#analyticsjob) · [AnalyticsJobPage](types.md#analyticsjobpage) · [AnalyticsResult](types.md#analyticsresult)
+
+## AnalyticsJobRef
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/jobs.ts#L9)
+
+```ts
+export interface AnalyticsJobRef {
+    scope: string;
+    jobId: string;
+}
+```
+
+타입: [AnalyticsJobRef](types.md#analyticsjobref)
+
+## AnalyticsJobsAPI
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/jobs.ts#L20)
+
+```ts
+export interface AnalyticsJobsAPI {
+    /** 같은 site/scope/정규화 조건의 실행 중 작업을 공유하고 완료 결과는 15분 재사용한다. 등록은 SQL 완료를 기다리지 않는다. */
+    create(input: AnalyticsJobInput): Promise<AnalyticsJob>;
+    /** 작업/결과는 등록 후 1시간 보관한다. 다른 scope 또는 만료된 ID는 not_found. */
+    status(input: AnalyticsJobRef): Promise<AnalyticsJob>;
+    /** 저장된 결과를 읽는다. 기본 100행, 최대 1000행. offset은 결과 내 위치이며 SQL을 재실행하지 않는다. 원래 조회의 meta.truncated도 확인한다. */
+    page(input: AnalyticsJobRef & {
+        offset?: number;
+        limit?: number;
+    }): Promise<AnalyticsJobPage>;
+    /** queued/running 작업을 취소한다. 이미 실행한 원격 SQL의 과금까지 취소하지는 못한다. 동일 scope의 공유 작업에 적용된다. */
+    cancel(input: AnalyticsJobRef): Promise<AnalyticsJob>;
+}
+```
+
+타입: [AnalyticsJob](types.md#analyticsjob) · [AnalyticsJobInput](types.md#analyticsjobinput) · [AnalyticsJobPage](types.md#analyticsjobpage) · [AnalyticsJobRef](types.md#analyticsjobref) · [AnalyticsJobsAPI](types.md#analyticsjobsapi)
+
+## AnalyticsKind
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/jobs.ts#L3)
+
+```ts
+export type AnalyticsKind = keyof AnalyticsAPI;
+```
+
+타입: [AnalyticsAPI](types.md#analyticsapi) · [AnalyticsKind](types.md#analyticskind)
+
 ## AnalyticsMeta
 
 [소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L27)
@@ -135,6 +238,37 @@ export interface AnalyticsPage<T> {
 ```
 
 타입: [AnalyticsMeta](types.md#analyticsmeta) · [AnalyticsPage](types.md#analyticspage)
+
+## AnalyticsRequest
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/jobs.ts#L5)
+
+```ts
+/** 기존 분석과 같은 조회 조건. SQL이나 임의 코드는 받지 않는다. */
+export type AnalyticsRequest = {
+    [K in AnalyticsKind]: {
+        kind: K;
+        query: Parameters<AnalyticsAPI[K]>[0];
+    };
+}[AnalyticsKind];
+```
+
+타입: [AnalyticsAPI](types.md#analyticsapi) · [AnalyticsKind](types.md#analyticskind) · [AnalyticsRequest](types.md#analyticsrequest)
+
+## AnalyticsResult
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/jobs.ts#L6)
+
+```ts
+export type AnalyticsResult = {
+    [K in AnalyticsKind]: {
+        kind: K;
+        data: Awaited<ReturnType<AnalyticsAPI[K]>>;
+    };
+}[AnalyticsKind];
+```
+
+타입: [AnalyticsAPI](types.md#analyticsapi) · [AnalyticsKind](types.md#analyticskind) · [AnalyticsResult](types.md#analyticsresult)
 
 ## ArmEvaluation
 
@@ -253,7 +387,7 @@ export type ArmStatus = 'active' | 'paused' | 'deleted';
 
 ## AssignedDecision
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L42)
+[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L48)
 
 ```ts
 export type AssignedDecision = Extract<Decision, {
@@ -675,7 +809,7 @@ export interface EventEnvelope {
 
 ## EventInput
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/client.ts#L14)
+[소스](https://github.com/corca-ai/eye/blob/main/src/client.ts#L15)
 
 ```ts
 /** eventId 기본 UUID, occurredAt 기본 현재 시각. attributes는 선택적 사건 속성이다. */
@@ -814,7 +948,7 @@ export type EyeEvent = TrackEvent | GoalEvent | ExposureEvent | IdentityEvent;
 
 ## EyeOptions
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/client.ts#L17)
+[소스](https://github.com/corca-ai/eye/blob/main/src/client.ts#L18)
 
 ```ts
 export interface EyeOptions {
@@ -872,11 +1006,15 @@ export interface EyeRequestOptions extends EyeOptions {
 
 ## EyeService
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L17)
+[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L18)
 
 ```ts
 /** Structural RPC contract: hosts may name their Service Binding freely. */
 export interface EyeService {
+    analyticsJobCreate(siteId: string, input: Parameters<AnalyticsJobsAPI['create']>[0]): ReturnType<AnalyticsJobsAPI['create']>;
+    analyticsJobStatus(siteId: string, input: Parameters<AnalyticsJobsAPI['status']>[0]): ReturnType<AnalyticsJobsAPI['status']>;
+    analyticsJobPage(siteId: string, input: Parameters<AnalyticsJobsAPI['page']>[0]): Promise<string>;
+    analyticsJobCancel(siteId: string, input: Parameters<AnalyticsJobsAPI['cancel']>[0]): ReturnType<AnalyticsJobsAPI['cancel']>;
     getPublishedPolicy(siteId: string, experimentId: string): Promise<PublishedPolicy>;
     ingest(events: readonly EventEnvelope[]): Promise<void>;
     createExperiment(siteId: string, input: CreateExperiment): Promise<Experiment>;
@@ -903,7 +1041,7 @@ export interface EyeService {
 }
 ```
 
-타입: [AnalyticsAPI](types.md#analyticsapi) · [ArmStatus](types.md#armstatus) · [CreateExperiment](types.md#createexperiment) · [EventEnvelope](types.md#eventenvelope) · [Experiment](types.md#experiment) · [ExperimentSettings](types.md#experimentsettings) · [EyeService](types.md#eyeservice) · [GoalDefinition](types.md#goaldefinition) · [GoalStatus](types.md#goalstatus) · [PolicySnapshot](types.md#policysnapshot) · [PublishedPolicy](types.md#publishedpolicy)
+타입: [AnalyticsAPI](types.md#analyticsapi) · [AnalyticsJobsAPI](types.md#analyticsjobsapi) · [ArmStatus](types.md#armstatus) · [CreateExperiment](types.md#createexperiment) · [EventEnvelope](types.md#eventenvelope) · [Experiment](types.md#experiment) · [ExperimentSettings](types.md#experimentsettings) · [EyeService](types.md#eyeservice) · [GoalDefinition](types.md#goaldefinition) · [GoalStatus](types.md#goalstatus) · [PolicySnapshot](types.md#policysnapshot) · [PublishedPolicy](types.md#publishedpolicy)
 
 ## Filter
 
@@ -1078,7 +1216,7 @@ export interface PolicyQuery extends QueryRange {
 
 ## PolicySnapshot
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L7)
+[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L8)
 
 ```ts
 /** statsAsOf는 마지막 적용한 마감 구간의 기준 시각이며 null은 적용 이력 없음. 전체 데이터 수신 완료 watermark가 아니다. */
@@ -1094,7 +1232,7 @@ export interface PolicySnapshot extends UnreservedPolicyEvaluation {
 
 ## PreparedDecision
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L15)
+[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L16)
 
 ```ts
 /** reuseUntil은 이번 결정의 적용 기한(Unix 밀리초)이다. 정책 유효기간과 유지·관측 조건으로 결정하며 저장 문맥의 삭제 시각은 아니다. */
@@ -1109,7 +1247,7 @@ export interface PreparedDecision {
 
 ## PublishedPolicy
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L10)
+[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L11)
 
 ```ts
 export interface PublishedPolicy extends PolicySnapshot {
@@ -1189,7 +1327,7 @@ export type Subject = {
 
 ## Submission
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/client.ts#L16)
+[소스](https://github.com/corca-ai/eye/blob/main/src/client.ts#L17)
 
 ```ts
 /** accepted는 로컬 검증 성공이지 영속 저장 확인이 아니다. 실패는 error.code와 message로 반환된다. */

@@ -3,7 +3,7 @@ import { LearningSource } from '../../../src/runtime/learning';
 import { parseEnvelope } from '../../../src/core/events';
 import { rawRecords } from '../../../src/analytics/raw';
 import { exportBatches, exportRecords } from '../../../src/analytics/export';
-export { SiteControl, ExperimentObject } from '../../../src/worker';
+export { SiteControl, ExperimentObject, ReportObject } from '../../../src/worker';
 
 /** Benchmark-only RPC entry point. HTTP is disabled and the host authenticates all access.
  * Never use this entry point in the installation template: seed bypasses goal registration

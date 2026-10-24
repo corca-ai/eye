@@ -24,6 +24,10 @@ createEye(options: EyeOptions): EyeClient
 - [eye.logout](#eyelogout)
 - [eye.decide](#eyedecide)
 - [eye.flush](#eyeflush)
+- [eye.analytics.jobs.create](#eyeanalyticsjobscreate)
+- [eye.analytics.jobs.status](#eyeanalyticsjobsstatus)
+- [eye.analytics.jobs.page](#eyeanalyticsjobspage)
+- [eye.analytics.jobs.cancel](#eyeanalyticsjobscancel)
 - [eye.analytics.attributeKeys](#eyeanalyticsattributekeys)
 - [eye.analytics.policies](#eyeanalyticspolicies)
 - [eye.analytics.traffic](#eyeanalyticstraffic)
@@ -137,6 +141,46 @@ Optional for jobs/tests that need to await Queue ingestion. Normal request handl
 ```ts
 eye.flush(): Promise<void>
 ```
+
+## eye.analytics.jobs.create
+
+동일 권한 범위·조건의 작업과 완료 결과를 재사용한다. 등록은 SQL 완료를 기다리지 않는다.
+
+```ts
+eye.analytics.jobs.create(input: AnalyticsJobInput): Promise<AnalyticsJob>
+```
+
+타입: [AnalyticsJob](types.md#analyticsjob) · [AnalyticsJobInput](types.md#analyticsjobinput)
+
+## eye.analytics.jobs.status
+
+작업 진행 상태·시각·만료·실패 이유를 조회한다.
+
+```ts
+eye.analytics.jobs.status(input: AnalyticsJobRef): Promise<AnalyticsJob>
+```
+
+타입: [AnalyticsJob](types.md#analyticsjob) · [AnalyticsJobRef](types.md#analyticsjobref)
+
+## eye.analytics.jobs.page
+
+R2에 고정된 결과의 페이지를 읽으며 원본 SQL을 다시 계산하지 않는다.
+
+```ts
+eye.analytics.jobs.page(input: AnalyticsJobRef & { offset?: number; limit?: number; }): Promise<AnalyticsJobPage>
+```
+
+타입: [AnalyticsJobPage](types.md#analyticsjobpage) · [AnalyticsJobRef](types.md#analyticsjobref)
+
+## eye.analytics.jobs.cancel
+
+같은 scope에서 공유하는 미완료 작업을 취소한다.
+
+```ts
+eye.analytics.jobs.cancel(input: AnalyticsJobRef): Promise<AnalyticsJob>
+```
+
+타입: [AnalyticsJob](types.md#analyticsjob) · [AnalyticsJobRef](types.md#analyticsjobref)
 
 ## eye.analytics.attributeKeys
 

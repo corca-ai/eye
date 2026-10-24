@@ -2,7 +2,7 @@
 
 [문서 안내](README.md) · [설계](../DESIGN.md) · [구현 구조](../TECHNICAL_DESIGN.md)
 
-현재 구현은 로컬 배정, 서버 요청 래퍼, CSR 클라이언트/서버 어댑터, Queue 원본 수집, Basin 조회 기반 고정 마감 학습, 두 Durable Object의 정책 관리, R2 재시도 결과 고정, 원본 분석 API까지 연결한다. 이전 사용자별 Subject/Identity/Shard 객체와 예약·보상 정정 경로는 제거했다.
+현재 구현은 로컬 배정, 서버 요청 래퍼, CSR 클라이언트/서버 어댑터, Queue 원본 수집, Basin 조회 기반 고정 마감 학습, 두 Durable Object의 정책 관리, R2 재시도 결과 고정, 원본 분석 API와 ReportObject의 비동기 조회·결과 재사용까지 연결한다. 이전 사용자별 Subject/Identity/Shard 객체와 예약·보상 정정 경로는 제거했다.
 
 로컬 검증은 TypeScript, 순수 코어 테스트, workerd의 DO/R2/Queue 테스트, 생성 SQL의 SQLite 호환 실행, 패키지 외부 소비자 및 DOM 전용 브라우저 타입 검사, 신규 설치 Worker 번들 dry-run을 사용한다. 실제 노출→원본→학습→정책, 재시도/eviction 중 중복 학습 방지, 로그인 귀속, 음수/큰 보상, 늦은 사건과 확정 보상 차이, CSR 인증 전환과 준비/노출 경합을 검사한다.
 
