@@ -31,10 +31,11 @@ export default function () {
   const response = http.get(`${__ENV.URL}/fast-page?mode=${mode}&site=${__ENV.SITE}&run=${__ENV.RUN}`, {
     headers: { Authorization: `Bearer ${__ENV.TEST_TOKEN}`, 'X-Request-ID': `${__ENV.RUN}-${i}`, 'X-Session-ID': `${__ENV.RUN}-vu-${__VU}`,
       'X-Authenticated': __VU % 2 === 0 ? '1' : '0', 'X-Goal': goal, 'X-Eye-Tokens': JSON.stringify(tokens) },
-    timeout: '10s', tags: { name: 'fast-page', mode, phase },
+    timeout: '10s', responseCallback: http.expectedStatuses(200), tags: { name: 'fast-page', mode, phase },
   });
   measured.add(phase === 'measure' ? 1 : 0, { mode });
-  if (!check(response, { 'status 200': r => r.status === 200 })) return;
+  // Transport failures have their own HTTP error-rate threshold; contracts apply to received 200 responses.
+  if (response.status !== 200) return;
   errors.add(0);
   try {
     const data = response.json();

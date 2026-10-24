@@ -46,9 +46,10 @@ export default function () {
   const response = http.get(`${__ENV.URL}/fast-page?mode=${mode}&site=${__ENV.SITE}&run=${run}`, {
     headers: { Authorization: `Bearer ${__ENV.TEST_TOKEN}`, 'X-Request-ID': `${run}-${i}`, 'X-Session-ID': id,
       'X-Authenticated': authenticated ? '1' : '0', 'X-Goal': goal, 'X-Eye-Tokens': header },
-    timeout: '10s', tags: { ...tags, name: 'fast-page' },
+    timeout: '10s', responseCallback: http.expectedStatuses(200), tags: { ...tags, name: 'fast-page' },
   });
-  if (!check(response, { 'status 200': r => r.status === 200 })) return;
+  // Transport failures have their own HTTP error-rate threshold; contracts apply to received 200 responses.
+  if (response.status !== 200) return;
   contractErrors.add(0);
   try {
     const data = response.json();

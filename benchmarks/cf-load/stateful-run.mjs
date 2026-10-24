@@ -10,8 +10,11 @@ const id = `stateful-${Date.now()}-${randomUUID().slice(0, 8)}`;
 const output = join(directory, 'results', id);
 await mkdir(output, { recursive: true });
 const smoke = process.argv.includes('--smoke'), interleaved = process.argv.includes('--interleaved');
+const rateIndex = process.argv.indexOf('--rate'), eyeOnly = process.argv.includes('--eye-only');
+const rates = rateIndex < 0 ? [10, 100, 200] : [Number(process.argv[rateIndex + 1])];
+if (rates.some(rate => ![10, 100, 200].includes(rate)) || (eyeOnly && rateIndex < 0) || (interleaved && (eyeOnly || rateIndex >= 0))) throw new Error('Use --rate 10|100|200 with optional --eye-only, separately from --interleaved');
 const manifest = { id, site: id, url, startedAt: Date.now(), profile: 'long', responseBytes: 8192,
-  newUserFraction: interleaved ? 0 : 0.05, comparison: interleaved ? 'interleaved, equal state headers' : 'sequential', returningUsers: 'one per VU', phases: [] };
+  newUserFraction: interleaved ? 0 : 0.05, comparison: interleaved ? 'interleaved, equal state headers' : eyeOnly ? 'Eye-only diagnostic' : 'sequential', returningUsers: 'one per VU', phases: [] };
 const save = () => writeFile(join(output, 'manifest.json'), JSON.stringify(manifest, null, 2));
 await save();
 const setup = await fetch(`${url}/setup?site=${id}&profile=long`, { method: 'POST', headers: { Authorization: `Bearer ${TEST_TOKEN}` } });
@@ -35,8 +38,8 @@ if (interleaved) {
   await stage('interleaved', smoke ? 10 : 200, smoke ? '45s' : '5m30s', 'measure');
 } else {
   await stage('eye', 10, smoke ? '15s' : '1m', 'warmup');
-  for (const rate of smoke ? [10] : [10, 100, 200]) {
-    await stage('baseline', rate, smoke ? '15s' : '5m', 'measure');
+  for (const rate of smoke ? [10] : rates) {
+    if (!eyeOnly) await stage('baseline', rate, smoke ? '15s' : '5m', 'measure');
     await stage('eye', rate, smoke ? '15s' : '5m', 'measure');
   }
 }

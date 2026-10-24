@@ -8,8 +8,8 @@ if (!process.argv[2]) throw new Error('Pass a stateful run results directory');
 const output = resolve(process.argv[2]);
 const manifest = JSON.parse(await readFile(join(output, 'manifest.json')));
 const state = JSON.parse(await readFile(join(directory, '.state/resources.json')));
-const phases = manifest.phases.filter(p => p.mode === 'eye' && p.exitCode === 0);
-if (!phases.length) throw new Error('No completed successful Eye phases');
+const phases = manifest.phases.filter(p => p.mode === 'eye' && p.exitCode !== undefined);
+if (!phases.length) throw new Error('No completed Eye phases');
 const query = `SELECT json_get_str(attributes_json,'run') AS run,
 json_get_str(payload_json,'kind') AS kind, experiment_id, arm_id,
 CASE WHEN uid IS NULL THEN 'anonymous' ELSE 'authenticated' END AS identity,
@@ -26,7 +26,21 @@ const body = await response.json();
 if (!response.ok || !body.result?.rows || body.result.rows.length >= 1000) throw new Error('Collection query failed or reached row limit');
 const results = [];
 for (const phase of phases) {
-  const { metrics } = JSON.parse(await readFile(join(output, `${phase.run}.json`)));
+  let metrics;
+  try { ({ metrics } = JSON.parse(await readFile(join(output, `${phase.run}.json`)))); }
+  catch (error) {
+    if (error.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
+    results.push({ run: phase.run, exitCode: phase.exitCode, matching: false, reason: 'summary_unavailable', comparisons: [] });
+    continue;
+  }
+  const counts = ['events_submitted', ...['checkout', 'hero', 'pricing'].flatMap(experiment =>
+    ['a', 'b', 'c'].map(arm => `eye_decisions{experiment:${experiment},arm:${arm}}`))];
+  if (!counts.every(key => Number.isFinite(metrics?.[key]?.values?.count))
+    || !['anonymous', 'authenticated'].every(identity => Number.isFinite(metrics?.[`eye_skipped{identity:${identity}}`]?.values?.fails))) {
+    results.push({ run: phase.run, exitCode: phase.exitCode, httpFailureRate: metrics?.http_req_failed?.values?.rate ?? null,
+      matching: false, reason: 'summary_metrics_missing', comparisons: [] });
+    continue;
+  }
   const rows = body.result.rows.filter(r => r.run === phase.run);
   const count = predicate => rows.filter(predicate).reduce((n, r) => n + r.events, 0);
   const comparisons = [{ dimension: 'all accepted submissions', expected: metrics.events_submitted.values.count, actual: count(() => true) }];
@@ -37,7 +51,7 @@ for (const phase of phases) {
   for (const identity of ['anonymous', 'authenticated']) comparisons.push({ dimension: identity,
     expected: metrics[`eye_skipped{identity:${identity}}`].values.fails,
     actual: count(r => r.kind === 'exposure' && r.identity === identity) });
-  results.push({ run: phase.run, comparisons, matching: comparisons.every(c => c.expected === c.actual) });
+  results.push({ run: phase.run, exitCode: phase.exitCode, httpFailureRate: metrics.http_req_failed.values.rate, comparisons, matching: comparisons.every(c => c.expected === c.actual) });
 }
 const result = { observedAt: Date.now(), fullRunFinished: Boolean(manifest.endedAt), results,
   matching: results.every(r => r.matching), query, raw: body.result };

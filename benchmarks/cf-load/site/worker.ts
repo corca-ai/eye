@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { createEye, DecisionCache } from '../../../src/index';
+import { decisionRuntime } from '../../../src/decisions';
 import type { EyeService, DecisionMetric, Submission } from '../../../src/index';
 
 // String references in cf config cannot infer RPC classes; refine only those two bindings.
@@ -28,6 +29,42 @@ export default {
     if (url.pathname === '/ping') return new Response(JSON.stringify({ mode: 'baseline', sessionMs: 0, eyeMs: 0, metrics: [], submitted: 0, rejected: 0, fill: 'x'.repeat(3984) }), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
     const siteId = url.searchParams.get('site') ?? 'load';
     const admin = createEye({ service: env.EYE, ctx, siteId, onError: e => console.error('delivery', String(e)) });
+    if (url.pathname === '/benchmark/policy' && request.method === 'POST') {
+      const experimentId = 'policy-probe', subject = { cid: crypto.randomUUID() };
+      await admin.experiments.create({ experimentId, arms: ['a', 'b'], settings: { minHoldMs: 86400000 } });
+      try {
+        const pending: Promise<unknown>[] = [], errors: string[] = [];
+        let outage = false, reads = 0, publishedAt = 0;
+        const freshMs = 250, maxAgeMs = 8000;
+        const runtime = decisionRuntime({ getPublishedPolicy: async (...args) => {
+          reads++;
+          if (outage) throw new Error('injected policy outage');
+          const policy = await env.EYE.getPublishedPolicy(...args); publishedAt = policy.publishedAt; return policy;
+        } }, { waitUntil: promise => { pending.push(promise); ctx.waitUntil(promise); } }, siteId,
+        { secret: env.EYE_DECISION_SECRET, cache: new DecisionCache(), freshMs, maxAgeMs }, error => errors.push(String(error)));
+        const settle = async () => { while (pending.length) await Promise.all(pending.splice(0)); };
+        const cold = await runtime.decide(subject, experimentId);
+        await settle();
+        const first = await runtime.decide(subject, experimentId);
+        if (first.status !== 'assigned') return Response.json({ error: 'policy did not become available', cold, first }, { status: 500 });
+        runtime.expose(first, Date.now(), crypto.randomUUID()); await runtime.state();
+        await admin.experiments.pauseArm(experimentId, first.assignment.armId);
+        const pausedAt = Date.now();
+        await new Promise(resolve => setTimeout(resolve, freshMs + 50));
+        const stale = await runtime.decide(subject, experimentId);
+        await settle();
+        const refreshed = await runtime.decide(subject, experimentId), stoppedAt = Date.now();
+        outage = true;
+        const expiresAt = publishedAt + maxAgeMs;
+        await new Promise(resolve => setTimeout(resolve, Math.max(0, expiresAt - Date.now()) + 50));
+        const expired = await runtime.decide(subject, experimentId), expiredAt = Date.now();
+        await settle();
+        return Response.json({ freshMs, maxAgeMs, cold: cold.status, firstArm: first.assignment.armId,
+          staleArm: stale.status === 'assigned' ? stale.assignment.armId : null,
+          refreshedArm: refreshed.status === 'assigned' ? refreshed.assignment.armId : null,
+          stopDelayMs: stoppedAt - pausedAt, expired: expired.status, expiryOvershootMs: expiredAt - expiresAt, reads, errors });
+      } finally { await admin.experiments.pause(experimentId); }
+    }
     if (url.pathname === '/fetch-probe') {
       const carrier = { request: fetch };
       const results: Record<string, unknown> = {};

@@ -53,8 +53,12 @@ fixture seed는 과거 골 등록 절차를 생략하는 벤치마크 전용 RPC
 
 `results/stateful-*/manifest.json`에 사이트, phase별 시작/종료 시각과 종료 코드가 남는다. 오류 시 해당 결과와 실행 프로세스를 확인하고, 관찰 timeout만으로 새 부하를 중복 실행하지 않는다. 각 실행은 독립 사이트이므로 다시 실행하면 새 데이터가 생긴다. 생성기 로그/요약과 Cloudflare 계측의 시간 범위를 맞춰 비교한다. 원본 결과와 자격 증명은 커밋하지 않는다.
 
-수집 반영 후 `node stateful-collection.mjs results/STATEFUL_RUN_DIRECTORY`는 성공 완료된 Eye phase의 제출 총계, 실험/arm별 노출, 익명/로그인별 노출을 Basin의 고유 사건 수와 대조한다. SQL 기능은 `cf sql query`가 지원하지 않는 Basin warehouse API를 사용한다. 불일치는 exit 1이며 새 전송 없이 같은 명령으로 가시성을 재확인한다. 실행 중에도 완료된 phase만 점검할 수 있으므로 `matching=true`만으로 전체 시험 완료를 주장하지 않는다. `fullRunFinished`와 manifest의 모든 phase를 함께 확인한다. 이는 집계별 수집 품질 검사이며 전송 사건 ID 전체의 집합 동등성이나 arm×신원 교차 집계를 검증한 것은 아니다.
+수집 반영 후 `node stateful-collection.mjs results/STATEFUL_RUN_DIRECTORY`는 종료된 Eye phase(실패 포함)의 제출 총계, 실험/arm별 노출, 익명/로그인별 노출을 Basin의 고유 사건 수와 대조한다. SQL 기능은 `cf sql query`가 지원하지 않는 Basin warehouse API를 사용한다. 불일치는 exit 1이며 새 전송 없이 같은 명령으로 가시성을 재확인한다. 실행 중에도 완료된 phase만 점검할 수 있으므로 `matching=true`만으로 전체 시험 완료를 주장하지 않는다. `fullRunFinished`와 manifest의 모든 phase 종료 코드·HTTP 오류율을 함께 확인한다. 이는 집계별 수집 품질 검사이며 전송 사건 ID 전체의 집합 동등성이나 arm×신원 교차 집계를 검증한 것은 아니다.
 
 외부 지연의 시간 변동을 구분하는 보조 시험은 `node stateful-run.mjs --interleaved`다. 독립 사이트에서 200 RPS·5분30초를 실행하고 처음 30초는 Eye로 예열, 나머지 5분은 baseline/Eye를 독립 해시로 배분한다. 두 모드가 같은 사용자 상태 헤더와 8192바이트 응답을 쓰므로 헤더 증가까지 포함하는 순차 비교와 목적이 다르다. 측정 구간의 신규 사용자 비율은 0이다. 늦게 추가된 VU도 세 실험의 배정 상태를 먼저 확보한 뒤 측정에 포함한다. 양쪽 모드의 측정 요청이 실제로 있어야 하며 측정 중 Eye 미참여율이 1% 이상이면 실패한다. `--smoke`를 함께 쓰면 10 RPS·45초다. 주 시험과 동시에 실행하지 않고 `http_req_duration{mode:...,phase:measure}`와 `http_req_waiting`을 비교한다. 수집 품질 대조를 대신하는 시험은 아니다.
 
 `node server-metrics.mjs SINCE_ISO UNTIL_ISO OUTPUT_JSON`은 같은 시간 범위의 Workers/DO, Queue 과금 작업·재시도, Pipeline 입출력·sink·스키마 오류를 저장한다. 인자를 생략하면 시작은 1시간 전, 종료는 현재, 출력은 `results/server-metrics-latest.json`이다. GraphQL 오류는 저장한 뒤 실패로 종료한다. CLI에 해당 GraphQL 기능이 없어 공식 API를 사용한다. Adaptive 데이터의 집계·샘플링과 전달 경계 차이가 있으므로 송신 건수와 완전히 일치하는 원장으로 취급하지 않는다. sink 반영은 전송 구간보다 늦을 수 있어 반영 이후 구간도 확인하고, 다른 시험이 섞인 구간을 단일 phase의 비용으로 표시하지 않는다.
+
+`node policy-bench.mjs`는 전용 사이트에서 실제 정책 RPC와 SDK decision runtime을 연결해 cold 미참여, 중지된 arm의 SWR 갱신, 정책 조회 실패 시 hard expiry 미참여를 검사한다. 시험에만 fresh 250ms·최대 나이 8초를 적용하고 동일 요청의 한 isolate에서 진행한다. 최초 실제 노출 표본을 연 뒤 최소 유지 1일인 arm을 중지해도 갱신 후 전환되는지 확인한다. 조회 실패는 정책 adapter에서 주입하며 Cloudflare 장애를 발생시키지 않는다. 종료 시 시험 실험을 일시중지한다. 이 측정은 기본 15분/6시간 설정의 경과 시간을 실제로 기다린 시험이나 전 세계 isolate 전파 SLA가 아니다.
+
+HTTP 전송 실패는 `http_req_failed < 1%`로 검사하고, 수신한 HTTP 200 응답의 JSON·상태 계약은 100% 통과해야 한다. 허용된 전송 실패도 오류 건수와 지연 분포에 남기며 성공 응답으로 바꾸지 않는다. 전송 실패가 있으면 제출 총계는 응답을 받은 요청만 포함하므로 서버 저장 건수와의 차이를 그 사실과 함께 조사한다. `node stateful-run.mjs --rate 200 --eye-only`는 새 사이트에서 1분 예열 뒤 해당 Eye 단계만 5분 재검증한다. 이전 실패 결과를 덮어쓰거나 새 baseline을 실행한 것으로 표시하지 않는다.
