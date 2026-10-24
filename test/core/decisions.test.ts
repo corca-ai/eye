@@ -155,3 +155,46 @@ it('state drops invalid untouched tokens and preserves a newly exposed sample', 
   expect(errors).toHaveLength(1);
   await Promise.all(f.pending);
 });
+
+it.each([false, true])('seals a supplied held context instead of returning missing or stale tokens (prior token: %s)', async withToken => {
+  const f = fixture();
+  const initial = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache }, () => {});
+  const first = await initial.prepare({ cid: 'c' }, 'exp');
+  if (first.decision.status !== 'assigned') throw new Error('Expected assignment');
+  const beforeExposure = await initial.state();
+  initial.expose(first.decision, now, 'visible');
+  const expected = await initial.state();
+  const held = await initial.decide({ cid: 'c' }, 'exp');
+  if (held.status !== 'assigned') throw new Error('Expected held assignment');
+  const next = decisionRuntime(f.service, f.ctx, 'site', {
+    secret, cache: f.cache, ...(withToken ? { tokens: beforeExposure } : {}),
+  }, () => {});
+  const prepared = await next.prepare({ cid: 'c' }, 'exp', held.localContext);
+  expect(prepared.token).toBe(expected.exp);
+  expect(await next.state()).toEqual(expected);
+  await Promise.all(f.pending);
+});
+
+it('keeps an exposure recorded while preparation fetches the policy', async () => {
+  const f = fixture();
+  const runtime = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache }, () => {});
+  const first = await runtime.prepare({ cid: 'c' }, 'exp');
+  if (first.decision.status !== 'assigned') throw new Error('Expected assignment');
+  let release!: (policy: PublishedPolicy) => void;
+  let entered!: () => void;
+  const fetching = new Promise<void>(resolve => { entered = resolve; });
+  f.service.getPublishedPolicy.mockImplementation(() => new Promise(resolve => { release = resolve; entered(); }));
+  const pending = runtime.prepare({ cid: 'c' }, 'exp', first.decision.localContext);
+  await fetching;
+  const exposure = runtime.expose(first.decision, now, 'during-fetch');
+  release(f.policy);
+  const prepared = await pending;
+  expect(prepared.decision).toMatchObject({ status: 'assigned', localContext: {
+    sample: { sampleId: exposure.sampleId, startAt: now },
+  } });
+  const restored = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache, tokens: await runtime.state() }, () => {});
+  expect(await restored.decide({ cid: 'c' }, 'exp')).toMatchObject({ status: 'assigned', localContext: {
+    sample: { sampleId: exposure.sampleId, startAt: now },
+  } });
+  await Promise.all(f.pending);
+});

@@ -147,8 +147,15 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
   const prepare = async (subject: Subject, experimentId: string, context?: LocalAssignmentContext): Promise<PreparedDecision & { token: string | null }> => {
     invariant(options, 'invalid_input', 'Configure decisions.secret');
     await restore(experimentId);
-    if (context) contexts.set(experimentId, parseLocalContext(context));
-    const policy = await fetchPolicy(experimentId), result = choose(subject, experimentId, policy);
+    const supplied = context === undefined ? undefined : parseLocalContext(context);
+    if (supplied) contexts.set(experimentId, supplied);
+    const policy = await fetchPolicy(experimentId);
+    const result = choose(subject, experimentId, policy);
+    // choose() persists new selections, but a supplied held context also needs
+    // its own token: the restored token may be absent or describe an older sample.
+    if (supplied && result.selection.status === 'assigned' && result.selection.context === supplied) {
+      persist(experimentId, supplied);
+    }
     await writes.get(experimentId);
     return { decision: result.decision, policy, token: result.decision.status === 'assigned' ? tokens.get(experimentId) ?? null : null,
       reuseUntil: result.selection.status === 'assigned' ? result.selection.applyUntil : Date.now() };
