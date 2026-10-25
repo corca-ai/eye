@@ -1,0 +1,64 @@
+{
+  "runtime": "v24.22.1",
+  "platform": "darwin",
+  "method": "current SQL vs frozen 9db4e79; local memory SQLite, same immutable input, exact row equality, one warmup + three measured runs, median",
+  "limitations": "Candidate counts are logical intermediate rows. Source reads still grow with total input; SQLite is not Basin EXPLAIN, scanned bytes, latency or billing.",
+  "hot": [
+    {
+      "events": 160,
+      "beforeCandidates": 3240,
+      "afterCandidates": 80,
+      "beforeMs": 35.031375,
+      "afterMs": 5.540208000000007
+    },
+    {
+      "events": 320,
+      "beforeCandidates": 12880,
+      "afterCandidates": 160,
+      "beforeMs": 127.04141700000002,
+      "afterMs": 11.00979099999995
+    },
+    {
+      "events": 640,
+      "beforeCandidates": 51360,
+      "afterCandidates": 320,
+      "beforeMs": 528.9668750000001,
+      "afterMs": 24.686416000000463
+    }
+  ],
+  "scoped": [
+    {
+      "unrelatedUsers": 0,
+      "events": 60,
+      "goals": 30,
+      "exposures": 30,
+      "candidates": 30,
+      "timelineBeforeMs": 8.7943750000004,
+      "timelineAfterMs": 9.510750000000371,
+      "armsBeforeMs": 8.594874999999774,
+      "armsAfterMs": 3.9850420000002487
+    },
+    {
+      "unrelatedUsers": 40,
+      "events": 380,
+      "goals": 30,
+      "exposures": 30,
+      "candidates": 30,
+      "timelineBeforeMs": 26.97545899999932,
+      "timelineAfterMs": 23.749375000000327,
+      "armsBeforeMs": 18.033291000000645,
+      "armsAfterMs": 12.94683299999997
+    },
+    {
+      "unrelatedUsers": 160,
+      "events": 1340,
+      "goals": 30,
+      "exposures": 30,
+      "candidates": 30,
+      "timelineBeforeMs": 85.6049579999999,
+      "timelineAfterMs": 67.66633400000046,
+      "armsBeforeMs": 55.120708999999806,
+      "armsAfterMs": 40.712125000000015
+    }
+  ]
+}
