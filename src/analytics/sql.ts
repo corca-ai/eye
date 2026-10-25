@@ -1,3 +1,4 @@
+import { hasEventCTEs } from './has-event-sql.js';
 import { exposureProjection } from './projections-sql.js';
 import { attributionCTEs, anonymousLink, identitySegments } from './attribution-sql.js';
 import { invariant } from '../core/errors.js';
@@ -97,8 +98,7 @@ FROM ${this.namespace}."${table}" WHERE site_id = ${literal(this.siteId)} AND oc
     const fields = groups.map((f, i) => `${field(f, 'o').sql} AS group_${i}`);
     const dimensions = [...(bucketMs === undefined ? [] : ['bucket_start']), 'arm_id', 'generation', 'window_ms', ...groups.map((_, i) => `group_${i}`)];
     const ctes = [this.latest('observations', 'observations_latest', q.from, q.to, this.now, ` AND experiment_id = ${experiment}${q.armId === undefined ? '' : ` AND arm_id = ${literal(id(q.armId, 'armId'))}`}${q.generation === undefined ? '' : ` AND json_get_int(payload_json, 'generation') = ${q.generation}`}`)];
-    ctes.push(this.latest('identity_links', 'identity_latest', Math.max(0, this.now - RETENTION_MS), this.now + 1, this.now));
-    ctes.push(...attributionCTEs(this.namespace, literal(this.siteId), Math.max(0, this.now - RETENTION_MS), q.from, this.now + 1, this.now));
+    ctes.push(...attributionCTEs(this.namespace, literal(this.siteId), Math.max(0, this.now - RETENTION_MS), q.from, this.now + 1, this.now, undefined, experiment));
     ctes.push(`goal_reward_values AS (SELECT observation_id, value,
 MAX(ABS(value)) OVER (PARTITION BY observation_id) AS reward_scale
 FROM credits_latest WHERE status = 'eligible'${q.goalId === undefined ? '' : ` AND goal_id = ${literal(id(q.goalId, 'goalId'))}`})`);
@@ -109,18 +109,8 @@ COALESCE(SUM(value / NULLIF(reward_scale, 0)) * MAX(reward_scale), 0) AS reward 
     if (q.hasEvent !== undefined) {
       const event = record(q.hasEvent, 'hasEvent');
       ctes.push(this.latest('events', 'events_latest', q.from, this.now + 1, this.now));
-      // Immutable assignment id is not sufficient: an assignment can have multiple observation windows.
-      // Identity ordering uses the actual first exposure event, never the opaque sample id.
-      ctes.push(`first_exposures AS (SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY observation_id ORDER BY occurred_at, record_id) AS first_position FROM ac_exposures) ranked WHERE first_position = 1)`);
-      ctes.push(`matching_event_observations AS (SELECT DISTINCT o.observation_id
-FROM observations_latest o JOIN first_exposures x ON x.observation_id = o.observation_id
-JOIN ac_before b ON b.exposure_key = x.record_id JOIN ac_after a ON a.exposure_key = x.record_id
-CROSS JOIN events_latest e
-WHERE ((x.uid IS NOT NULL AND e.uid = x.uid) OR (x.uid IS NULL AND COALESCE(b.previous_kind, 'logout') = 'logout' AND (
-(e.uid IS NULL AND x.cid = e.cid AND (a.next_id IS NULL OR a.next_at > e.occurred_at OR (a.next_at = e.occurred_at AND a.next_id > e.record_id)))
-OR (e.uid IS NOT NULL AND a.next_kind = 'identify' AND a.next_uid = e.uid AND (a.next_at < e.occurred_at OR (a.next_at = e.occurred_at AND a.next_id <= e.record_id))))))
-AND (e.occurred_at > x.occurred_at OR (e.occurred_at = x.occurred_at AND e.record_id >= x.record_id))
-AND e.occurred_at >= o.occurred_at AND e.occurred_at < json_get_int(o.payload_json, 'endAt') AND json_get_str(e.payload_json, 'kind') = 'track' AND json_get_str(e.payload_json, 'name') = ${literal(id(event.name, 'event name'))}${event.filter === undefined ? '' : ` AND ${compileFilter(event.filter, 'e')}`})`);
+      ctes.push(...hasEventCTEs(literal(id(event.name, 'event name')),
+        event.filter === undefined ? '' : ` AND ${compileFilter(event.filter, 'e')}`));
       hasEvent = ' AND o.observation_id IN (SELECT observation_id FROM matching_event_observations)';
     }
     ctes.push(`cohort AS (SELECT ${bucketMs === undefined ? '' : `CAST(FLOOR(o.occurred_at / ${bucketMs}.0) * ${bucketMs} AS BIGINT) AS bucket_start, `}o.arm_id, json_get_int(o.payload_json, 'generation') AS generation,

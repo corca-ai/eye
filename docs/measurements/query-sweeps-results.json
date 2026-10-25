@@ -1,0 +1,115 @@
+{
+  "runtime": "v24.22.1",
+  "platform": "darwin",
+  "baseline": "020d2bd",
+  "method": "identical immutable inputs; exact result equality; one warmup + three measured runs; median",
+  "limitations": "Synthetic local SQLite; work counters are logical rows, not physical read counts. Original input reads remain. No remote Basin EXPLAIN, performance or billing measurement.",
+  "boundaries": [
+    {
+      "exposures": 80,
+      "links": 80,
+      "beforePotentialPairs": 6400,
+      "afterStreamRows": 160,
+      "beforeMs": 6.02254099999999,
+      "afterMs": 0.9910830000000033
+    },
+    {
+      "exposures": 160,
+      "links": 160,
+      "beforePotentialPairs": 25600,
+      "afterStreamRows": 320,
+      "beforeMs": 22.327292,
+      "afterMs": 1.8048330000000306
+    },
+    {
+      "exposures": 320,
+      "links": 320,
+      "beforePotentialPairs": 102400,
+      "afterStreamRows": 640,
+      "beforeMs": 93.22087500000004,
+      "afterMs": 3.500417000000084
+    }
+  ],
+  "existence": [
+    {
+      "observations": 80,
+      "tracks": 80,
+      "beforePairs": 6400,
+      "afterProbes": 80,
+      "beforeMs": 34.358749999999986,
+      "afterMs": 17.09112499999992
+    },
+    {
+      "observations": 160,
+      "tracks": 160,
+      "beforePairs": 25600,
+      "afterProbes": 160,
+      "beforeMs": 121.22416700000008,
+      "afterMs": 26.08270800000014
+    },
+    {
+      "observations": 320,
+      "tracks": 320,
+      "beforePairs": 102400,
+      "afterProbes": 320,
+      "beforeMs": 508.3225830000001,
+      "afterMs": 41.11329100000057
+    }
+  ],
+  "denominator": [
+    {
+      "experiments": 1,
+      "goals": 200,
+      "beforeEligibleRows": 200,
+      "endpointRows": 4,
+      "targetRows": 200,
+      "beforeMs": 7.643332999999984,
+      "afterMs": 9.979874999999993
+    },
+    {
+      "experiments": 2,
+      "goals": 200,
+      "beforeEligibleRows": 400,
+      "endpointRows": 8,
+      "targetRows": 200,
+      "beforeMs": 9.147084000000177,
+      "afterMs": 10.035541000000194
+    },
+    {
+      "experiments": 4,
+      "goals": 200,
+      "beforeEligibleRows": 800,
+      "endpointRows": 16,
+      "targetRows": 200,
+      "beforeMs": 12.053040999999212,
+      "afterMs": 10.698041999999987
+    },
+    {
+      "experiments": 8,
+      "goals": 200,
+      "beforeEligibleRows": 1600,
+      "endpointRows": 32,
+      "targetRows": 200,
+      "beforeMs": 17.901749999999993,
+      "afterMs": 10.47662500000024
+    },
+    {
+      "experiments": 32,
+      "goals": 200,
+      "beforeEligibleRows": 6400,
+      "endpointRows": 128,
+      "targetRows": 200,
+      "beforeMs": 83.77229199999965,
+      "afterMs": 14.507542000000285
+    },
+    {
+      "experiments": 128,
+      "goals": 200,
+      "beforeEligibleRows": 25600,
+      "endpointRows": 512,
+      "targetRows": 200,
+      "beforeMs": 293.9099580000002,
+      "afterMs": 19.87749999999869
+    }
+  ]
+}

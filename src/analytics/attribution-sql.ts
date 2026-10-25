@@ -1,3 +1,6 @@
+import { intervalAttributionCTEs } from './interval-attribution-sql.js';
+import { identityBoundaryCTEs } from './identity-boundaries-sql.js';
+
 /** Internal query scope; values and identifiers are already validated/quoted. */
 export interface AttributionScope { key: 'cid' | 'uid'; value: string; includeLinked: boolean }
 
@@ -5,7 +8,7 @@ export interface AttributionScope { key: 'cid' | 'uid'; value: string; includeLi
  * and bounds are already validated/quoted by AnalyticsSQL. CTEs keep latest-touch
  * selection before the finite-horizon filter, and split before learning eligibility.
  */
-export function attributionCTEs(table: string, site: string, min: number, from: number, to: number, receivedBefore: number, scope?: AttributionScope): string[] {
+export function attributionCTEs(table: string, site: string, min: number, from: number, to: number, receivedBefore: number, scope?: AttributionScope, targetExperiment?: string): string[] {
   const before = (a: string, b: string) => `(${a}.occurred_at < ${b}.occurred_at OR (${a}.occurred_at = ${b}.occurred_at AND ${a}.record_id <= ${b}.record_id))`;
   const candidate = `g.record_id AS goal_event_id, g.goal_id, g.value AS goal_value, g.payload_json AS goal_payload,
 g.occurred_at, CASE WHEN g.received_at > e.received_at THEN g.received_at ELSE e.received_at END AS received_at,
@@ -40,38 +43,35 @@ OR (uid IS NULL AND (cid IN (SELECT cid FROM ac_goals WHERE uid IS NULL)
 OR cid IN (SELECT cid FROM ac_links WHERE uid IN (SELECT uid FROM ac_goals WHERE uid IS NOT NULL)))))` : ''})`,
     // Each direct UID exposure is latest only until its successor in the same
     // experiment. Rank the ownership branches together before testing expiry.
-    `ac_uid_exposures AS (SELECT *,
+    ...(targetExperiment ? [] : [`ac_uid_exposures AS (SELECT *,
 LEAD(occurred_at) OVER (PARTITION BY uid, experiment_id ORDER BY occurred_at, record_id) AS next_exposure_at,
 LEAD(record_id) OVER (PARTITION BY uid, experiment_id ORDER BY occurred_at, record_id) AS next_exposure_id
-FROM ac_exposures WHERE uid IS NOT NULL)`,
-    `ac_before AS (SELECT * FROM (SELECT e.record_id AS exposure_key, l.status AS previous_kind,
-ROW_NUMBER() OVER (PARTITION BY e.record_id ORDER BY l.occurred_at DESC, l.record_id DESC) AS position
-FROM ac_exposures e LEFT JOIN ac_links l ON l.cid = e.cid AND ${before('l', 'e')}) a WHERE position = 1)`,
-    `ac_after AS (SELECT * FROM (SELECT e.record_id AS exposure_key, l.status AS next_kind, l.uid AS next_uid, l.occurred_at AS next_at, l.record_id AS next_id,
-ROW_NUMBER() OVER (PARTITION BY e.record_id ORDER BY CASE WHEN l.record_id IS NULL THEN 1 ELSE 0 END, l.occurred_at, l.record_id) AS position
-FROM ac_exposures e LEFT JOIN ac_links l ON l.cid = e.cid AND NOT ${before('l', 'e')}) a WHERE position = 1)`,
-    // Disjoint ownership branches expose equality keys to the planner. UNION is
-    // equivalent here (goal/exposure IDs are unique) and avoids Basin's known
-    // distributed UNION ALL issue. Rank after union, before horizon/eligibility.
-    `ac_matches AS (
-SELECT ${candidate} FROM ac_goals g JOIN ac_uid_exposures e ON e.uid = g.uid AND ${before('e', 'g')}
-AND (e.next_exposure_at IS NULL OR g.occurred_at < e.next_exposure_at
-OR (g.occurred_at = e.next_exposure_at AND g.record_id < e.next_exposure_id))
-UNION
-SELECT ${candidate} FROM ac_goals g JOIN ac_after a ON a.next_uid = g.uid
-JOIN ac_exposures e ON e.record_id = a.exposure_key AND ${before('e', 'g')}
-JOIN ac_before b ON b.exposure_key = e.record_id
-WHERE e.uid IS NULL AND COALESCE(b.previous_kind, 'logout') = 'logout' AND a.next_kind = 'identify'
-AND (a.next_at < g.occurred_at OR (a.next_at = g.occurred_at AND a.next_id <= g.record_id))
-UNION
-SELECT ${candidate} FROM ac_goals g JOIN ac_exposures e ON e.cid = g.cid AND ${before('e', 'g')}
-JOIN ac_before b ON b.exposure_key = e.record_id JOIN ac_after a ON a.exposure_key = e.record_id
-WHERE e.uid IS NULL AND g.uid IS NULL AND COALESCE(b.previous_kind, 'logout') = 'logout'
-AND (a.next_id IS NULL OR a.next_at > g.occurred_at OR (a.next_at = g.occurred_at AND a.next_id > g.record_id)))`,
-    `ac_candidates AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY goal_event_id, experiment_id
-ORDER BY exposure_at DESC, exposure_id DESC) AS last_touch FROM ac_matches)`,
-    `ac_eligible AS (SELECT *, COUNT(*) OVER (PARTITION BY goal_event_id) AS experiment_count FROM ac_candidates
-WHERE last_touch = 1 AND gap <= json_get_int(exposure_payload, 'attributionWindowMs'))`,
+FROM ac_exposures WHERE uid IS NOT NULL)`]),
+    ...identityBoundaryCTEs(),
+    ...(targetExperiment ? intervalAttributionCTEs(candidate, targetExperiment) : [
+      // Disjoint ownership branches expose equality keys to the planner. UNION is
+      // equivalent here (goal/exposure IDs are unique) and avoids Basin's known
+      // distributed UNION ALL issue. Rank after union, before horizon/eligibility.
+      `ac_matches AS (
+  SELECT ${candidate} FROM ac_goals g JOIN ac_uid_exposures e ON e.uid = g.uid AND ${before('e', 'g')}
+  AND (e.next_exposure_at IS NULL OR g.occurred_at < e.next_exposure_at
+  OR (g.occurred_at = e.next_exposure_at AND g.record_id < e.next_exposure_id))
+  UNION
+  SELECT ${candidate} FROM ac_goals g JOIN ac_after a ON a.next_uid = g.uid
+  JOIN ac_exposures e ON e.record_id = a.exposure_key AND ${before('e', 'g')}
+  JOIN ac_before b ON b.exposure_key = e.record_id
+  WHERE e.uid IS NULL AND COALESCE(b.previous_kind, 'logout') = 'logout' AND a.next_kind = 'identify'
+  AND (a.next_at < g.occurred_at OR (a.next_at = g.occurred_at AND a.next_id <= g.record_id))
+  UNION
+  SELECT ${candidate} FROM ac_goals g JOIN ac_exposures e ON e.cid = g.cid AND ${before('e', 'g')}
+  JOIN ac_before b ON b.exposure_key = e.record_id JOIN ac_after a ON a.exposure_key = e.record_id
+  WHERE e.uid IS NULL AND g.uid IS NULL AND COALESCE(b.previous_kind, 'logout') = 'logout'
+  AND (a.next_id IS NULL OR a.next_at > g.occurred_at OR (a.next_at = g.occurred_at AND a.next_id > g.record_id)))`,
+      `ac_candidates AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY goal_event_id, experiment_id
+  ORDER BY exposure_at DESC, exposure_id DESC) AS last_touch FROM ac_matches)`,
+      `ac_eligible AS (SELECT *, COUNT(*) OVER (PARTITION BY goal_event_id) AS experiment_count FROM ac_candidates
+  WHERE last_touch = 1 AND gap <= json_get_int(exposure_payload, 'attributionWindowMs'))`,
+    ]),
     `ac_rewards AS (SELECT *, goal_value / experiment_count AS base_value,
 POWER(2.0, -1.0 * gap / json_get_int(json_get_json(json_get_json(exposure_payload, 'assignment'), 'settings'), 'attributionHalfLifeMs')) AS decay_factor
 FROM ac_eligible)`,
