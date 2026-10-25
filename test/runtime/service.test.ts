@@ -84,6 +84,20 @@ it('packs ingestion and keeps valid siblings when a Queue event is malformed', a
     expect(rows.filter(row => row.table_name === 'events').map(row => row.record_id)).toEqual(['one', 'two']);
   } finally { enqueue.mockRestore(); send.mockRestore(); await waitOnExecutionContext(ctx); }
 });
+
+it('validates actual UTF-8 sizes before enqueueing any sibling and ignores supplied size metadata', async () => {
+  const ctx = createExecutionContext(), service = new EyeWorker(ctx, env), at = Date.now();
+  const make = (eventId: string, detail: string) => ({ siteId: 'size-test', receivedAt: at, encodedSize: 1,
+    event: { kind: 'track' as const, eventId, occurredAt: at, subject: { cid: 'c' }, name: 'view', attributes: { detail } } });
+  const enqueue = vi.spyOn(env.EVENTS, 'sendBatch').mockResolvedValue({ metadata: { metrics: { backlogCount: 0, backlogBytes: 0 } } });
+  try {
+    await expect(service.ingest([make('small', ''), make('too-large', '한'.repeat(40_000))])).rejects.toThrow('encoded size');
+    await expect(service.ingest(Array.from({ length: 3 }, (_, i) => make(String(i), 'x'.repeat(80_000))))).rejects.toThrow('encoded size');
+    expect(enqueue).not.toHaveBeenCalled();
+    await service.ingest([make('valid', '한'.repeat(1000))]);
+    expect(enqueue).toHaveBeenCalledTimes(1);
+  } finally { enqueue.mockRestore(); await waitOnExecutionContext(ctx); }
+});
 it('retries a packed message if one sibling needs goal configuration, even after exporting track siblings', async () => {
   const ctx = createExecutionContext(), at = Date.now(), service = new EyeWorker(ctx, env);
   const site = vi.spyOn(env.SITES, 'getByName').mockImplementation(() => { throw new Error('transient outage'); });

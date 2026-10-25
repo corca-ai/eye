@@ -1,10 +1,9 @@
 import type { SummariesAPI } from '../analytics/summaries.js';
 import type { AnalyticsJobsAPI } from '../analytics/jobs.js';
 import { compareEvents } from '../core/attribution.js';
-import { packEvents, unpackEvents } from './queue-batch.js';
+import { packIngestion, unpackEvents } from './queue-batch.js';
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { RuntimeEnv as Env } from './environment.generated.js';
-import { MAX_BATCH_BYTES, MAX_EVENT_BYTES, encodedSize } from '../client.js';
 import { invariant } from '../core/errors.js';
 import { parseCreateExperiment, parseEnvelope } from '../core/events.js';
 import { experimentKey, id, settings } from '../core/validation.js';
@@ -23,9 +22,8 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
   async ingest(inputs: readonly EventEnvelope[]): Promise<void> {
     invariant(Array.isArray(inputs) && inputs.length <= 100, 'invalid_input', 'An ingestion batch must contain at most 100 events');
     const envelopes = inputs.map(input => parseEnvelope(input, Date.now()));
-    const sizes = envelopes.map(e => encodedSize(e) + 200);
-    invariant(sizes.every(size => size <= MAX_EVENT_BYTES) && sizes.reduce((a, b) => a + b, 0) <= MAX_BATCH_BYTES, 'invalid_input', 'Ingestion batch exceeds encoded size limits');
-    if (envelopes.length > 0) await this.env.EVENTS.sendBatch(packEvents(envelopes).map(body => ({ body, contentType: 'json' })));
+    const batches = packIngestion(envelopes);
+    if (batches.length > 0) await this.env.EVENTS.sendBatch(batches.map(body => ({ body, contentType: 'json' })));
   }
   override async queue(batch: MessageBatch<unknown>): Promise<void> {
     const work: { message: Message<unknown>; envelope: EventEnvelope }[] = [];

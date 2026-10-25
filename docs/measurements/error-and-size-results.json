@@ -1,0 +1,102 @@
+{
+  "baselineCommit": "5e53d94fe90d8ecbbe3d2271a301a7d5f1139274",
+  "measuredAt": "2026-10-25",
+  "before": {
+    "node": "v24.22.1",
+    "platform": "darwin",
+    "method": "one warmup + five measured passes; median of averages; mocked delivery and local ingestion parse/validation/packing; not Workers latency",
+    "results": [
+      {
+        "name": "raw",
+        "acceptedPerRequest": 1,
+        "rejectedPerRequest": 200,
+        "reportsPerRequest": 0,
+        "medianSynchronousRequestAverageMs": 0.015403750000000044
+      },
+      {
+        "name": "wrapper-no-hook",
+        "acceptedPerRequest": 1,
+        "rejectedPerRequest": 200,
+        "reportsPerRequest": 0,
+        "medianSynchronousRequestAverageMs": 0.7982987500000002
+      },
+      {
+        "name": "wrapper-counter-hook",
+        "acceptedPerRequest": 1,
+        "rejectedPerRequest": 200,
+        "reportsPerRequest": 200,
+        "medianSynchronousRequestAverageMs": 0.7166800000000001
+      },
+      {
+        "name": "ingest-1-events-4-chars",
+        "events": 1,
+        "queueMessages": 1,
+        "samePackets": true,
+        "medianBatchAverageMs": 0.002909583333333406
+      },
+      {
+        "name": "ingest-50-events-4-chars",
+        "events": 50,
+        "queueMessages": 1,
+        "samePackets": true,
+        "medianBatchAverageMs": 0.11247499999999945
+      },
+      {
+        "name": "ingest-2-events-20000-chars",
+        "events": 2,
+        "queueMessages": 2,
+        "samePackets": true,
+        "medianBatchAverageMs": 0.5329951399999997
+      }
+    ]
+  },
+  "after": {
+    "node": "v24.22.1",
+    "platform": "darwin",
+    "method": "one warmup + five measured passes; median of averages; mocked delivery and local ingestion parse/validation/packing; not Workers latency",
+    "results": [
+      {
+        "name": "raw",
+        "acceptedPerRequest": 1,
+        "rejectedPerRequest": 200,
+        "reportsPerRequest": 0,
+        "medianSynchronousRequestAverageMs": 0.02315792000000002
+      },
+      {
+        "name": "wrapper-no-hook",
+        "acceptedPerRequest": 1,
+        "rejectedPerRequest": 200,
+        "reportsPerRequest": 0,
+        "medianSynchronousRequestAverageMs": 0.029039999999999965
+      },
+      {
+        "name": "wrapper-counter-hook",
+        "acceptedPerRequest": 1,
+        "rejectedPerRequest": 200,
+        "reportsPerRequest": 200,
+        "medianSynchronousRequestAverageMs": 0.6776120899999998
+      },
+      {
+        "name": "ingest-1-events-4-chars",
+        "events": 1,
+        "queueMessages": 1,
+        "samePackets": true,
+        "medianBatchAverageMs": 0.0015381933333333108
+      },
+      {
+        "name": "ingest-50-events-4-chars",
+        "events": 50,
+        "queueMessages": 1,
+        "samePackets": true,
+        "medianBatchAverageMs": 0.058244166666666694
+      },
+      {
+        "name": "ingest-2-events-20000-chars",
+        "events": 2,
+        "queueMessages": 2,
+        "samePackets": true,
+        "medianBatchAverageMs": 0.19927833333333334
+      }
+    ]
+  }
+}
