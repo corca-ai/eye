@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { database } from '../helpers/analytics-db.js';
-import { LearningSource } from '../../src/runtime/learning.js';
+import { LearningSource } from '../../benchmarks/sdk/legacy-learning.js';
 import { rawRecords } from '../../src/analytics/raw.js';
 import { settings } from '../../src/core/validation.js';
 import type { EventEnvelope, ExposureEvent, GoalEvent, IdentityEvent } from '../../src/core/types.js';

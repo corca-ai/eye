@@ -1,7 +1,7 @@
 // Bundle with esbuild for Node, then run. Local SQLite execution is not Basin billing evidence.
 import { performance } from 'node:perf_hooks';
 import { database } from '../../test/helpers/analytics-db.js';
-import { LearningSource } from '../../src/runtime/learning.js';
+import { LearningSource } from './legacy-learning.js';
 import { rawRecords } from '../../src/analytics/raw.js';
 import { settings } from '../../src/core/validation.js';
 import type { EyeEvent } from '../../src/core/types.js';

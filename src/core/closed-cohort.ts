@@ -4,6 +4,7 @@ import { IdentityHistory } from './identity-history.js';
 import { addSample, decayFactor, emptyMoments } from './moments.js';
 import type { Moments } from './moments.js';
 import type { Assignment, ExposureEvent, GoalEvent, IdentityEvent } from './types.js';
+import { addReward, type RewardSum } from './reward-sum.js';
 
 /** First real exposure fixes these fields in the local exposure context. Repeated
  * exposures carry the same sample, including after a policy refresh. An assignment
@@ -67,7 +68,7 @@ export function reduceClosedCohort(input: CohortInput): ClosedCohort {
   const selected = input.sampleIds === undefined ? undefined : new Set(input.sampleIds);
   const credits: (import('./types.js').Credit & { goalId: string; occurredAt: number })[] = [];
   const samples = new Map<string, ClosedSample>();
-  const rewards = new Map<string, ScaledReward>();
+  const rewards = new Map<string, RewardSum>();
   const sampleDefinitions = new Map<string, string>();
   const byIdentity = new Map<string, Map<string, SampleExposure[]>>();
   const eventIds = new Set<string>();
@@ -160,23 +161,4 @@ export function closedSampleMoments(samples: readonly ClosedSample[], asOf: numb
     arms.set(key, { ...previous, moments: addSample(previous.moments, sample.reward, weight), samples: previous.samples + 1 });
   }
   return [...arms.values()];
-}
-
-
-
-interface ScaledReward { scale: number; sum: number; correction: number }
-/** Compensated summation in scaled units permits intermediate signed totals above
- * Number.MAX_VALUE when the final total is finite. This is still floating-point
- * arithmetic, not arbitrary precision across the entire numeric range.
- */
-function addReward(total: ScaledReward, value: number): void {
-  if (value === 0) return;
-  const scale = Math.max(total.scale, Math.abs(value));
-  const ratio = total.scale / scale;
-  const previous = total.sum * ratio, term = value / scale;
-  const next = previous + term;
-  total.correction = total.correction * ratio + (Math.abs(previous) >= Math.abs(term)
-    ? (previous - next) + term : (term - next) + previous);
-  total.sum = next;
-  total.scale = scale;
 }

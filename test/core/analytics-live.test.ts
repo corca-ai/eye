@@ -3,7 +3,8 @@ import { database } from '../helpers/analytics-db.js';
 import { BasinAnalytics } from '../../src/analytics/query.js';
 import { rawRecords } from '../../src/analytics/raw.js';
 import { exportRecords } from '../../src/analytics/export.js';
-import { reduceLearningPage } from '../../src/runtime/learning.js';
+import { learningDatabase } from '../helpers/learning-db.js';
+import { compareEvents } from '../../src/core/attribution.js';
 import { settings } from '../../src/core/validation.js';
 import type { EyeEvent, ExposureEvent, GoalEvent } from '../../src/core/types.js';
 const now = 1_800_000_000_000, start = now - 10000;
@@ -17,11 +18,14 @@ function exposure(eventId: string, cid: string, experimentId = 'exp', at = start
 const goal = (eventId: string, at: number, value: number, cid = 'paid', uid?: string): GoalEvent => ({ kind: 'goal', eventId,
   goalId: 'purchase', occurredAt: at, subject: { cid, ...(uid === undefined ? {} : { uid }) }, value });
 function fixture(initial: EyeEvent[], later: EyeEvent[] = []) {
-  const ids = initial.filter((e): e is ExposureEvent => e.kind === 'exposure').map(e => e.sample!.sampleId);
-  const closed = reduceLearningPage('site', 'batch', start + 1000, start + 2000, ids, initial, null, start + 2000);
+  const learning = learningDatabase();
+  for (const event of [...initial].sort(compareEvents)) learning.engine.accept([event], event.occurredAt);
+  learning.engine.close('site', start + 2000);
+  const records = learning.engine.outputs().flatMap(item => item.output.records);
+  learning.close();
   const rows = [...initial, ...later].flatMap(event => rawRecords({ siteId: 'site', receivedAt: now - 1, event }));
-  const db = database(exportRecords([...rows, ...closed.records].map(record => ({ record }))));
-  return { db, api: new BasinAnalytics(env, 'site', db.request, () => now), closed };
+  const db = database(exportRecords([...rows, ...records].map(record => ({ record }))));
+  return { db, api: new BasinAnalytics(env, 'site', db.request, () => now) };
 }
 it('computes live rewards with the same decay as learning while exposing their later divergence', async () => {
   const f = fixture([exposure('paid-sample', 'paid'), exposure('zero-sample', 'zero'), goal('g1', start + 100, 100)], [goal('late', start + 200, 20)]);

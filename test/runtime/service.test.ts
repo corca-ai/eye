@@ -1,9 +1,8 @@
-import { env, exports } from 'cloudflare:workers';
-import { createExecutionContext, createMessageBatch, getQueueResult, waitOnExecutionContext } from 'cloudflare:test';
+import { env } from 'cloudflare:workers';
+import { createExecutionContext, createMessageBatch, getQueueResult, waitOnExecutionContext, runInDurableObject } from 'cloudflare:test';
 import { expect, it, vi } from 'vitest';
 import { createEye } from '../../src/client.js';
 import { EyeWorker } from '../../src/runtime/service.js';
-import { reduceLearningPage } from '../../src/runtime/learning.js';
 import { experimentKey } from '../../src/core/validation.js';
 import type { EventEnvelope } from '../../src/core/types.js';
 import type { AnalyticsRecord } from '../../src/analytics/records.js';
@@ -29,12 +28,12 @@ it('runs SDK selection, actual exposure, signed goal, raw export, closed learnin
   expect(rows.filter(r => r.table_name === 'events')).toHaveLength(2);
   const sample = envelopes[0]!.event;
   if (sample.kind !== 'exposure' || !sample.sample) throw new Error('Expected sample');
-  const page = reduceLearningPage(siteId, 'job/one', at, at + 2000, [sample.sample.sampleId], envelopes.map(e => e.event), null, at + 2000);
-  expect(page.cohort.samples[0]!.reward).toBe(100);
-  const actor = env.EXPERIMENTS.getByName(experimentKey(siteId, 'exp'));
-  expect(await actor.applyCohort(page.cohort)).toBe(true);
-  expect(await actor.applyCohort(page.cohort)).toBe(false);
-  expect((await eye.experiments.policy('exp')).arms[0]!.meanReward).toBe(100);
+  const site = env.SITES.getByName(siteId);
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(at + 2000);
+  try {
+    await runInDurableObject(site, async actor => { await actor.alarm(); });
+    expect((await eye.experiments.policy('exp')).arms[0]!.meanReward).toBe(100);
+  } finally { clock.mockRestore(); }
   send.mockRestore(); await waitOnExecutionContext(ctx);
 });
 it('collection returns before network completion and rejects nonfinite rewards', async () => {
@@ -49,7 +48,7 @@ it('collection returns before network completion and rejects nonfinite rewards',
   const flushing = eye.flush(); await Promise.resolve(); expect(ingest).toHaveBeenCalledTimes(1);
   release(); await flushing; await waitOnExecutionContext(ctx);
 });
-it('raw-only track and identity ingestion performs no site/user lookup', async () => {
+it('track bypasses learning while identity events update the site learner', async () => {
   const ctx = createExecutionContext(), at = Date.now();
   const records: AnalyticsRecord[] = [];
   const send = vi.spyOn(env.ANALYTICS, 'send').mockImplementation(async rows => { records.push(...rows as AnalyticsRecord[]); });
@@ -60,7 +59,7 @@ it('raw-only track and identity ingestion performs no site/user lookup', async (
   ];
   const batch = createMessageBatch('eye-events', input.map(body => ({ id: body.event.eventId, timestamp: at, attempts: 1, body })));
   await new EyeWorker(ctx, env).queue(batch);
-  expect(site).not.toHaveBeenCalled(); expect(records.filter(r => r.table_name === 'events')).toHaveLength(2);
+  expect(site).toHaveBeenCalledTimes(1); expect(records.filter(r => r.table_name === 'events')).toHaveLength(2);
   expect(records.some(r => r.table_name === 'identity_links')).toBe(true);
   site.mockRestore(); send.mockRestore(); await waitOnExecutionContext(ctx);
 });
@@ -157,4 +156,20 @@ it('explicit flush bypasses the scheduled send and exposes delivery failures', a
   await waitOnExecutionContext(ctx);
   expect(onError).toHaveBeenCalledTimes(1);
   expect(ingest).toHaveBeenCalledTimes(1);
+});
+
+it('keeps acceptance separate for sibling goals inside the same packed message', async () => {
+  const siteId = crypto.randomUUID(), ctx = createExecutionContext(), service = new EyeWorker(ctx, env);
+  await service.createGoal(siteId, 'active');
+  const at = Date.now(), rows: AnalyticsRecord[] = [];
+  const send = vi.spyOn(env.ANALYTICS, 'send').mockImplementation(async records => { rows.push(...records as AnalyticsRecord[]); });
+  const events: EventEnvelope[] = ['active', 'unknown'].map(goalId => ({ siteId, receivedAt: at,
+    event: { kind: 'goal', eventId: goalId, occurredAt: at, subject: { cid: 'c' }, goalId, value: 100 } }));
+  try {
+    const batch = createMessageBatch('eye-events', [{ id: 'siblings', timestamp: at, attempts: 1, body: { version: 2, events } }]);
+    await service.queue(batch);
+    expect((await getQueueResult(batch, ctx)).retryMessages).toHaveLength(0);
+    expect(rows.find(row => row.record_id === 'active')!.status).toBe('accepted');
+    expect(rows.find(row => row.record_id === 'unknown')!.status).toBe('inactive');
+  } finally { send.mockRestore(); await waitOnExecutionContext(ctx); }
 });

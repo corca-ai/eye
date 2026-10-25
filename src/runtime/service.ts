@@ -1,4 +1,5 @@
 import type { AnalyticsJobsAPI } from '../analytics/jobs.js';
+import { compareEvents } from '../core/attribution.js';
 import { packEvents, unpackEvents } from './queue-batch.js';
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { RuntimeEnv as Env } from './environment.generated.js';
@@ -41,28 +42,25 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
         }
       }
     }
-    const statuses = new Map<string, boolean[]>();
-    for (const siteId of new Set(work.filter(w => w.envelope.event.kind === 'goal').map(w => w.envelope.siteId))) {
-      const goals = work.filter(w => w.envelope.siteId === siteId && w.envelope.event.kind === 'goal');
-      try {
-        const accepted: boolean[] = [];
-        for (let i = 0; i < goals.length; i += 100) accepted.push(...await this.env.SITES.getByName(siteId).acceptedGoals(
-          goals.slice(i, i + 100).map(w => w.envelope.event).filter((e): e is import('../core/types.js').GoalEvent => e.kind === 'goal')));
-        statuses.set(siteId, accepted);
-      } catch { for (const item of goals) retries.add(item.message); }
+    const statuses = new Map<EventEnvelope, boolean>();
+    for (const siteId of new Set(work.filter(w => w.envelope.event.kind !== 'track').map(w => w.envelope.siteId))) {
+      const group = work.filter(w => w.envelope.siteId === siteId && w.envelope.event.kind !== 'track')
+        .sort((a, b) => compareEvents(a.envelope.event, b.envelope.event));
+      for (let offset = 0; offset < group.length; offset += 100) {
+        const chunk = group.slice(offset, offset + 100);
+        try {
+          const accepted = await this.env.SITES.getByName(siteId).consumeLearning(siteId, chunk.map(w => w.envelope.event));
+          chunk.forEach((item, i) => statuses.set(item.envelope, accepted[i] === true));
+        } catch { for (const item of chunk) retries.add(item.message); }
+      }
     }
-    const indices = new Map<string, number>();
     const items: { message: Message<unknown>; records: AnalyticsRecord[] }[] = [];
     for (const { message, envelope } of work) {
-      let accepted = true;
-      if (envelope.event.kind === 'goal') {
-        const results = statuses.get(envelope.siteId);
-        if (!results) continue;
-        const i = indices.get(envelope.siteId) ?? 0; indices.set(envelope.siteId, i + 1); accepted = results[i] === true;
-      }
+      if (envelope.event.kind !== 'track' && !statuses.has(envelope)) continue;
+      const accepted = envelope.event.kind === 'track' || statuses.get(envelope) === true;
       items.push({ message, records: rawRecords(envelope, accepted) });
     }
-    // One durable raw export path. No Subject, Identity or observation-shard RPC.
+    // Retry-safe learning is separate from lazy, bounded raw projection delivery.
     for (const group of exportBatches(items.flatMap(item => item.records.map(record => ({ record }))))) {
       try { await this.env.ANALYTICS.send(group); }
       catch (error) { for (const item of items) item.message.retry(); throw error; }

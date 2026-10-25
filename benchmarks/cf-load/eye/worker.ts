@@ -1,33 +1,15 @@
 import { EyeWorker } from '../../../src/runtime/service';
-import { LearningSource } from '../../../src/runtime/learning';
+import { LearningSource } from '../../sdk/legacy-learning';
 import { parseEnvelope } from '../../../src/core/events';
 import { rawRecords } from '../../../src/analytics/raw';
 import { exportBatches } from '../../../src/analytics/export';
 import { SiteControl as ProductionSiteControl } from '../../../src/worker';
 export { ExperimentObject, ReportObject } from '../../../src/worker';
 
-/** Private benchmark hook; the inherited alarm runs the unchanged production path. */
+/** The old cursor-drain hook cannot represent the incremental production path. */
 export class SiteControl extends ProductionSiteControl {
-  override async fetch(request: Request): Promise<Response> {
-    if (new URL(request.url).pathname !== '/benchmark/drain') return new Response(null, { status: 404 });
-    if (request.method === 'POST') {
-      const from = Number(new URL(request.url).searchParams.get('from'));
-      if (!Number.isSafeInteger(from) || from % 3600000 !== 0 || from < Date.now() - 59 * 86400000 || from >= Date.now() - 3600000)
-        return new Response('Invalid historical hour', { status: 400 });
-      if (!this.kv.get('siteId')) return new Response('Register experiments first', { status: 409 });
-      const original = this.kv.get<number>('benchmarkDrainFrom');
-      if (original !== undefined && original !== from) return new Response('Already initialized', { status: 409 });
-      if (original === undefined) {
-        this.atomic(() => {
-          this.kv.put('benchmarkDrainFrom', from); this.kv.put('benchmarkDrainStartedAt', Date.now()); this.kv.put('learningFrom', from);
-          this.kv.delete('learningAfter'); this.kv.put('alarmAt', Date.now() + 1000);
-        });
-        await this.ctx.storage.setAlarm(this.kv.get<number>('alarmAt')!);
-      }
-    } else if (request.method !== 'GET') return new Response(null, { status: 405 });
-    return Response.json({ initializedAt: this.kv.get('benchmarkDrainStartedAt') ?? null, from: this.kv.get('learningFrom'), after: this.kv.get('learningAfter') ?? '',
-      failures: this.kv.get('alarmFailures') ?? 0, retryAt: this.kv.get('alarmRetryAt') ?? null,
-      alarmAt: await this.ctx.storage.getAlarm() });
+  override async fetch(): Promise<Response> {
+    return new Response('Historical SQL-drain hook retired; use the incremental local benchmark or live Queue traffic', { status: 410 });
   }
 }
 
@@ -49,6 +31,7 @@ export default class BenchmarkEye extends EyeWorker {
     for (const batch of exportBatches(rows.map(record => ({ record })))) await this.env.ANALYTICS.send(batch);
     return { events: input.length, records: rows.length };
   }
+  // Historical SQL comparator only; this is not the production learning path.
   async benchmarkLearn(siteId: string, from: number, until: number, publish = false) {
     const queries: unknown[] = [];
     const measured: typeof fetch = async (input, init) => {

@@ -21,7 +21,7 @@ export interface ExperimentSettings {
   readonly attributionHalfLifeMs: number;
   /** 기본 14일. 완료 표본의 학습 가중치를 잊는 반감기(ms), 양의 정수. 귀속 반감기와 독립적이다. */
   readonly learningHalfLifeMs: number;
-  /** 기본 1시간. 관측 종료 후 최초 완료를 기다리는 시간(ms), 0 이상. 사이트의 과거 최대 관측·유예·귀속 기간 합이 60일에서 1시간을 뺀 값보다 작아야 한다. */
+  /** 기본 1시간. 관측 종료 후 노출·goal 수신을 기다리는 유예(ms). 마감 시각 이후 수신한 골은 학습에 더하지 않는다, 0 이상. 사이트의 과거 최대 관측·유예·귀속 기간 합이 60일에서 1시간을 뺀 값보다 작아야 한다. */
   readonly allowedLatenessMs: number;
   /** 기본 0.02. 신규 배정 전체 중 균등 탐색 비율, 0 초과 1 이하. arm별 하한은 이 값 / 활성 arm 수이다. */
   readonly explorationFloor: number;

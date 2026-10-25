@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { closingSQL } from '../../src/runtime/learning-sql.js';
+import { closingSQL } from '../../benchmarks/sdk/legacy-learning-sql.js';
 import { reduceClosedCohort } from '../../src/core/closed-cohort.js';
 import { settings } from '../../src/core/validation.js';
 import { rawRecords } from '../../src/analytics/raw.js';

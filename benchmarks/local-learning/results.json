@@ -1,0 +1,2187 @@
+{
+  "recordedAt": "2026-10-24T23:53:51.254Z",
+  "runtime": "v24.22.1",
+  "sqliteVersion": "3.53.4",
+  "platform": "darwin/arm64",
+  "sourceDigests": {
+    "./run.mjs": "e495c130716dee7f7ff806b9d59f928b2c3a0c4983b303215353fc681d62a39d",
+    "./reference-source.mjs": "9bc839399a2b5f1a26931194ae06f4cb9b246f92e4b076d4e5abc4cfc7aa73b9",
+    "../../dist/runtime/incremental.js": "d8860ae6ec31b8ad8426b885f8fbdd1e6bd91b3609a3e7c65805b6a06c153e35",
+    "../../dist/core/reward-sum.js": "1deb36105746aca4f4bd84f27d284abaf8e0f1c3ece8e77c6bc9402052c63970",
+    "../../dist/analytics/query.js": "780d905c5ca3d805989f387440d008f522761d8d2c1d18c0782470601459d0ed",
+    "../../dist/core/closed-cohort.js": "f5917aabbff167b15664d35294a14fb1bdfe207595dc8c6654897512f4238c56",
+    "../../dist/core/moments.js": "71be5986bc121afbed9e6187fb002e4e009c9a6da7ef743f39576cc933e94f6e",
+    "../../dist/core/identity-history.js": "34343a4ec9abf3132f029acf623431efd825075150e826b7f8185b309fa380de",
+    "../../dist/core/attribution.js": "062097555524f70a972891efb6c086537782c81d90fba0ba44e5f453b921c967",
+    "../../dist/core/events.js": "58b9446e291940841c191a69c40c752f063e366857f4a456abed0ca562e16c55",
+    "../../dist/analytics/records.js": "6c38b335c85ebd21289ce632783d7d1c7b887bccf78eb756413cc62eec4ee96e",
+    "../../dist/analytics/raw.js": "0049695b4030722125d1775b22145f57d0d0f18a24495c8de312a4fa484e401d",
+    "../../dist/core/validation.js": "9874b97c290f6581f87a4955803ab88e434862cd57da439e0c01ca67e266ec6e"
+  },
+  "seed": 123456,
+  "repeats": 3,
+  "warmupsPerVariant": 1,
+  "fixture": {
+    "eventsPerUser": 20,
+    "experimentsPerUser": 2,
+    "exposuresPerUser": 8,
+    "goalsPerUser": 2,
+    "identitiesPerUser": 1,
+    "tracksPerUser": 9,
+    "closingIntervalMs": 3600000,
+    "observationWindowMs": 604800000,
+    "sourceIndexes": "none; SQLite query plans perform repeated full table scans",
+    "variantOrder": "fixed; use raw repetitions, not close differences, for interpretation",
+    "delayInjection": "seeded 2% of learning-relevant events delayed uniformly 0..4999ms; batches of 100 with/without local sorting"
+  },
+  "limitations": [
+    "Synthetic fixed, fully visible input: not events/day or sustained production throughput.",
+    "All samples close in one hour; growing size grows both retained source data and closing population. This is concentrated backlog drain, not isolated history sensitivity.",
+    "SQLite in-memory, native JSON translation, no network or durable fsync: NOT Basin planner, scanned bytes, pricing, or Cloudflare SQLite billing.",
+    "Raw source loading excluded; incremental learner state/dedup/observation-outbox SQL included. Output transmission, remote policy apply and source ingestion excluded for both. No per-goal credits projection is persisted.",
+    "Incremental starts with decoded/routed input; synthetic arrival preparation excluded. Scan includes source event decoding/validation. Observation business records match after normalizing their receipt clocks.",
+    "Source query plans captured from SQLite; only returned response bytes measured, never interpreted as scanned bytes.",
+    "All timed samples finalized after all fixture events: production concurrency, delivery failure and eviction are validated separately by workerd tests, not these timings.",
+    "Production IncrementalLearning is timed including durable dedup/reward/outbox operations; unsorted mode is an accuracy control that calls accept per event. No disk fsync or outbox delivery.",
+    "Delay error describes this workload only; no bound or unbiasedness guarantee for real traffic.",
+    "Timed traffic always has explicit uid; delay impact on anonymous ownership/logout/account changes is not measured."
+  ],
+  "results": [
+    {
+      "inputEvents": 2000,
+      "users": 100,
+      "samples": 200,
+      "variants": {
+        "scan-page-50": {
+          "median": {
+            "totalMs": 24.197749999999985,
+            "pages": 5,
+            "targetQueries": 5,
+            "rawQueries": 4,
+            "targetSqlMs": 10.876542000000029,
+            "rawSqlMs": 5.641582000000028,
+            "returnedRows": 1300,
+            "responseBytes": 1094059
+          },
+          "runs": [
+            {
+              "totalMs": 29.342291000000046,
+              "pages": 5,
+              "targetQueries": 5,
+              "rawQueries": 4,
+              "targetSqlMs": 12.885082999999895,
+              "rawSqlMs": 6.662459000000013,
+              "returnedRows": 1300,
+              "responseBytes": 1094059
+            },
+            {
+              "totalMs": 24.197749999999985,
+              "pages": 5,
+              "targetQueries": 5,
+              "rawQueries": 4,
+              "targetSqlMs": 10.876542000000029,
+              "rawSqlMs": 5.641582000000028,
+              "returnedRows": 1300,
+              "responseBytes": 1094059
+            },
+            {
+              "totalMs": 23.203458000000012,
+              "pages": 5,
+              "targetQueries": 5,
+              "rawQueries": 4,
+              "targetSqlMs": 10.725749999999948,
+              "rawSqlMs": 5.637000000000057,
+              "returnedRows": 1300,
+              "responseBytes": 1094059
+            }
+          ],
+          "plans": {
+            "target": [
+              "CO-ROUTINE t",
+              "CO-ROUTINE (subquery-3)",
+              "SCAN eye.events",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN (subquery-3)",
+              "SCAN t",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ],
+            "raw": [
+              "CO-ROUTINE combined",
+              "COMPOUND QUERY",
+              "LEFT-MOST SUBQUERY",
+              "CO-ROUTINE raw",
+              "CO-ROUTINE (subquery-14)",
+              "SCAN eye.events",
+              "LIST SUBQUERY 6",
+              "MATERIALIZE owners",
+              "MERGE (UNION)",
+              "LEFT",
+              "SCAN eye.identity_links",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "RIGHT",
+              "SCAN eye.identity_links",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN owners",
+              "CREATE BLOOM FILTER",
+              "LIST SUBQUERY 7",
+              "SCAN eye.identity_links",
+              "LIST SUBQUERY 4",
+              "SCAN owners",
+              "CREATE BLOOM FILTER",
+              "CREATE BLOOM FILTER",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN (subquery-14)",
+              "SCAN raw",
+              "UNION ALL",
+              "CO-ROUTINE identity_raw",
+              "CO-ROUTINE (subquery-15)",
+              "SCAN eye.identity_links",
+              "LIST SUBQUERY 9",
+              "SCAN eye.identity_links",
+              "LIST SUBQUERY 4",
+              "SCAN owners",
+              "CREATE BLOOM FILTER",
+              "CREATE BLOOM FILTER",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN (subquery-15)",
+              "SCAN identity_raw",
+              "SCAN combined",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "rewardCheck": "matched all reference samples and observation business records (excluding received_at)"
+        },
+        "scan-page-200": {
+          "median": {
+            "totalMs": 15.877916999999968,
+            "pages": 2,
+            "targetQueries": 2,
+            "rawQueries": 1,
+            "targetSqlMs": 4.471292000000005,
+            "rawSqlMs": 3.1835419999999885,
+            "returnedRows": 1300,
+            "responseBytes": 1093843
+          },
+          "runs": [
+            {
+              "totalMs": 15.138290999999981,
+              "pages": 2,
+              "targetQueries": 2,
+              "rawQueries": 1,
+              "targetSqlMs": 4.4198749999999905,
+              "rawSqlMs": 3.084709000000032,
+              "returnedRows": 1300,
+              "responseBytes": 1093843
+            },
+            {
+              "totalMs": 17.94745899999998,
+              "pages": 2,
+              "targetQueries": 2,
+              "rawQueries": 1,
+              "targetSqlMs": 4.471292000000005,
+              "rawSqlMs": 3.1835419999999885,
+              "returnedRows": 1300,
+              "responseBytes": 1093843
+            },
+            {
+              "totalMs": 15.877916999999968,
+              "pages": 2,
+              "targetQueries": 2,
+              "rawQueries": 1,
+              "targetSqlMs": 4.585667000000001,
+              "rawSqlMs": 3.1925830000000133,
+              "returnedRows": 1300,
+              "responseBytes": 1093843
+            }
+          ],
+          "plans": {
+            "target": [
+              "CO-ROUTINE t",
+              "CO-ROUTINE (subquery-3)",
+              "SCAN eye.events",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN (subquery-3)",
+              "SCAN t",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ],
+            "raw": [
+              "CO-ROUTINE combined",
+              "COMPOUND QUERY",
+              "LEFT-MOST SUBQUERY",
+              "CO-ROUTINE raw",
+              "CO-ROUTINE (subquery-14)",
+              "SCAN eye.events",
+              "LIST SUBQUERY 6",
+              "MATERIALIZE owners",
+              "MERGE (UNION)",
+              "LEFT",
+              "SCAN eye.identity_links",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "RIGHT",
+              "SCAN eye.identity_links",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN owners",
+              "CREATE BLOOM FILTER",
+              "LIST SUBQUERY 7",
+              "SCAN eye.identity_links",
+              "LIST SUBQUERY 4",
+              "SCAN owners",
+              "CREATE BLOOM FILTER",
+              "CREATE BLOOM FILTER",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN (subquery-14)",
+              "SCAN raw",
+              "UNION ALL",
+              "CO-ROUTINE identity_raw",
+              "CO-ROUTINE (subquery-15)",
+              "SCAN eye.identity_links",
+              "LIST SUBQUERY 9",
+              "SCAN eye.identity_links",
+              "LIST SUBQUERY 4",
+              "SCAN owners",
+              "CREATE BLOOM FILTER",
+              "CREATE BLOOM FILTER",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN (subquery-15)",
+              "SCAN identity_raw",
+              "SCAN combined",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "rewardCheck": "matched all reference samples and observation business records (excluding received_at)"
+        },
+        "incremental-ordered": {
+          "median": {
+            "totalMs": 28.97374999999994,
+            "relevantEvents": 1100,
+            "receivedEventsIncludingRetries": 1112,
+            "delayedEvents": 0,
+            "reverseArrivals": 0,
+            "staleExposures": 0,
+            "staleIdentities": 0,
+            "futureExposures": 0,
+            "closedGoals": 0,
+            "preparedStatementCallsExcludingTransactions": 5129,
+            "sqliteRowChangesExcludingIndexWrites": 2801,
+            "transactions": 14,
+            "creditRows": 0
+          },
+          "runs": [
+            {
+              "totalMs": 29.419750000000022,
+              "relevantEvents": 1100,
+              "receivedEventsIncludingRetries": 1112,
+              "delayedEvents": 0,
+              "reverseArrivals": 0,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 5129,
+              "sqliteRowChangesExcludingIndexWrites": 2801,
+              "transactions": 14,
+              "creditRows": 0
+            },
+            {
+              "totalMs": 28.97374999999994,
+              "relevantEvents": 1100,
+              "receivedEventsIncludingRetries": 1112,
+              "delayedEvents": 0,
+              "reverseArrivals": 0,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 5129,
+              "sqliteRowChangesExcludingIndexWrites": 2801,
+              "transactions": 14,
+              "creditRows": 0
+            },
+            {
+              "totalMs": 25.688625000000002,
+              "relevantEvents": 1100,
+              "receivedEventsIncludingRetries": 1112,
+              "delayedEvents": 0,
+              "reverseArrivals": 0,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 5129,
+              "sqliteRowChangesExcludingIndexWrites": 2801,
+              "transactions": 14,
+              "creditRows": 0
+            }
+          ],
+          "comparison": {
+            "samples": 200,
+            "changedSamples": 0,
+            "sumAbsoluteRewardError": 0,
+            "signedRewardError": 0,
+            "maxSampleError": 0,
+            "absoluteErrorOverAbsoluteReference": 0
+          },
+          "perArm": [
+            {
+              "experimentId": "checkout",
+              "armId": "a",
+              "referenceMean": 56.698636678512116,
+              "meanDifference": -2.842170943040401e-14,
+              "weightDifference": 0,
+              "stddevDifference": 0
+            },
+            {
+              "experimentId": "banner",
+              "armId": "a",
+              "referenceMean": 56.69909154723666,
+              "meanDifference": -2.842170943040401e-14,
+              "weightDifference": -1.4210854715202004e-14,
+              "stddevDifference": 7.105427357601002e-15
+            },
+            {
+              "experimentId": "checkout",
+              "armId": "b",
+              "referenceMean": 56.699119905935774,
+              "meanDifference": -7.105427357601002e-15,
+              "weightDifference": -7.105427357601002e-15,
+              "stddevDifference": 0
+            },
+            {
+              "experimentId": "banner",
+              "armId": "b",
+              "referenceMean": 56.69957477853704,
+              "meanDifference": -7.105427357601002e-15,
+              "weightDifference": 1.4210854715202004e-14,
+              "stddevDifference": -7.105427357601002e-15
+            }
+          ]
+        },
+        "incremental-delayed-arrival": {
+          "median": {
+            "totalMs": 28.728083999999967,
+            "relevantEvents": 1100,
+            "receivedEventsIncludingRetries": 1112,
+            "delayedEvents": 25,
+            "reverseArrivals": 12,
+            "staleExposures": 0,
+            "staleIdentities": 0,
+            "futureExposures": 0,
+            "closedGoals": 0,
+            "preparedStatementCallsExcludingTransactions": 5115,
+            "sqliteRowChangesExcludingIndexWrites": 2794,
+            "transactions": 14,
+            "creditRows": 0
+          },
+          "runs": [
+            {
+              "totalMs": 28.728083999999967,
+              "relevantEvents": 1100,
+              "receivedEventsIncludingRetries": 1112,
+              "delayedEvents": 25,
+              "reverseArrivals": 12,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 5115,
+              "sqliteRowChangesExcludingIndexWrites": 2794,
+              "transactions": 14,
+              "creditRows": 0
+            },
+            {
+              "totalMs": 28.00716699999998,
+              "relevantEvents": 1100,
+              "receivedEventsIncludingRetries": 1112,
+              "delayedEvents": 25,
+              "reverseArrivals": 12,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 5115,
+              "sqliteRowChangesExcludingIndexWrites": 2794,
+              "transactions": 14,
+              "creditRows": 0
+            },
+            {
+              "totalMs": 28.7482500000001,
+              "relevantEvents": 1100,
+              "receivedEventsIncludingRetries": 1112,
+              "delayedEvents": 25,
+              "reverseArrivals": 12,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 5115,
+              "sqliteRowChangesExcludingIndexWrites": 2794,
+              "transactions": 14,
+              "creditRows": 0
+            }
+          ],
+          "comparison": {
+            "samples": 200,
+            "changedSamples": 14,
+            "sumAbsoluteRewardError": 449.9945848238548,
+            "signedRewardError": -0.0004412342149180404,
+            "maxSampleError": 49.99959887476842,
+            "absoluteErrorOverAbsoluteReference": 0.037375415282392056
+          },
+          "perArm": [
+            {
+              "experimentId": "checkout",
+              "armId": "a",
+              "referenceMean": 56.698636678512116,
+              "meanDifference": -0.7008693996321469,
+              "weightDifference": 0,
+              "stddevDifference": 1.1974147324690705
+            },
+            {
+              "experimentId": "banner",
+              "armId": "a",
+              "referenceMean": 56.69909154723666,
+              "meanDifference": 0.700875022405242,
+              "weightDifference": -1.4210854715202004e-14,
+              "stddevDifference": 2.286601582687581
+            },
+            {
+              "experimentId": "checkout",
+              "armId": "b",
+              "referenceMean": 56.699119905935774,
+              "meanDifference": 1.799904426450155,
+              "weightDifference": -7.105427357601002e-15,
+              "stddevDifference": 1.7117879994792773
+            },
+            {
+              "experimentId": "banner",
+              "armId": "b",
+              "referenceMean": 56.69957477853704,
+              "meanDifference": -1.7999188663075643,
+              "weightDifference": 1.4210854715202004e-14,
+              "stddevDifference": -0.24572513831373044
+            }
+          ]
+        },
+        "incremental-delayed-batch": {
+          "median": {
+            "totalMs": 25.921917000000008,
+            "relevantEvents": 1100,
+            "receivedEventsIncludingRetries": 1112,
+            "delayedEvents": 25,
+            "reverseArrivals": 0,
+            "staleExposures": 0,
+            "staleIdentities": 0,
+            "futureExposures": 0,
+            "closedGoals": 0,
+            "preparedStatementCallsExcludingTransactions": 5129,
+            "sqliteRowChangesExcludingIndexWrites": 2801,
+            "transactions": 14,
+            "creditRows": 0
+          },
+          "runs": [
+            {
+              "totalMs": 25.526000000000067,
+              "relevantEvents": 1100,
+              "receivedEventsIncludingRetries": 1112,
+              "delayedEvents": 25,
+              "reverseArrivals": 0,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 5129,
+              "sqliteRowChangesExcludingIndexWrites": 2801,
+              "transactions": 14,
+              "creditRows": 0
+            },
+            {
+              "totalMs": 28.16929200000004,
+              "relevantEvents": 1100,
+              "receivedEventsIncludingRetries": 1112,
+              "delayedEvents": 25,
+              "reverseArrivals": 0,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 5129,
+              "sqliteRowChangesExcludingIndexWrites": 2801,
+              "transactions": 14,
+              "creditRows": 0
+            },
+            {
+              "totalMs": 25.921917000000008,
+              "relevantEvents": 1100,
+              "receivedEventsIncludingRetries": 1112,
+              "delayedEvents": 25,
+              "reverseArrivals": 0,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 5129,
+              "sqliteRowChangesExcludingIndexWrites": 2801,
+              "transactions": 14,
+              "creditRows": 0
+            }
+          ],
+          "comparison": {
+            "samples": 200,
+            "changedSamples": 0,
+            "sumAbsoluteRewardError": 0,
+            "signedRewardError": 0,
+            "maxSampleError": 0,
+            "absoluteErrorOverAbsoluteReference": 0
+          },
+          "perArm": [
+            {
+              "experimentId": "checkout",
+              "armId": "a",
+              "referenceMean": 56.698636678512116,
+              "meanDifference": -2.842170943040401e-14,
+              "weightDifference": 0,
+              "stddevDifference": 0
+            },
+            {
+              "experimentId": "banner",
+              "armId": "a",
+              "referenceMean": 56.69909154723666,
+              "meanDifference": -2.842170943040401e-14,
+              "weightDifference": -1.4210854715202004e-14,
+              "stddevDifference": 7.105427357601002e-15
+            },
+            {
+              "experimentId": "checkout",
+              "armId": "b",
+              "referenceMean": 56.699119905935774,
+              "meanDifference": -7.105427357601002e-15,
+              "weightDifference": -7.105427357601002e-15,
+              "stddevDifference": 0
+            },
+            {
+              "experimentId": "banner",
+              "armId": "b",
+              "referenceMean": 56.69957477853704,
+              "meanDifference": -7.105427357601002e-15,
+              "weightDifference": 1.4210854715202004e-14,
+              "stddevDifference": -7.105427357601002e-15
+            }
+          ]
+        }
+      },
+      "referenceRewardDigest": "9c2f5c5442663f9baad5b8e5768b90b485ad24b97beb39c48a98f132a346019d"
+    },
+    {
+      "inputEvents": 10000,
+      "users": 500,
+      "samples": 1000,
+      "variants": {
+        "scan-page-50": {
+          "median": {
+            "totalMs": 386.89791700000023,
+            "pages": 21,
+            "targetQueries": 21,
+            "rawQueries": 20,
+            "targetSqlMs": 282.2592920000002,
+            "rawSqlMs": 72.08387499999981,
+            "returnedRows": 6500,
+            "responseBytes": 5470144
+          },
+          "runs": [
+            {
+              "totalMs": 386.655084,
+              "pages": 21,
+              "targetQueries": 21,
+              "rawQueries": 20,
+              "targetSqlMs": 281.6876249999998,
+              "rawSqlMs": 70.6573310000008,
+              "returnedRows": 6500,
+              "responseBytes": 5470144
+            },
+            {
+              "totalMs": 403.95233399999984,
+              "pages": 21,
+              "targetQueries": 21,
+              "rawQueries": 20,
+              "targetSqlMs": 295.7754989999996,
+              "rawSqlMs": 73.43500100000028,
+              "returnedRows": 6500,
+              "responseBytes": 5470144
+            },
+            {
+              "totalMs": 386.89791700000023,
+              "pages": 21,
+              "targetQueries": 21,
+              "rawQueries": 20,
+              "targetSqlMs": 282.2592920000002,
+              "rawSqlMs": 72.08387499999981,
+              "returnedRows": 6500,
+              "responseBytes": 5470144
+            }
+          ],
+          "plans": {
+            "target": [
+              "CO-ROUTINE t",
+              "CO-ROUTINE (subquery-3)",
+              "SCAN eye.events",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN (subquery-3)",
+              "SCAN t",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ],
+            "raw": [
+              "CO-ROUTINE combined",
+              "COMPOUND QUERY",
+              "LEFT-MOST SUBQUERY",
+              "CO-ROUTINE raw",
+              "CO-ROUTINE (subquery-14)",
+              "SCAN eye.events",
+              "LIST SUBQUERY 6",
+              "MATERIALIZE owners",
+              "MERGE (UNION)",
+              "LEFT",
+              "SCAN eye.identity_links",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "RIGHT",
+              "SCAN eye.identity_links",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN owners",
+              "CREATE BLOOM FILTER",
+              "LIST SUBQUERY 7",
+              "SCAN eye.identity_links",
+              "LIST SUBQUERY 4",
+              "SCAN owners",
+              "CREATE BLOOM FILTER",
+              "CREATE BLOOM FILTER",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN (subquery-14)",
+              "SCAN raw",
+              "UNION ALL",
+              "CO-ROUTINE identity_raw",
+              "CO-ROUTINE (subquery-15)",
+              "SCAN eye.identity_links",
+              "LIST SUBQUERY 9",
+              "SCAN eye.identity_links",
+              "LIST SUBQUERY 4",
+              "SCAN owners",
+              "CREATE BLOOM FILTER",
+              "CREATE BLOOM FILTER",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN (subquery-15)",
+              "SCAN identity_raw",
+              "SCAN combined",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "rewardCheck": "matched all reference samples and observation business records (excluding received_at)"
+        },
+        "scan-page-200": {
+          "median": {
+            "totalMs": 141.30495800000017,
+            "pages": 6,
+            "targetQueries": 6,
+            "rawQueries": 5,
+            "targetSqlMs": 78.84883300000047,
+            "rawSqlMs": 30.297082000000046,
+            "returnedRows": 6500,
+            "responseBytes": 5469064
+          },
+          "runs": [
+            {
+              "totalMs": 140.3230410000001,
+              "pages": 6,
+              "targetQueries": 6,
+              "rawQueries": 5,
+              "targetSqlMs": 78.66770799999995,
+              "rawSqlMs": 30.297082000000046,
+              "returnedRows": 6500,
+              "responseBytes": 5469064
+            },
+            {
+              "totalMs": 141.30495800000017,
+              "pages": 6,
+              "targetQueries": 6,
+              "rawQueries": 5,
+              "targetSqlMs": 79.85591599999952,
+              "rawSqlMs": 30.095957,
+              "returnedRows": 6500,
+              "responseBytes": 5469064
+            },
+            {
+              "totalMs": 145.6477500000001,
+              "pages": 6,
+              "targetQueries": 6,
+              "rawQueries": 5,
+              "targetSqlMs": 78.84883300000047,
+              "rawSqlMs": 31.973959999999806,
+              "returnedRows": 6500,
+              "responseBytes": 5469064
+            }
+          ],
+          "plans": {
+            "target": [
+              "CO-ROUTINE t",
+              "CO-ROUTINE (subquery-3)",
+              "SCAN eye.events",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN (subquery-3)",
+              "SCAN t",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ],
+            "raw": [
+              "CO-ROUTINE combined",
+              "COMPOUND QUERY",
+              "LEFT-MOST SUBQUERY",
+              "CO-ROUTINE raw",
+              "CO-ROUTINE (subquery-14)",
+              "SCAN eye.events",
+              "LIST SUBQUERY 6",
+              "MATERIALIZE owners",
+              "MERGE (UNION)",
+              "LEFT",
+              "SCAN eye.identity_links",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "RIGHT",
+              "SCAN eye.identity_links",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN owners",
+              "CREATE BLOOM FILTER",
+              "LIST SUBQUERY 7",
+              "SCAN eye.identity_links",
+              "LIST SUBQUERY 4",
+              "SCAN owners",
+              "CREATE BLOOM FILTER",
+              "CREATE BLOOM FILTER",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN (subquery-14)",
+              "SCAN raw",
+              "UNION ALL",
+              "CO-ROUTINE identity_raw",
+              "CO-ROUTINE (subquery-15)",
+              "SCAN eye.identity_links",
+              "LIST SUBQUERY 9",
+              "SCAN eye.identity_links",
+              "LIST SUBQUERY 4",
+              "SCAN owners",
+              "CREATE BLOOM FILTER",
+              "CREATE BLOOM FILTER",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN (subquery-15)",
+              "SCAN identity_raw",
+              "SCAN combined",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "rewardCheck": "matched all reference samples and observation business records (excluding received_at)"
+        },
+        "incremental-ordered": {
+          "median": {
+            "totalMs": 150.98424999999997,
+            "relevantEvents": 5500,
+            "receivedEventsIncludingRetries": 5556,
+            "delayedEvents": 0,
+            "reverseArrivals": 0,
+            "staleExposures": 0,
+            "staleIdentities": 0,
+            "futureExposures": 0,
+            "closedGoals": 0,
+            "preparedStatementCallsExcludingTransactions": 25630,
+            "sqliteRowChangesExcludingIndexWrites": 14003,
+            "transactions": 60,
+            "creditRows": 0
+          },
+          "runs": [
+            {
+              "totalMs": 150.98424999999997,
+              "relevantEvents": 5500,
+              "receivedEventsIncludingRetries": 5556,
+              "delayedEvents": 0,
+              "reverseArrivals": 0,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 25630,
+              "sqliteRowChangesExcludingIndexWrites": 14003,
+              "transactions": 60,
+              "creditRows": 0
+            },
+            {
+              "totalMs": 151.06654200000003,
+              "relevantEvents": 5500,
+              "receivedEventsIncludingRetries": 5556,
+              "delayedEvents": 0,
+              "reverseArrivals": 0,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 25630,
+              "sqliteRowChangesExcludingIndexWrites": 14003,
+              "transactions": 60,
+              "creditRows": 0
+            },
+            {
+              "totalMs": 132.35275000000001,
+              "relevantEvents": 5500,
+              "receivedEventsIncludingRetries": 5556,
+              "delayedEvents": 0,
+              "reverseArrivals": 0,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 25630,
+              "sqliteRowChangesExcludingIndexWrites": 14003,
+              "transactions": 60,
+              "creditRows": 0
+            }
+          ],
+          "comparison": {
+            "samples": 1000,
+            "changedSamples": 0,
+            "sumAbsoluteRewardError": 0,
+            "signedRewardError": 0,
+            "maxSampleError": 0,
+            "absoluteErrorOverAbsoluteReference": 0
+          },
+          "perArm": [
+            {
+              "experimentId": "checkout",
+              "armId": "a",
+              "referenceMean": 56.87862653597261,
+              "meanDifference": 7.105427357601002e-15,
+              "weightDifference": 2.842170943040401e-14,
+              "stddevDifference": -7.105427357601002e-15
+            },
+            {
+              "experimentId": "banner",
+              "armId": "a",
+              "referenceMean": 56.87908284867821,
+              "meanDifference": 2.842170943040401e-14,
+              "weightDifference": 0,
+              "stddevDifference": 7.105427357601002e-15
+            },
+            {
+              "experimentId": "checkout",
+              "armId": "b",
+              "referenceMean": 57.05891916536958,
+              "meanDifference": 0,
+              "weightDifference": 1.1368683772161603e-13,
+              "stddevDifference": -1.4210854715202004e-14
+            },
+            {
+              "experimentId": "banner",
+              "armId": "b",
+              "referenceMean": 57.05937692448523,
+              "meanDifference": 7.105427357601002e-15,
+              "weightDifference": 1.4210854715202004e-13,
+              "stddevDifference": -2.1316282072803006e-14
+            }
+          ]
+        },
+        "incremental-delayed-arrival": {
+          "median": {
+            "totalMs": 147.42566699999952,
+            "relevantEvents": 5500,
+            "receivedEventsIncludingRetries": 5556,
+            "delayedEvents": 99,
+            "reverseArrivals": 72,
+            "staleExposures": 0,
+            "staleIdentities": 0,
+            "futureExposures": 0,
+            "closedGoals": 0,
+            "preparedStatementCallsExcludingTransactions": 25586,
+            "sqliteRowChangesExcludingIndexWrites": 13981,
+            "transactions": 60,
+            "creditRows": 0
+          },
+          "runs": [
+            {
+              "totalMs": 147.95433400000002,
+              "relevantEvents": 5500,
+              "receivedEventsIncludingRetries": 5556,
+              "delayedEvents": 99,
+              "reverseArrivals": 72,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 25586,
+              "sqliteRowChangesExcludingIndexWrites": 13981,
+              "transactions": 60,
+              "creditRows": 0
+            },
+            {
+              "totalMs": 140.69462499999963,
+              "relevantEvents": 5500,
+              "receivedEventsIncludingRetries": 5556,
+              "delayedEvents": 99,
+              "reverseArrivals": 72,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 25586,
+              "sqliteRowChangesExcludingIndexWrites": 13981,
+              "transactions": 60,
+              "creditRows": 0
+            },
+            {
+              "totalMs": 147.42566699999952,
+              "relevantEvents": 5500,
+              "receivedEventsIncludingRetries": 5556,
+              "delayedEvents": 99,
+              "reverseArrivals": 72,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 25586,
+              "sqliteRowChangesExcludingIndexWrites": 13981,
+              "transactions": 60,
+              "creditRows": 0
+            }
+          ],
+          "comparison": {
+            "samples": 1000,
+            "changedSamples": 44,
+            "sumAbsoluteRewardError": 1459.9824307618403,
+            "signedRewardError": 0.00032089761074871603,
+            "maxSampleError": 49.999598874768424,
+            "absoluteErrorOverAbsoluteReference": 0.024184197449063954
+          },
+          "perArm": [
+            {
+              "experimentId": "checkout",
+              "armId": "a",
+              "referenceMean": 56.87862653597261,
+              "meanDifference": -0.320073556640196,
+              "weightDifference": 2.842170943040401e-14,
+              "stddevDifference": 0.3770152063564254
+            },
+            {
+              "experimentId": "banner",
+              "armId": "a",
+              "referenceMean": 56.87908284867821,
+              "meanDifference": 0.3200761244524273,
+              "weightDifference": 0,
+              "stddevDifference": 1.543748220061147
+            },
+            {
+              "experimentId": "checkout",
+              "armId": "b",
+              "referenceMean": 57.05891916536958,
+              "meanDifference": 0.15951341941822506,
+              "weightDifference": 1.1368683772161603e-13,
+              "stddevDifference": 0.40263423861351555
+            },
+            {
+              "experimentId": "banner",
+              "armId": "b",
+              "referenceMean": 57.05937692448523,
+              "meanDifference": -0.1595146991256442,
+              "weightDifference": 1.4210854715202004e-13,
+              "stddevDifference": 1.090833292411446
+            }
+          ]
+        },
+        "incremental-delayed-batch": {
+          "median": {
+            "totalMs": 140.02391700000044,
+            "relevantEvents": 5500,
+            "receivedEventsIncludingRetries": 5556,
+            "delayedEvents": 99,
+            "reverseArrivals": 3,
+            "staleExposures": 0,
+            "staleIdentities": 0,
+            "futureExposures": 0,
+            "closedGoals": 0,
+            "preparedStatementCallsExcludingTransactions": 25630,
+            "sqliteRowChangesExcludingIndexWrites": 14003,
+            "transactions": 60,
+            "creditRows": 0
+          },
+          "runs": [
+            {
+              "totalMs": 148.01408300000003,
+              "relevantEvents": 5500,
+              "receivedEventsIncludingRetries": 5556,
+              "delayedEvents": 99,
+              "reverseArrivals": 3,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 25630,
+              "sqliteRowChangesExcludingIndexWrites": 14003,
+              "transactions": 60,
+              "creditRows": 0
+            },
+            {
+              "totalMs": 131.64670800000022,
+              "relevantEvents": 5500,
+              "receivedEventsIncludingRetries": 5556,
+              "delayedEvents": 99,
+              "reverseArrivals": 3,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 25630,
+              "sqliteRowChangesExcludingIndexWrites": 14003,
+              "transactions": 60,
+              "creditRows": 0
+            },
+            {
+              "totalMs": 140.02391700000044,
+              "relevantEvents": 5500,
+              "receivedEventsIncludingRetries": 5556,
+              "delayedEvents": 99,
+              "reverseArrivals": 3,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 25630,
+              "sqliteRowChangesExcludingIndexWrites": 14003,
+              "transactions": 60,
+              "creditRows": 0
+            }
+          ],
+          "comparison": {
+            "samples": 1000,
+            "changedSamples": 0,
+            "sumAbsoluteRewardError": 0,
+            "signedRewardError": 0,
+            "maxSampleError": 0,
+            "absoluteErrorOverAbsoluteReference": 0
+          },
+          "perArm": [
+            {
+              "experimentId": "checkout",
+              "armId": "a",
+              "referenceMean": 56.87862653597261,
+              "meanDifference": 7.105427357601002e-15,
+              "weightDifference": 2.842170943040401e-14,
+              "stddevDifference": -7.105427357601002e-15
+            },
+            {
+              "experimentId": "banner",
+              "armId": "a",
+              "referenceMean": 56.87908284867821,
+              "meanDifference": 2.842170943040401e-14,
+              "weightDifference": 0,
+              "stddevDifference": 7.105427357601002e-15
+            },
+            {
+              "experimentId": "checkout",
+              "armId": "b",
+              "referenceMean": 57.05891916536958,
+              "meanDifference": 0,
+              "weightDifference": 1.1368683772161603e-13,
+              "stddevDifference": -1.4210854715202004e-14
+            },
+            {
+              "experimentId": "banner",
+              "armId": "b",
+              "referenceMean": 57.05937692448523,
+              "meanDifference": 7.105427357601002e-15,
+              "weightDifference": 1.4210854715202004e-13,
+              "stddevDifference": -2.1316282072803006e-14
+            }
+          ]
+        }
+      },
+      "referenceRewardDigest": "e45911f00b3f100c0f4f7878577d2f3c3efc19bc8153fceee4bba57911278b03"
+    },
+    {
+      "inputEvents": 50000,
+      "users": 2500,
+      "samples": 5000,
+      "variants": {
+        "scan-page-50": {
+          "median": {
+            "totalMs": 8756.739375000001,
+            "pages": 101,
+            "targetQueries": 101,
+            "rawQueries": 100,
+            "targetSqlMs": 7080.25341600004,
+            "rawSqlMs": 1491.7624140000153,
+            "returnedRows": 32500,
+            "responseBytes": 27350571
+          },
+          "runs": [
+            {
+              "totalMs": 8756.739375000001,
+              "pages": 101,
+              "targetQueries": 101,
+              "rawQueries": 100,
+              "targetSqlMs": 7080.25341600004,
+              "rawSqlMs": 1491.7624140000153,
+              "returnedRows": 32500,
+              "responseBytes": 27350571
+            },
+            {
+              "totalMs": 8697.655000000002,
+              "pages": 101,
+              "targetQueries": 101,
+              "rawQueries": 100,
+              "targetSqlMs": 7031.526288999979,
+              "rawSqlMs": 1486.3786619999955,
+              "returnedRows": 32500,
+              "responseBytes": 27350571
+            },
+            {
+              "totalMs": 8792.386000000002,
+              "pages": 101,
+              "targetQueries": 101,
+              "rawQueries": 100,
+              "targetSqlMs": 7110.306039000028,
+              "rawSqlMs": 1498.490335999999,
+              "returnedRows": 32500,
+              "responseBytes": 27350571
+            }
+          ],
+          "plans": {
+            "target": [
+              "CO-ROUTINE t",
+              "CO-ROUTINE (subquery-3)",
+              "SCAN eye.events",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN (subquery-3)",
+              "SCAN t",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ],
+            "raw": [
+              "CO-ROUTINE combined",
+              "COMPOUND QUERY",
+              "LEFT-MOST SUBQUERY",
+              "CO-ROUTINE raw",
+              "CO-ROUTINE (subquery-14)",
+              "SCAN eye.events",
+              "LIST SUBQUERY 6",
+              "MATERIALIZE owners",
+              "MERGE (UNION)",
+              "LEFT",
+              "SCAN eye.identity_links",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "RIGHT",
+              "SCAN eye.identity_links",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN owners",
+              "CREATE BLOOM FILTER",
+              "LIST SUBQUERY 7",
+              "SCAN eye.identity_links",
+              "LIST SUBQUERY 4",
+              "SCAN owners",
+              "CREATE BLOOM FILTER",
+              "CREATE BLOOM FILTER",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN (subquery-14)",
+              "SCAN raw",
+              "UNION ALL",
+              "CO-ROUTINE identity_raw",
+              "CO-ROUTINE (subquery-15)",
+              "SCAN eye.identity_links",
+              "LIST SUBQUERY 9",
+              "SCAN eye.identity_links",
+              "LIST SUBQUERY 4",
+              "SCAN owners",
+              "CREATE BLOOM FILTER",
+              "CREATE BLOOM FILTER",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN (subquery-15)",
+              "SCAN identity_raw",
+              "SCAN combined",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "rewardCheck": "matched all reference samples and observation business records (excluding received_at)"
+        },
+        "scan-page-200": {
+          "median": {
+            "totalMs": 2397.176250000004,
+            "pages": 26,
+            "targetQueries": 26,
+            "rawQueries": 25,
+            "targetSqlMs": 1762.601455000011,
+            "rawSqlMs": 468.3362530000013,
+            "returnedRows": 32500,
+            "responseBytes": 27345171
+          },
+          "runs": [
+            {
+              "totalMs": 2399.181125000003,
+              "pages": 26,
+              "targetQueries": 26,
+              "rawQueries": 25,
+              "targetSqlMs": 1778.5350429999817,
+              "rawSqlMs": 462.9330019999834,
+              "returnedRows": 32500,
+              "responseBytes": 27345171
+            },
+            {
+              "totalMs": 2397.176250000004,
+              "pages": 26,
+              "targetQueries": 26,
+              "rawQueries": 25,
+              "targetSqlMs": 1762.601455000011,
+              "rawSqlMs": 468.3362530000013,
+              "returnedRows": 32500,
+              "responseBytes": 27345171
+            },
+            {
+              "totalMs": 2375.5315830000036,
+              "pages": 26,
+              "targetQueries": 26,
+              "rawQueries": 25,
+              "targetSqlMs": 1744.135832999993,
+              "rawSqlMs": 469.7796279999966,
+              "returnedRows": 32500,
+              "responseBytes": 27345171
+            }
+          ],
+          "plans": {
+            "target": [
+              "CO-ROUTINE t",
+              "CO-ROUTINE (subquery-3)",
+              "SCAN eye.events",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN (subquery-3)",
+              "SCAN t",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ],
+            "raw": [
+              "CO-ROUTINE combined",
+              "COMPOUND QUERY",
+              "LEFT-MOST SUBQUERY",
+              "CO-ROUTINE raw",
+              "CO-ROUTINE (subquery-14)",
+              "SCAN eye.events",
+              "LIST SUBQUERY 6",
+              "MATERIALIZE owners",
+              "MERGE (UNION)",
+              "LEFT",
+              "SCAN eye.identity_links",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "RIGHT",
+              "SCAN eye.identity_links",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN owners",
+              "CREATE BLOOM FILTER",
+              "LIST SUBQUERY 7",
+              "SCAN eye.identity_links",
+              "LIST SUBQUERY 4",
+              "SCAN owners",
+              "CREATE BLOOM FILTER",
+              "CREATE BLOOM FILTER",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN (subquery-14)",
+              "SCAN raw",
+              "UNION ALL",
+              "CO-ROUTINE identity_raw",
+              "CO-ROUTINE (subquery-15)",
+              "SCAN eye.identity_links",
+              "LIST SUBQUERY 9",
+              "SCAN eye.identity_links",
+              "LIST SUBQUERY 4",
+              "SCAN owners",
+              "CREATE BLOOM FILTER",
+              "CREATE BLOOM FILTER",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN (subquery-15)",
+              "SCAN identity_raw",
+              "SCAN combined",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "rewardCheck": "matched all reference samples and observation business records (excluding received_at)"
+        },
+        "incremental-ordered": {
+          "median": {
+            "totalMs": 760.8298750000031,
+            "relevantEvents": 27500,
+            "receivedEventsIncludingRetries": 27774,
+            "delayedEvents": 0,
+            "reverseArrivals": 0,
+            "staleExposures": 0,
+            "staleIdentities": 0,
+            "futureExposures": 0,
+            "closedGoals": 0,
+            "preparedStatementCallsExcludingTransactions": 128130,
+            "sqliteRowChangesExcludingIndexWrites": 70014,
+            "transactions": 293,
+            "creditRows": 0
+          },
+          "runs": [
+            {
+              "totalMs": 746.2814999999973,
+              "relevantEvents": 27500,
+              "receivedEventsIncludingRetries": 27774,
+              "delayedEvents": 0,
+              "reverseArrivals": 0,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 128130,
+              "sqliteRowChangesExcludingIndexWrites": 70014,
+              "transactions": 293,
+              "creditRows": 0
+            },
+            {
+              "totalMs": 766.5034579999992,
+              "relevantEvents": 27500,
+              "receivedEventsIncludingRetries": 27774,
+              "delayedEvents": 0,
+              "reverseArrivals": 0,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 128130,
+              "sqliteRowChangesExcludingIndexWrites": 70014,
+              "transactions": 293,
+              "creditRows": 0
+            },
+            {
+              "totalMs": 760.8298750000031,
+              "relevantEvents": 27500,
+              "receivedEventsIncludingRetries": 27774,
+              "delayedEvents": 0,
+              "reverseArrivals": 0,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 128130,
+              "sqliteRowChangesExcludingIndexWrites": 70014,
+              "transactions": 293,
+              "creditRows": 0
+            }
+          ],
+          "comparison": {
+            "samples": 5000,
+            "changedSamples": 0,
+            "sumAbsoluteRewardError": 0,
+            "signedRewardError": 0,
+            "maxSampleError": 0,
+            "absoluteErrorOverAbsoluteReference": 0
+          },
+          "perArm": [
+            {
+              "experimentId": "checkout",
+              "armId": "a",
+              "referenceMean": 56.98692029265649,
+              "meanDifference": 5.684341886080802e-14,
+              "weightDifference": 0,
+              "stddevDifference": -1.4210854715202004e-14
+            },
+            {
+              "experimentId": "banner",
+              "armId": "a",
+              "referenceMean": 56.98737747415621,
+              "meanDifference": 7.105427357601002e-14,
+              "weightDifference": 2.7284841053187847e-12,
+              "stddevDifference": -2.842170943040401e-14
+            },
+            {
+              "experimentId": "checkout",
+              "armId": "b",
+              "referenceMean": 56.98691047109015,
+              "meanDifference": 9.237055564881302e-14,
+              "weightDifference": -2.0463630789890885e-12,
+              "stddevDifference": 7.105427357601002e-15
+            },
+            {
+              "experimentId": "banner",
+              "armId": "b",
+              "referenceMean": 56.987367652511104,
+              "meanDifference": 8.526512829121202e-14,
+              "weightDifference": -1.3642420526593924e-12,
+              "stddevDifference": 4.263256414560601e-14
+            }
+          ]
+        },
+        "incremental-delayed-arrival": {
+          "median": {
+            "totalMs": 761.0222080000021,
+            "relevantEvents": 27500,
+            "receivedEventsIncludingRetries": 27774,
+            "delayedEvents": 547,
+            "reverseArrivals": 503,
+            "staleExposures": 0,
+            "staleIdentities": 0,
+            "futureExposures": 0,
+            "closedGoals": 0,
+            "preparedStatementCallsExcludingTransactions": 127890,
+            "sqliteRowChangesExcludingIndexWrites": 69894,
+            "transactions": 293,
+            "creditRows": 0
+          },
+          "runs": [
+            {
+              "totalMs": 761.0222080000021,
+              "relevantEvents": 27500,
+              "receivedEventsIncludingRetries": 27774,
+              "delayedEvents": 547,
+              "reverseArrivals": 503,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 127890,
+              "sqliteRowChangesExcludingIndexWrites": 69894,
+              "transactions": 293,
+              "creditRows": 0
+            },
+            {
+              "totalMs": 753.2997079999986,
+              "relevantEvents": 27500,
+              "receivedEventsIncludingRetries": 27774,
+              "delayedEvents": 547,
+              "reverseArrivals": 503,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 127890,
+              "sqliteRowChangesExcludingIndexWrites": 69894,
+              "transactions": 293,
+              "creditRows": 0
+            },
+            {
+              "totalMs": 778.2887499999997,
+              "relevantEvents": 27500,
+              "receivedEventsIncludingRetries": 27774,
+              "delayedEvents": 547,
+              "reverseArrivals": 503,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 127890,
+              "sqliteRowChangesExcludingIndexWrites": 69894,
+              "transactions": 293,
+              "creditRows": 0
+            }
+          ],
+          "comparison": {
+            "samples": 5000,
+            "changedSamples": 238,
+            "sumAbsoluteRewardError": 8509.897593002252,
+            "signedRewardError": -99.99939831054394,
+            "maxSampleError": 49.999598874768424,
+            "absoluteErrorOverAbsoluteReference": 0.028212438668611145
+          },
+          "perArm": [
+            {
+              "experimentId": "checkout",
+              "armId": "a",
+              "referenceMean": 56.98692029265649,
+              "meanDifference": 0.056024224385289756,
+              "weightDifference": 0,
+              "stddevDifference": 0.9492311381182219
+            },
+            {
+              "experimentId": "banner",
+              "armId": "a",
+              "referenceMean": 56.98737747415621,
+              "meanDifference": -0.056024673843396045,
+              "weightDifference": 2.7284841053187847e-12,
+              "stddevDifference": 0.9856791764179249
+            },
+            {
+              "experimentId": "checkout",
+              "armId": "b",
+              "referenceMean": 56.98691047109015,
+              "meanDifference": -0.03607417761588749,
+              "weightDifference": -2.0463630789890885e-12,
+              "stddevDifference": 1.1217832882687802
+            },
+            {
+              "experimentId": "banner",
+              "armId": "b",
+              "referenceMean": 56.987367652511104,
+              "meanDifference": -0.043925304099651896,
+              "weightDifference": -1.3642420526593924e-12,
+              "stddevDifference": 1.2316648946096862
+            }
+          ]
+        },
+        "incremental-delayed-batch": {
+          "median": {
+            "totalMs": 764.9755829999995,
+            "relevantEvents": 27500,
+            "receivedEventsIncludingRetries": 27774,
+            "delayedEvents": 547,
+            "reverseArrivals": 25,
+            "staleExposures": 0,
+            "staleIdentities": 0,
+            "futureExposures": 0,
+            "closedGoals": 0,
+            "preparedStatementCallsExcludingTransactions": 128126,
+            "sqliteRowChangesExcludingIndexWrites": 70012,
+            "transactions": 293,
+            "creditRows": 0
+          },
+          "runs": [
+            {
+              "totalMs": 773.9181249999965,
+              "relevantEvents": 27500,
+              "receivedEventsIncludingRetries": 27774,
+              "delayedEvents": 547,
+              "reverseArrivals": 25,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 128126,
+              "sqliteRowChangesExcludingIndexWrites": 70012,
+              "transactions": 293,
+              "creditRows": 0
+            },
+            {
+              "totalMs": 757.3141669999968,
+              "relevantEvents": 27500,
+              "receivedEventsIncludingRetries": 27774,
+              "delayedEvents": 547,
+              "reverseArrivals": 25,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 128126,
+              "sqliteRowChangesExcludingIndexWrites": 70012,
+              "transactions": 293,
+              "creditRows": 0
+            },
+            {
+              "totalMs": 764.9755829999995,
+              "relevantEvents": 27500,
+              "receivedEventsIncludingRetries": 27774,
+              "delayedEvents": 547,
+              "reverseArrivals": 25,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 128126,
+              "sqliteRowChangesExcludingIndexWrites": 70012,
+              "transactions": 293,
+              "creditRows": 0
+            }
+          ],
+          "comparison": {
+            "samples": 5000,
+            "changedSamples": 4,
+            "sumAbsoluteRewardError": 129.99843561578027,
+            "signedRewardError": -0.0005214586176194302,
+            "maxSampleError": 49.99959887476842,
+            "absoluteErrorOverAbsoluteReference": 0.0004309773239623314
+          },
+          "perArm": [
+            {
+              "experimentId": "checkout",
+              "armId": "a",
+              "referenceMean": 56.98692029265649,
+              "meanDifference": 0.011993959995116654,
+              "weightDifference": 0,
+              "stddevDifference": -0.02660173600192195
+            },
+            {
+              "experimentId": "banner",
+              "armId": "a",
+              "referenceMean": 56.98737747415621,
+              "meanDifference": -0.01199405621737526,
+              "weightDifference": 2.7284841053187847e-12,
+              "stddevDifference": 0.031926389565157365
+            },
+            {
+              "experimentId": "checkout",
+              "armId": "b",
+              "referenceMean": 56.98691047109015,
+              "meanDifference": 0.03999956466248733,
+              "weightDifference": -2.0463630789890885e-12,
+              "stddevDifference": 0.009532691878860078
+            },
+            {
+              "experimentId": "banner",
+              "armId": "b",
+              "referenceMean": 56.987367652511104,
+              "meanDifference": -0.039999885561570636,
+              "weightDifference": -1.3642420526593924e-12,
+              "stddevDifference": 0.050027451476864826
+            }
+          ]
+        }
+      },
+      "referenceRewardDigest": "2b83ec405fa1241dd122d8597ccaa61fc17c537f7230676b251d11fc968dbcd2"
+    },
+    {
+      "inputEvents": 100000,
+      "users": 5000,
+      "samples": 10000,
+      "variants": {
+        "scan-page-50": {
+          "median": {
+            "totalMs": 35029.521209,
+            "pages": 201,
+            "targetQueries": 201,
+            "rawQueries": 200,
+            "targetSqlMs": 28836.276463999646,
+            "rawSqlMs": 5825.696955000181,
+            "returnedRows": 65000,
+            "responseBytes": 54701104
+          },
+          "runs": [
+            {
+              "totalMs": 34824.35591699999,
+              "pages": 201,
+              "targetQueries": 201,
+              "rawQueries": 200,
+              "targetSqlMs": 28623.038946000044,
+              "rawSqlMs": 5825.696955000181,
+              "returnedRows": 65000,
+              "responseBytes": 54701104
+            },
+            {
+              "totalMs": 35881.24025,
+              "pages": 201,
+              "targetQueries": 201,
+              "rawQueries": 200,
+              "targetSqlMs": 29579.092372999614,
+              "rawSqlMs": 5891.372249999986,
+              "returnedRows": 65000,
+              "responseBytes": 54701104
+            },
+            {
+              "totalMs": 35029.521209,
+              "pages": 201,
+              "targetQueries": 201,
+              "rawQueries": 200,
+              "targetSqlMs": 28836.276463999646,
+              "rawSqlMs": 5814.272009000182,
+              "returnedRows": 65000,
+              "responseBytes": 54701104
+            }
+          ],
+          "plans": {
+            "target": [
+              "CO-ROUTINE t",
+              "CO-ROUTINE (subquery-3)",
+              "SCAN eye.events",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN (subquery-3)",
+              "SCAN t",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ],
+            "raw": [
+              "CO-ROUTINE combined",
+              "COMPOUND QUERY",
+              "LEFT-MOST SUBQUERY",
+              "CO-ROUTINE raw",
+              "CO-ROUTINE (subquery-14)",
+              "SCAN eye.events",
+              "LIST SUBQUERY 6",
+              "MATERIALIZE owners",
+              "MERGE (UNION)",
+              "LEFT",
+              "SCAN eye.identity_links",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "RIGHT",
+              "SCAN eye.identity_links",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN owners",
+              "CREATE BLOOM FILTER",
+              "LIST SUBQUERY 7",
+              "SCAN eye.identity_links",
+              "LIST SUBQUERY 4",
+              "SCAN owners",
+              "CREATE BLOOM FILTER",
+              "CREATE BLOOM FILTER",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN (subquery-14)",
+              "SCAN raw",
+              "UNION ALL",
+              "CO-ROUTINE identity_raw",
+              "CO-ROUTINE (subquery-15)",
+              "SCAN eye.identity_links",
+              "LIST SUBQUERY 9",
+              "SCAN eye.identity_links",
+              "LIST SUBQUERY 4",
+              "SCAN owners",
+              "CREATE BLOOM FILTER",
+              "CREATE BLOOM FILTER",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN (subquery-15)",
+              "SCAN identity_raw",
+              "SCAN combined",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "rewardCheck": "matched all reference samples and observation business records (excluding received_at)"
+        },
+        "scan-page-200": {
+          "median": {
+            "totalMs": 9373.283750000002,
+            "pages": 51,
+            "targetQueries": 51,
+            "rawQueries": 50,
+            "targetSqlMs": 7291.299091000052,
+            "rawSqlMs": 1743.6295819999941,
+            "returnedRows": 65000,
+            "responseBytes": 54690304
+          },
+          "runs": [
+            {
+              "totalMs": 9195.33345799998,
+              "pages": 51,
+              "targetQueries": 51,
+              "rawQueries": 50,
+              "targetSqlMs": 7138.3977870000235,
+              "rawSqlMs": 1731.9189170000027,
+              "returnedRows": 65000,
+              "responseBytes": 54690304
+            },
+            {
+              "totalMs": 9452.745084000024,
+              "pages": 51,
+              "targetQueries": 51,
+              "rawQueries": 50,
+              "targetSqlMs": 7357.064332000067,
+              "rawSqlMs": 1762.475206999865,
+              "returnedRows": 65000,
+              "responseBytes": 54690304
+            },
+            {
+              "totalMs": 9373.283750000002,
+              "pages": 51,
+              "targetQueries": 51,
+              "rawQueries": 50,
+              "targetSqlMs": 7291.299091000052,
+              "rawSqlMs": 1743.6295819999941,
+              "returnedRows": 65000,
+              "responseBytes": 54690304
+            }
+          ],
+          "plans": {
+            "target": [
+              "CO-ROUTINE t",
+              "CO-ROUTINE (subquery-3)",
+              "SCAN eye.events",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN (subquery-3)",
+              "SCAN t",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ],
+            "raw": [
+              "CO-ROUTINE combined",
+              "COMPOUND QUERY",
+              "LEFT-MOST SUBQUERY",
+              "CO-ROUTINE raw",
+              "CO-ROUTINE (subquery-14)",
+              "SCAN eye.events",
+              "LIST SUBQUERY 6",
+              "MATERIALIZE owners",
+              "MERGE (UNION)",
+              "LEFT",
+              "SCAN eye.identity_links",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "RIGHT",
+              "SCAN eye.identity_links",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN owners",
+              "CREATE BLOOM FILTER",
+              "LIST SUBQUERY 7",
+              "SCAN eye.identity_links",
+              "LIST SUBQUERY 4",
+              "SCAN owners",
+              "CREATE BLOOM FILTER",
+              "CREATE BLOOM FILTER",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN (subquery-14)",
+              "SCAN raw",
+              "UNION ALL",
+              "CO-ROUTINE identity_raw",
+              "CO-ROUTINE (subquery-15)",
+              "SCAN eye.identity_links",
+              "LIST SUBQUERY 9",
+              "SCAN eye.identity_links",
+              "LIST SUBQUERY 4",
+              "SCAN owners",
+              "CREATE BLOOM FILTER",
+              "CREATE BLOOM FILTER",
+              "USE TEMP B-TREE FOR ORDER BY",
+              "SCAN (subquery-15)",
+              "SCAN identity_raw",
+              "SCAN combined",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          "rewardCheck": "matched all reference samples and observation business records (excluding received_at)"
+        },
+        "incremental-ordered": {
+          "median": {
+            "totalMs": 1567.8420000000042,
+            "relevantEvents": 55000,
+            "receivedEventsIncludingRetries": 55546,
+            "delayedEvents": 0,
+            "reverseArrivals": 0,
+            "staleExposures": 0,
+            "staleIdentities": 0,
+            "futureExposures": 0,
+            "closedGoals": 0,
+            "preparedStatementCallsExcludingTransactions": 256253,
+            "sqliteRowChangesExcludingIndexWrites": 140027,
+            "transactions": 584,
+            "creditRows": 0
+          },
+          "runs": [
+            {
+              "totalMs": 1582.369458000001,
+              "relevantEvents": 55000,
+              "receivedEventsIncludingRetries": 55546,
+              "delayedEvents": 0,
+              "reverseArrivals": 0,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 256253,
+              "sqliteRowChangesExcludingIndexWrites": 140027,
+              "transactions": 584,
+              "creditRows": 0
+            },
+            {
+              "totalMs": 1551.6582500000077,
+              "relevantEvents": 55000,
+              "receivedEventsIncludingRetries": 55546,
+              "delayedEvents": 0,
+              "reverseArrivals": 0,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 256253,
+              "sqliteRowChangesExcludingIndexWrites": 140027,
+              "transactions": 584,
+              "creditRows": 0
+            },
+            {
+              "totalMs": 1567.8420000000042,
+              "relevantEvents": 55000,
+              "receivedEventsIncludingRetries": 55546,
+              "delayedEvents": 0,
+              "reverseArrivals": 0,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 256253,
+              "sqliteRowChangesExcludingIndexWrites": 140027,
+              "transactions": 584,
+              "creditRows": 0
+            }
+          ],
+          "comparison": {
+            "samples": 10000,
+            "changedSamples": 0,
+            "sumAbsoluteRewardError": 0,
+            "signedRewardError": 0,
+            "maxSampleError": 0,
+            "absoluteErrorOverAbsoluteReference": 0
+          },
+          "perArm": [
+            {
+              "experimentId": "checkout",
+              "armId": "a",
+              "referenceMean": 56.987098605912074,
+              "meanDifference": 4.973799150320701e-14,
+              "weightDifference": 3.183231456205249e-12,
+              "stddevDifference": -7.105427357601002e-15
+            },
+            {
+              "experimentId": "banner",
+              "armId": "a",
+              "referenceMean": 56.98755578884233,
+              "meanDifference": 4.973799150320701e-14,
+              "weightDifference": -1.3642420526593924e-12,
+              "stddevDifference": 2.842170943040401e-14
+            },
+            {
+              "experimentId": "checkout",
+              "armId": "b",
+              "referenceMean": 57.00512017826371,
+              "meanDifference": 7.105427357601002e-15,
+              "weightDifference": -7.275957614183426e-12,
+              "stddevDifference": 9.237055564881302e-14
+            },
+            {
+              "experimentId": "banner",
+              "armId": "b",
+              "referenceMean": 57.00557750577329,
+              "meanDifference": -7.105427357601002e-15,
+              "weightDifference": 0,
+              "stddevDifference": 1.4210854715202004e-14
+            }
+          ]
+        },
+        "incremental-delayed-arrival": {
+          "median": {
+            "totalMs": 1559.0634579999896,
+            "relevantEvents": 55000,
+            "receivedEventsIncludingRetries": 55546,
+            "delayedEvents": 1097,
+            "reverseArrivals": 1050,
+            "staleExposures": 0,
+            "staleIdentities": 0,
+            "futureExposures": 0,
+            "closedGoals": 0,
+            "preparedStatementCallsExcludingTransactions": 255753,
+            "sqliteRowChangesExcludingIndexWrites": 139777,
+            "transactions": 584,
+            "creditRows": 0
+          },
+          "runs": [
+            {
+              "totalMs": 1571.8998340000107,
+              "relevantEvents": 55000,
+              "receivedEventsIncludingRetries": 55546,
+              "delayedEvents": 1097,
+              "reverseArrivals": 1050,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 255753,
+              "sqliteRowChangesExcludingIndexWrites": 139777,
+              "transactions": 584,
+              "creditRows": 0
+            },
+            {
+              "totalMs": 1559.0634579999896,
+              "relevantEvents": 55000,
+              "receivedEventsIncludingRetries": 55546,
+              "delayedEvents": 1097,
+              "reverseArrivals": 1050,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 255753,
+              "sqliteRowChangesExcludingIndexWrites": 139777,
+              "transactions": 584,
+              "creditRows": 0
+            },
+            {
+              "totalMs": 1550.4196670000092,
+              "relevantEvents": 55000,
+              "receivedEventsIncludingRetries": 55546,
+              "delayedEvents": 1097,
+              "reverseArrivals": 1050,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 255753,
+              "sqliteRowChangesExcludingIndexWrites": 139777,
+              "transactions": 584,
+              "creditRows": 0
+            }
+          ],
+          "comparison": {
+            "samples": 10000,
+            "changedSamples": 494,
+            "sumAbsoluteRewardError": 17269.7921775733,
+            "signedRewardError": -180.00373042314177,
+            "maxSampleError": 49.999598874768424,
+            "absoluteErrorOverAbsoluteReference": 0.028622569899066426
+          },
+          "perArm": [
+            {
+              "experimentId": "checkout",
+              "armId": "a",
+              "referenceMean": 56.987098605912074,
+              "meanDifference": 0.10194825838980393,
+              "weightDifference": 3.183231456205249e-12,
+              "stddevDifference": 1.013296833726038
+            },
+            {
+              "experimentId": "banner",
+              "armId": "a",
+              "referenceMean": 56.98755578884233,
+              "meanDifference": -0.09395271850157627,
+              "weightDifference": -1.3642420526593924e-12,
+              "stddevDifference": 1.1456530193133432
+            },
+            {
+              "experimentId": "checkout",
+              "armId": "b",
+              "referenceMean": 57.00512017826371,
+              "meanDifference": 0.15591160618080835,
+              "weightDifference": -7.275957614183426e-12,
+              "stddevDifference": 1.0989441495648364
+            },
+            {
+              "experimentId": "banner",
+              "armId": "b",
+              "referenceMean": 57.00557750577329,
+              "meanDifference": -0.23591579755879621,
+              "weightDifference": 0,
+              "stddevDifference": 0.9390533029000139
+            }
+          ]
+        },
+        "incremental-delayed-batch": {
+          "median": {
+            "totalMs": 1555.1766249999928,
+            "relevantEvents": 55000,
+            "receivedEventsIncludingRetries": 55546,
+            "delayedEvents": 1097,
+            "reverseArrivals": 117,
+            "staleExposures": 0,
+            "staleIdentities": 0,
+            "futureExposures": 0,
+            "closedGoals": 0,
+            "preparedStatementCallsExcludingTransactions": 256223,
+            "sqliteRowChangesExcludingIndexWrites": 140012,
+            "transactions": 584,
+            "creditRows": 0
+          },
+          "runs": [
+            {
+              "totalMs": 1555.1766249999928,
+              "relevantEvents": 55000,
+              "receivedEventsIncludingRetries": 55546,
+              "delayedEvents": 1097,
+              "reverseArrivals": 117,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 256223,
+              "sqliteRowChangesExcludingIndexWrites": 140012,
+              "transactions": 584,
+              "creditRows": 0
+            },
+            {
+              "totalMs": 1559.5304170000018,
+              "relevantEvents": 55000,
+              "receivedEventsIncludingRetries": 55546,
+              "delayedEvents": 1097,
+              "reverseArrivals": 117,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 256223,
+              "sqliteRowChangesExcludingIndexWrites": 140012,
+              "transactions": 584,
+              "creditRows": 0
+            },
+            {
+              "totalMs": 1555.1530419999908,
+              "relevantEvents": 55000,
+              "receivedEventsIncludingRetries": 55546,
+              "delayedEvents": 1097,
+              "reverseArrivals": 117,
+              "staleExposures": 0,
+              "staleIdentities": 0,
+              "futureExposures": 0,
+              "closedGoals": 0,
+              "preparedStatementCallsExcludingTransactions": 256223,
+              "sqliteRowChangesExcludingIndexWrites": 140012,
+              "transactions": 584,
+              "creditRows": 0
+            }
+          ],
+          "comparison": {
+            "samples": 10000,
+            "changedSamples": 30,
+            "sumAbsoluteRewardError": 1049.9873645889945,
+            "signedRewardError": -0.0018852734637242463,
+            "maxSampleError": 49.999598874768424,
+            "absoluteErrorOverAbsoluteReference": 0.0017402257321377937
+          },
+          "perArm": [
+            {
+              "experimentId": "checkout",
+              "armId": "a",
+              "referenceMean": 56.987098605912074,
+              "meanDifference": -0.005980296608598223,
+              "weightDifference": 3.183231456205249e-12,
+              "stddevDifference": 0.034453389971723425
+            },
+            {
+              "experimentId": "banner",
+              "armId": "a",
+              "referenceMean": 56.98755578884233,
+              "meanDifference": 0.005980344586028252,
+              "weightDifference": -1.3642420526593924e-12,
+              "stddevDifference": 0.044420853334678156
+            },
+            {
+              "experimentId": "checkout",
+              "armId": "b",
+              "referenceMean": 57.00512017826371,
+              "meanDifference": 0.09999704698485345,
+              "weightDifference": -7.275957614183426e-12,
+              "stddevDifference": 0.11967856586795023
+            },
+            {
+              "experimentId": "banner",
+              "armId": "b",
+              "referenceMean": 57.00557750577329,
+              "meanDifference": -0.09999784921802046,
+              "weightDifference": 0,
+              "stddevDifference": 0.06027373946209025
+            }
+          ]
+        }
+      },
+      "referenceRewardDigest": "7c452cfb4a9804dd22ed626537a8a71bd656fc4429049d83013334bebc7be5db"
+    }
+  ],
+  "untimedCorrectnessCases": [
+    "identity",
+    "latestAndForcedSwitch",
+    "outsideObservation",
+    "equalTime",
+    "extremeSigned"
+  ],
+  "hotIdentity": [
+    {
+      "relevantEvents": 10001,
+      "samples": 1,
+      "pageSize": 50,
+      "error": "Learning partition exceeds its row budget"
+    },
+    {
+      "relevantEvents": 10001,
+      "samples": 1,
+      "pageSize": 1,
+      "error": "Learning partition exceeds its row budget"
+    }
+  ],
+  "hotIdentityIncremental": {
+    "samples": 1,
+    "reward": 0,
+    "measurement": {
+      "totalMs": 229.3027080000029,
+      "relevantEvents": 10001,
+      "receivedEventsIncludingRetries": 10102,
+      "delayedEvents": 0,
+      "reverseArrivals": 0,
+      "staleExposures": 0,
+      "staleIdentities": 0,
+      "futureExposures": 0,
+      "closedGoals": 0,
+      "preparedStatementCallsExcludingTransactions": 40211,
+      "sqliteRowChangesExcludingIndexWrites": 20005,
+      "transactions": 104,
+      "creditRows": 0
+    }
+  }
+}

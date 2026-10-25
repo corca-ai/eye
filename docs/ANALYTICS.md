@@ -70,7 +70,7 @@ ReportObject의 SQLite 테이블은 최초 사용 시 추가하며 새 binding�
 
 모든 테이블은 site별 record ID의 최신 revision을 선택한 뒤 상태·속성 조건을 적용한다. 같은 revision의 재전송은 최초 수신 행을 사용한다. 원본 goal 재전송은 한 번만 세며 credit을 사이트 합계에 다시 더하지 않는다.
 
-`meta`에는 `queriedAt`, `receivedBefore`, `consistency: 'eventual'`, `truncated`, `bytesScanned`가 있다. `receivedBefore`는 처리 시각 상한이지 수신 완료 watermark가 아니다. 행별 `latestReceivedAt`도 관측한 최댓값일 뿐이다. 파일 반영 지연과 테이블 간 반영 차이로 최근 결과가 바뀔 수 있다. 현재 정책 상태는 별도의 `experiments.policy()`에서 읽는다. 정책 응답의 `meanReward`는 원래 가치 단위이며 `score`는 공통 `scoreScale`로 나눈 비교용 점수다. 현재 정책의 asOf는 통계를 감쇠해 평가한 기준 시각이다. statsAsOf는 마지막 적용한 마감 구간의 기준이다.
+`meta`에는 `queriedAt`, `receivedBefore`, `consistency: 'eventual'`, `truncated`, `bytesScanned`가 있다. `receivedBefore`는 처리 시각 상한이지 수신 완료 watermark가 아니다. 행별 `latestReceivedAt`도 관측한 최댓값일 뿐이다. 파일 반영 지연과 테이블 간 반영 차이로 최근 결과가 바뀔 수 있다. 현재 정책 상태는 별도의 `experiments.policy()`에서 읽는다. 정책 응답의 `meanReward`는 원래 가치 단위이며 `score`는 공통 `scoreScale`로 나눈 비교용 점수다. 현재 정책의 asOf는 통계를 감쇠해 평가한 기준 시각이다. statsAsOf는 마지막 적용한 마감 통계의 기준이다.
 
 원본 subject는 입력 당시 cid·uid를 보존한다. 로그인 이력으로 익명 구간의 첫 uid를 조회 시 연결하며 영구 상태 인계를 하지 않는다. 수집 원본과 신원 projection은 같은 Stream 경로로 보내지만 테이블 간 가시성 시각은 다를 수 있다. pending 관측과 selected 배정은 보관된 노출 원본에서 조회 시 재구성한다. 첫 전송을 잃어도 후속 노출로 복구할 수 있으며, 학습이 확정한 관측 결과는 별도로 저장한다. 기존 물리 projection도 함께 읽되 ID별 한 행만 반환한다.
 
@@ -120,7 +120,7 @@ cid 조회는 해당 브라우저 이력이다. uid 조회는 해당 uid 행을 
 
 ## 확정 학습과 원본 분석
 
-관측 종료+유예가 지난 뒤 마감 작업에서 한 번 학습한다. 고정 R2 결과로 재시도하며 뒤늦은 사건은 학습을 다시 쓰지 않는다. arms의 rewardBasis는 raw_attribution이다. totalValue/meanValue는 현재 조회 가능한 원본을 다시 귀속한 값이고 learningValue는 마감 때 확정한 전체 골 보상이다. goalId 필터는 원본 귀속 분자에만 적용하며 learningValue는 전체 골 기준을 유지한다. 학습 정책에는 학습 반감기도 적용되므로 단순 학습 합계와 정책 평균 역시 다르다.
+학습은 Queue 배치 안에서만 정렬해 보상을 누적하고 관측 종료+유예 이후 한 번 마감한다. 고정 SQLite outbox로 재시도하며 뒤늦은 사건은 학습을 다시 쓰지 않는다. 전역 순서를 복원하지 않으므로 배치 사이 순서 역전과 늦은 신원 연결은 원본 재귀속과 다른 결과를 만들 수 있다. 학습은 별도 credit 행을 전송하지 않고 observations의 complete 행에 최종 보상을 저장한다. arms의 rewardBasis는 raw_attribution이다. totalValue/meanValue는 현재 조회 가능한 원본을 다시 귀속한 값이고 learningValue는 마감 때 확정한 전체 골 보상이다. goalId 필터는 원본 귀속 분자에만 적용하며 learningValue는 전체 골 기준을 유지한다. 학습 정책에는 학습 반감기도 적용되므로 단순 학습 합계와 정책 평균 역시 다르다.
 
 타임라인의 live credits는 learningClosed=false이며 학습 반영 확인서가 아니다. eligible은 관측 구간상 자격을 뜻한다. outside_observation 귀속은 분석에서 보이지만 학습에 들어가지 않는다. 원본 사이트 goal 합계는 한 번만 센다.
 

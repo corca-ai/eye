@@ -20,6 +20,7 @@ export class ExperimentObject extends StoredObject {
       CREATE TABLE IF NOT EXISTS policy_outbox (id INTEGER PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS arm_moments (generation INTEGER NOT NULL, arm_id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(generation, arm_id));
       CREATE TABLE IF NOT EXISTS applied_cohorts (id TEXT PRIMARY KEY, as_of INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS applied_cohorts_time ON applied_cohorts(as_of);
     `);
   }
 

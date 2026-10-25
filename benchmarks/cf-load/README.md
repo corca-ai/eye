@@ -29,7 +29,9 @@ For a host path without foreground session RPC, run `client-proxy.mjs` then `val
 
 `eye-do-probe-20261023` 진단 Worker와 전용 DO 네임스페이스 3개는 진단 종료 후 삭제했다. probe 소스는 재현용으로 남겨 두며 다시 실행하려면 먼저 배포해야 한다. `eye-load-20261023`과 `eye-load-20261023-site`는 후속 지속 부하 검증을 위해 유지한다. `.state/`의 자격 증명과 `results/`의 원본 결과는 커밋하지 않는다.
 
-## 고정 마감 학습 비교
+## 이전 조회 기반 학습 비교
+
+아래 cohort/roll-learning 도구는 보관한 SQL 학습 비교용이다. 현재 증분 엔진의 성능을 측정하지 않는다. 과거 커서 적체 해소용 drain hook은 HTTP 410으로 중단하며 현재 alarm을 시험한 것처럼 보고하지 않는다. 현재 로컬 검증은 `benchmarks/local-learning/run.mjs`, 원격 검증은 실제 Queue 사건의 누적·마감·정책 반영으로 수행한다.
 
 현재 private Worker는 SiteControl/ExperimentObject 학습 DO, 운영자 조회용 ReportObject와 고정 결과용 COHORTS R2 binding을 쓴다. `npm run build`를 저장소 루트에서 실행한 뒤 `node cohort-bench.mjs LABEL --seed`로 과거 발생 fixture를 심고, 파일이 queryable해진 뒤 `node cohort-bench.mjs LABEL`로 측정한다. `.state/cohort-fixture.json`을 유지하면 전후 동일 사건을 비교한다. 5,165사건·300표본이며 일반 track, 0/음수 보상, 로그인과 다른 기기 구매를 포함한다. 실제 각 SQL과 Cloudflare metrics, 로컬 reducer와의 결과 비교를 `results/cohort-LABEL.json`에 기록한다. 오류 때에도 query metrics를 별도 error 파일로 남긴다.
 

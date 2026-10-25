@@ -1,11 +1,12 @@
-import { BasinAnalytics, type AnalyticsEnv } from '../analytics/query.js';
-import { analyticsRecord, type AnalyticsRecord } from '../analytics/records.js';
-import { closingSQL } from './learning-sql.js';
-import { reduceClosedCohort, closedSampleMoments, type CohortInput, type ClosedCohort, type SampleExposure } from '../core/closed-cohort.js';
-import { parseEvent } from '../core/events.js';
-import { finite, invariant } from '../core/errors.js';
-import { RETENTION_MS, subjectKey } from '../core/validation.js';
-import type { EyeEvent } from '../core/types.js';
+// Historical SQL learner retained for comparative benchmarks only.
+import { BasinAnalytics, type AnalyticsEnv } from '../../src/analytics/query.js';
+import { analyticsRecord, type AnalyticsRecord } from '../../src/analytics/records.js';
+import { closingSQL } from './legacy-learning-sql.js';
+import { reduceClosedCohort, closedSampleMoments, type CohortInput, type ClosedCohort, type SampleExposure } from '../../src/core/closed-cohort.js';
+import { parseEvent } from '../../src/core/events.js';
+import { finite, invariant } from '../../src/core/errors.js';
+import { RETENTION_MS, subjectKey } from '../../src/core/validation.js';
+import type { EyeEvent } from '../../src/core/types.js';
 
 export const COHORT_INTERVAL_MS = 3_600_000;
 export const COHORT_PAGE_SIZE = 1000;
@@ -52,7 +53,7 @@ export function reduceLearningPage(siteId: string, cohortId: string, from: numbe
     exposures: events.filter(e => e.kind === 'exposure' && e.sample && e.attributionWindowMs).map(event => {
       invariant(event.kind === 'exposure' && event.sample && event.attributionWindowMs, 'invalid_input', 'Missing sample');
       return { event, sampleId: event.sample.sampleId, startAt: event.sample.startAt, attributionWindowMs: event.attributionWindowMs };
-    }), goals: events.filter(e => e.kind === 'goal'), identities: events.filter((e): e is import('../core/types.js').IdentityEvent => e.kind === 'identify' || e.kind === 'logout') };
+    }), goals: events.filter(e => e.kind === 'goal'), identities: events.filter((e): e is import('../../src/core/types.js').IdentityEvent => e.kind === 'identify' || e.kind === 'logout') };
   return learningPage(siteId, reduceClosedCohort(input), input.exposures, next, receivedAt);
 }
 

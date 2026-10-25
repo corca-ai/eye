@@ -1,7 +1,8 @@
-import { attributionCTEs } from '../analytics/attribution-sql.js';
-import { literal } from '../analytics/sql.js';
-import { invariant } from '../core/errors.js';
-import { RETENTION_MS } from '../core/validation.js';
+// Historical SQL learner retained for comparative benchmarks only.
+import { attributionCTEs } from '../../src/analytics/attribution-sql.js';
+import { literal } from '../../src/analytics/sql.js';
+import { invariant } from '../../src/core/errors.js';
+import { RETENTION_MS } from '../../src/core/validation.js';
 
 /** One closing interval is computed in storage. Selection only limits result
  * samples: all simultaneous experiments remain in the last-touch denominator.

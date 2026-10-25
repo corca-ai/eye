@@ -2,15 +2,15 @@ import type { RuntimeEnv as Env } from './environment.generated.js';
 import { invariant } from '../core/errors.js';
 import { id, timestamp } from '../core/validation.js';
 import type { GoalStatus } from '../core/types.js';
-import { compareIdentifiers } from '../core/attribution.js';
 import { StoredObject } from './base.js';
-import { LearningSource, COHORT_INTERVAL_MS, COHORT_PAGE_SIZE, type LearningPage } from './learning.js';
+import { IncrementalLearning } from './incremental.js';
 import { exportBatches } from '../analytics/export.js';
 import { experimentKey, RETENTION_MS } from '../core/validation.js';
-import { AnalyticsCapacityError, type AnalyticsEnv } from '../analytics/query.js';
+import type { EyeEvent } from '../core/types.js';
 
 export interface GoalDefinition { goalId: string; status: GoalStatus; createdAt: number; changedAt: number; revision: number }
 export class SiteControl extends StoredObject {
+  private readonly learning: IncrementalLearning;
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.sql.exec(`
@@ -25,6 +25,7 @@ export class SiteControl extends StoredObject {
       CREATE INDEX IF NOT EXISTS goal_history_time ON goal_history(goal_id, effective_at DESC, revision DESC);
       CREATE TABLE IF NOT EXISTS experiments (experiment_id TEXT PRIMARY KEY, created_at INTEGER NOT NULL);
     `);
+    this.learning = new IncrementalLearning(this.sql);
   }
   createGoal(goalId: string): GoalDefinition {
     id(goalId, 'goalId');
@@ -72,9 +73,7 @@ export class SiteControl extends StoredObject {
   async registerExperiment(experimentId: string, siteId: string, settings: import('../core/types.js').ExperimentSettings): Promise<void> {
     id(experimentId, 'experimentId'); id(siteId, 'siteId');
     this.noteSettings(settings);
-    await this.wakeAt(Date.now() + COHORT_INTERVAL_MS);
     this.kv.put('siteId', siteId);
-    if (this.kv.get('learningFrom') === undefined) this.kv.put('learningFrom', Math.floor(Date.now() / COHORT_INTERVAL_MS) * COHORT_INTERVAL_MS);
     this.sql.exec('INSERT OR IGNORE INTO experiments VALUES (?, ?)', experimentId, Date.now());
   }
   listExperiments(after = '', limit = 100): string[] {
@@ -86,7 +85,7 @@ export class SiteControl extends StoredObject {
     const next = { windowMs: Math.max(previous?.windowMs ?? 0, settings.observationWindowMs),
       graceMs: Math.max(previous?.graceMs ?? 0, settings.allowedLatenessMs),
       attributionMs: Math.max(previous?.attributionMs ?? 0, settings.attributionWindowMs ?? 7 * 86_400_000) };
-    invariant(next.windowMs + next.graceMs + next.attributionMs < RETENTION_MS - COHORT_INTERVAL_MS,
+    invariant(next.windowMs + next.graceMs + next.attributionMs < RETENTION_MS - 3_600_000,
       'invalid_input', 'Site historical maximum observation + grace + attribution horizons must leave an hour inside 60-day raw retention');
     if (JSON.stringify(previous) !== JSON.stringify(next)) this.kv.put('learningBounds', next);
   }
@@ -94,67 +93,51 @@ export class SiteControl extends StoredObject {
     invariant(goals.length <= 100, 'invalid_input', 'Too many goals');
     return goals.map(g => this.goalStatusAt(g.goalId, g.occurredAt) === 'active');
   }
-  /** One bounded page per alarm. Frozen R2 result precedes statistics/export/cursor,
-   * so retries reuse the same result even if more raw events become queryable.
-   */
-  override async alarm(): Promise<void> { await this.retryAlarm(() => this.learnPage()); }
-  private async learnPage(): Promise<void> {
-    const siteId = this.kv.get<string>('siteId');
-    if (!siteId) { await this.ctx.storage.deleteAlarm(); this.kv.delete('alarmAt'); return; }
+  /** Queue ingestion and reward updates commit together. Only this batch is sorted. */
+  async consumeLearning(siteId: string, events: readonly EyeEvent[]): Promise<boolean[]> {
+    id(siteId, 'siteId');
+    invariant(events.length <= 100, 'invalid_input', 'Too many learning events');
     const now = Date.now();
-    let from = this.kv.get<number>('learningFrom') ?? Math.floor(now / COHORT_INTERVAL_MS) * COHORT_INTERVAL_MS;
-    if (from < now - RETENTION_MS + COHORT_INTERVAL_MS) {
-      // Retention-exceeded outage: report skipped history instead of looping forever.
-      console.warn(JSON.stringify({ component: 'eye', operation: 'learning_retention_gap', siteId, from }));
-      from = Math.ceil((now - RETENTION_MS + COHORT_INTERVAL_MS) / COHORT_INTERVAL_MS) * COHORT_INTERVAL_MS;
-      this.kv.put('learningFrom', from); this.kv.delete('learningAfter');
-    }
-    const until = from + COHORT_INTERVAL_MS;
-    if (until > now) { await this.scheduleLearning(until); return; }
-    const after = this.kv.get<string>('learningAfter') ?? '';
-    const logicalId = JSON.stringify([siteId, from, until, after]);
-    const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(logicalId));
-    const objectKey = `eye/cohorts/${[...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join('')}.json`;
-    const existing = await this.env.COHORTS.get(objectKey);
-    let page: LearningPage;
-    if (existing) { invariant(existing.size <= 16 * 1024 * 1024, 'unavailable', 'Oversized frozen cohort'); page = await existing.json<LearningPage>(); }
-    else {
-      const limit = this.kv.get<number>('learningLimit') ?? COHORT_PAGE_SIZE;
-      try {
-        page = await new LearningSource(this.env as Env & AnalyticsEnv, siteId, this.kv.get('learningBounds')).page(from, until, after, limit);
-        if (new TextEncoder().encode(JSON.stringify(page)).length > 16 * 1024 * 1024) throw new AnalyticsCapacityError('Oversized cohort result');
-      }
-      catch (error) {
-        if (error instanceof AnalyticsCapacityError && limit > 1) this.kv.put('learningLimit', Math.max(1, Math.floor(limit / 2)));
-        throw error;
-      }
-      const json = JSON.stringify(page);
-      const written = await this.env.COHORTS.put(objectKey, json, { onlyIf: { etagDoesNotMatch: '*' } });
-      if (!written) {
-        const winner = await this.env.COHORTS.get(objectKey);
-        invariant(winner && winner.size <= 16 * 1024 * 1024, 'unavailable', 'Missing frozen cohort');
-        page = await winner.json<LearningPage>();
-      }
-    }
-    invariant(page.cohort.cohortId === logicalId && page.cohort.asOf === until
-      && (page.next === null || compareIdentifiers(page.next, after) > 0), 'conflict', 'Frozen cohort scope mismatch');
-    for (const experimentId of new Set(page.cohort.arms.map(a => a.experimentId))) {
-      await this.env.EXPERIMENTS.getByName(experimentKey(siteId, experimentId)).applyCohort({ ...page.cohort,
-        arms: page.cohort.arms.filter(a => a.experimentId === experimentId) });
-    }
-    for (const batch of exportBatches(page.records.map(record => ({ record })))) await this.env.ANALYTICS.send(batch);
-    this.atomic(() => {
-      if (page.next === null) { this.kv.put('learningFrom', until); this.kv.delete('learningAfter'); this.kv.delete('learningLimit'); }
-      else this.kv.put('learningAfter', page.next);
+    const previousSiteId = this.kv.get<string>('siteId');
+    invariant(previousSiteId === undefined || previousSiteId === siteId, 'invalid_input', 'Learning site does not match this object');
+    const accepted = this.atomic(() => {
+      const { accepted, diagnostics } = this.learning.accept(events, now,
+        goal => this.goalStatusAt(goal.goalId, goal.occurredAt) === 'active');
+      this.kv.put('siteId', siteId);
+      if (Object.values(diagnostics).some(value => value > 0))
+        console.log(JSON.stringify({ component: 'eye', operation: 'learning_approximation', siteId, ...diagnostics }));
+      return accepted;
     });
-    // Result deletion is safe only after advancing the durable cursor. A crash
-    // before deletion can leave an orphan; bucket lifecycle may remove old results.
-    await this.env.COHORTS.delete(objectKey);
-    await this.scheduleLearning(page.next !== null || until + COHORT_INTERVAL_MS <= now ? now + 1000 : until + COHORT_INTERVAL_MS);
+    await this.scheduleLearning(now);
+    return accepted;
   }
-  /** Replace the retry safety alarm after a successful page; otherwise wakeAt's
-   * earliest-wins rule would keep an idle site waking every minute. */
-  private async scheduleLearning(at: number): Promise<void> {
+  override async alarm(): Promise<void> {
+    await this.retryAlarm(async () => {
+      const siteId = this.kv.get<string>('siteId');
+      if (!siteId) { await this.ctx.storage.deleteAlarm(); this.kv.delete('alarmAt'); return; }
+      const now = Date.now();
+      this.atomic(() => { this.learning.close(siteId, now); this.learning.prune(now); });
+      const pending = this.learning.outputs();
+      for (const { output } of pending) {
+        if (output.cohort.asOf < now - RETENTION_MS) {
+          console.warn(JSON.stringify({ component: 'eye', operation: 'learning_retention_gap', siteId, asOf: output.cohort.asOf }));
+          continue;
+        }
+        for (const experimentId of new Set(output.cohort.arms.map(arm => arm.experimentId))) {
+          await this.env.EXPERIMENTS.getByName(experimentKey(siteId, experimentId)).applyCohort({ ...output.cohort,
+            arms: output.cohort.arms.filter(arm => arm.experimentId === experimentId) });
+        }
+      }
+      const rows = pending.flatMap(item => item.output.records.map(record => ({ record })));
+      for (const batch of exportBatches(rows)) await this.env.ANALYTICS.send(batch);
+      this.atomic(() => this.learning.acknowledge(pending.map(item => item.id)));
+      await this.scheduleLearning(Date.now(), true);
+    });
+  }
+  private async scheduleLearning(now: number, replace = false): Promise<void> {
+    const at = this.learning.nextWake(now);
+    if (at === null) { await this.ctx.storage.deleteAlarm(); this.kv.delete('alarmAt'); return; }
+    if (!replace) { await this.wakeAt(at); return; }
     const pending = this.ctx.storage.setAlarm(at);
     this.kv.put('alarmAt', at);
     await pending;

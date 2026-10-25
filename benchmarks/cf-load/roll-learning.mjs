@@ -1,7 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LearningSource } from '../../dist/runtime/learning.js';
+import { LearningSource } from '../local-learning/reference-source.mjs';
 import { reduceClosedCohort } from '../../dist/core/closed-cohort.js';
 const directory = dirname(fileURLToPath(import.meta.url));
 const state = JSON.parse(await readFile(join(directory, '.state/resources.json')));

@@ -11,7 +11,7 @@
     "test:core": "vitest run --project core",
     "test:workers": "vitest run --project workers",
     "types": "wrangler types && node scripts/generate-public-env.mjs",
-    "build": "node node_modules/typescript/bin/tsc -p tsconfig.build.json",
+    "build": "node scripts/build.mjs",
     "check": "npm run build && npm run typecheck && npm test && npm run docs:check",
     "benchmark": "npm run build && node scripts/benchmark-core.mjs",
     "check:package": "npm run build && node scripts/check-package.mjs",
