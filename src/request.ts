@@ -4,6 +4,7 @@ import type { Attributes, GoalEvent, Subject, TrackEvent } from './core/types.js
 
 /** 요청마다 생성하며 신원은 생성 당시 값으로 고정한다. 로그인 전환 뒤에는 새 인스턴스를 만든다. */
 export interface EyeRequestOptions extends EyeOptions {
+  /** 서버 인증에서 확정한 신원. 이 인스턴스의 모든 수집·선택에 사용한다. */
   subject: Subject;
   /** 첫 실제 노출의 사용자군 속성. 개별 expose에서 덮어쓸 수 있다. */
   userAttributes?: Attributes;
@@ -12,13 +13,16 @@ export interface EyeRequestOptions extends EyeOptions {
 }
 export type { VariantDefinition } from './browser-types.js';
 import type { VariantDefinition } from './browser-types.js';
+/** 실제 표시 시점의 노출 정보. 생략한 ID·시각은 SDK가 생성한다. */
 export interface ExposureInput {
   eventId?: string;
   occurredAt?: number;
+  /** 첫 노출의 관측 사용자군. 요청 기본값을 이 노출에서 덮어쓴다. */
   userAttributes?: Attributes;
+  /** 이 노출 사건에만 붙는 속성. arm 비교의 사용자군 필터와 별개다. */
   attributes?: Attributes;
 }
-/** 실제 적용한 뒤 expose를 호출한다. 하나의 핸들은 한 노출을 나타내며 중복 호출은 첫 결과를 반환한다. */
+/** 실제 적용한 뒤 expose를 호출한다. 한 핸들은 한 노출이며 재호출은 첫 결과(거절 포함)를 반환한다. */
 export interface VariantSelection<T> {
   value: T;
   /** null이면 미참여다. fallback이 control 화면과 같아도 control 노출이 아니다. */
@@ -28,9 +32,9 @@ export interface VariantSelection<T> {
 }
 /** 사용자 요청용 API. 관리·분석·명시적 준비·신원 전환에는 기존 createEye를 사용한다. */
 export interface EyeRequest {
-  /** 응답 쿠키 등에 저장할 서명 문맥. 원격 호출 없이 로컬 서명 완료를 기다린다. */
+  /** 실제 노출 후 응답 쿠키 등에 저장할 실험별 토큰. 로컬 서명만 기다리며 서버 세션 저장 완료는 기다리지 않는다. */
   state(): Promise<Record<string, string>>;
-  /** 원격 응답을 기다리지 않고 지원하는 arm의 값을 선택한다. 오류·미준비·미지원 arm은 fallback이다. */
+  /** 로컬 검증 후 지원하는 arm 값을 반환한다. 원격 조회는 기다리지 않으며 오류·미준비·미지원 arm은 fallback이다. 호출마다 새 노출 핸들을 만든다. */
   variant<T>(definition: VariantDefinition<T>): Promise<VariantSelection<T>>;
   /** 신원을 다시 전달하지 않는다. 접수 거절과 비동기 전송 실패 모두 onError로 보고한다. */
   track(input: Omit<EventInput<TrackEvent>, 'subject'>): Submission;

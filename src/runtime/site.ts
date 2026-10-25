@@ -9,6 +9,7 @@ import { sendExportBatches } from '../analytics/export.js';
 import { experimentKey, RETENTION_MS } from '../core/validation.js';
 import type { EyeEvent } from '../core/types.js';
 
+/** 골의 등록·상태 정보. 시각은 Unix ms이며 달성 조건·value는 각 goal 사건에서 서비스가 제공한다. */
 export interface GoalDefinition { goalId: string; status: GoalStatus; createdAt: number; changedAt: number; revision: number }
 export class SiteControl extends StoredObject {
   private readonly learning: IncrementalLearning;

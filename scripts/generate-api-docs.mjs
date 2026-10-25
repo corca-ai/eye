@@ -22,9 +22,22 @@ const exported = [...new Map([
   ...checker.getExportsOfModule(checker.getSymbolAtLocation(entry)),
   ...checker.getExportsOfModule(checker.getSymbolAtLocation(browserEntry)),
 ].map(symbol => [symbol.name, symbol])).values()];
+const exportPaths = new Map();
+for (const [source, path] of [[entry, '@eye/workers'], [browserEntry, '@eye/workers/browser']]) {
+  for (const symbol of checker.getExportsOfModule(checker.getSymbolAtLocation(source))) {
+    const paths = exportPaths.get(symbol.name) ?? [];
+    paths.push(path); exportPaths.set(symbol.name, paths);
+  }
+}
+const importHint = name => exportPaths.has(name)
+  ? '임포트: ' + exportPaths.get(name).map(path => '`' + path + '`').join(' · ') + '\n'
+  : '보조 타입: 공개 API의 입력·반환형에 포함되지만 패키지에서 직접 export하지 않는다.\n';
 const unalias = symbol => symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
 const flags = ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope;
 const doc = symbol => ts.displayPartsToString(symbol.getDocumentationComment(checker));
+for (const symbol of exported.map(unalias)) {
+  if (!doc(symbol)) throw new Error(`Public export ${symbol.name} needs a JSDoc description.`);
+}
 const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
 const sourceLink = node => {
   const file = node.getSourceFile();
@@ -56,8 +69,8 @@ const create = unalias(exported.find(s => s.name === 'createEye'));
 const signature = checker.getTypeOfSymbolAtLocation(create, create.valueDeclaration).getCallSignatures()[0];
 const clientType = checker.getReturnTypeOfSignature(signature);
 let client = header('SDK API 레퍼런스');
-client += '공개 SDK의 실제 타입에서 생성한다. 모든 기간·시각은 별도 표시가 없으면 밀리초다. 공통 이벤트 입력과 설정 기본값은 [타입 문서](types.md), 호출 순서·오류 처리는 [연동 가이드](../INTEGRATION.md)를 따른다.\n\n';
-client += '## createEye\n\n' + doc(create) + code('createEye(options: EyeOptions): EyeClient') + '\n타입: [EyeOptions](types.md#eyeoptions)\n';
+client += '공개 SDK의 실제 타입에서 생성한다. 시각은 Unix 밀리초, 기간은 별도 표시가 없으면 밀리초다. `eye`는 createEye, `request`는 createEyeRequest, `browser`는 createEyeBrowser, `browserServer`는 createEyeBrowserServer의 반환값이다. 공통 이벤트 입력과 설정 기본값은 [타입 문서](types.md), 호출 순서·오류 처리는 [연동 가이드](../INTEGRATION.md)를 따른다.\n\n';
+client += '## createEye\n\n' + importHint('createEye') + '\n' + doc(create) + code('createEye(options: EyeOptions): EyeClient') + '\n타입: [EyeOptions](types.md#eyeoptions)\n';
 const entries = [];
 function methods(type, prefix) {
   for (const prop of type.getProperties()) {
@@ -70,16 +83,23 @@ function methods(type, prefix) {
   }
 }
 methods(clientType, 'eye');
+for (const [factory, prefix] of [['createEyeRequest', 'request'], ['createEyeBrowser', 'browser'], ['createEyeBrowserServer', 'browserServer']]) {
+  const symbol = unalias(exported.find(s => s.name === factory));
+  const signature = checker.getTypeOfSymbolAtLocation(symbol, symbol.valueDeclaration).getCallSignatures()[0];
+  methods(checker.getReturnTypeOfSignature(signature), prefix);
+}
 client += '\n' + entries.map(e => `- [${e.name}](#${e.name.replaceAll('.', '').toLowerCase()})`).join('\n') + '\n';
 for (const { name, prop, node, signatures } of entries) {
-  client += `\n## ${name}\n\n` + (doc(prop) || '입력·반환 타입은 아래와 같다. 동작 규칙은 연동 가이드와 분석 해석 문서를 따른다.') + '\n';
+  const description = doc(prop);
+  if (!description) throw new Error(`Public method ${name} needs a JSDoc description.`);
+  client += `\n## ${name}\n\n` + description + '\n';
   const signatureText = signatures.map(s => `${name}${checker.signatureToString(s, node, flags)}`).join('\n');
   client += code(signatureText) + references(signatureText);
 }
 for (const symbol of exported.map(unalias).filter(s => s.name !== 'createEye' && s.valueDeclaration && (ts.isFunctionDeclaration(s.valueDeclaration) || ts.isClassDeclaration(s.valueDeclaration)))) {
   const name = symbol.name;
   const node = symbol.valueDeclaration;
-  client += `\n## ${name}\n\n${doc(symbol)}\n`;
+  client += `\n## ${name}\n\n${importHint(name)}\n${doc(symbol)}\n`;
   if (ts.isFunctionDeclaration(node)) {
     const text = checker.getTypeOfSymbolAtLocation(symbol, node).getCallSignatures().map(s => name + checker.signatureToString(s, node, flags)).join('\n');
     client += code(text) + references(text);
@@ -91,18 +111,19 @@ for (const symbol of exported.map(unalias).filter(s => s.name !== 'createEye' &&
     const text = [...publicMembers, ...parameterProperties].map(m => {
       if (ts.isConstructorDeclaration(m)) return 'constructor' + checker.signatureToString(checker.getSignatureFromDeclaration(m), m, flags);
       const symbol = m.name && checker.getSymbolAtLocation(m.name);
-      return symbol ? `${symbol.name}: ${checker.typeToString(checker.getTypeOfSymbolAtLocation(symbol, m), m, flags)}` : '';
+      const comment = symbol && doc(symbol);
+      return symbol ? `${comment ? '/** ' + comment.replaceAll('\n', '\n * ') + ' */\n' : ''}${symbol.name}: ${checker.typeToString(checker.getTypeOfSymbolAtLocation(symbol, m), m, flags)}` : '';
     }).filter(Boolean).join('\n');
     client += code(text) + references(text);
   }
 }
 let typeText = header('타입과 파라미터 레퍼런스');
-typeText += '필드의 `?`는 선택 입력을 뜻한다. 기본값·제약·의미는 소스의 설명 주석에서 가져온다. SDK 반환형을 이해하는 데 필요한 내부 보조 타입도 포함하며, 모든 보조 타입을 패키지 루트에서 import할 수 있다는 뜻은 아니다. `EyeClient`의 메서드는 [SDK API](client.md)에 펼쳐 표시한다.\n\n';
+typeText += '필드의 `?`는 생략 가능한 속성이다. 시각은 Unix 밀리초, 기간은 별도 표시가 없으면 밀리초다. 기본값·제약·의미는 소스 주석에서 가져오며 각 타입의 임포트 경로를 표시한다. 보조 타입은 공개 API를 이해하기 위한 것이며 직접 import할 수 없다. `EyeClient`의 메서드는 [SDK API](client.md)에 펼쳐 표시한다.\n\n';
 const sorted = [...types].sort(([a], [b]) => a.localeCompare(b, 'en'));
 typeText += sorted.map(([name]) => `- [${name}](#${name.toLowerCase()})`).join('\n') + '\n';
 for (const [name, node] of sorted) {
   const declaration = printer.printNode(ts.EmitHint.Unspecified, node, node.getSourceFile());
-  typeText += `\n## ${name}\n\n[소스](${sourceLink(node)})\n` + code(declaration) + references(declaration);
+  typeText += `\n## ${name}\n\n${importHint(name)}\n[소스](${sourceLink(node)})\n` + code(declaration) + references(declaration);
 }
 await mkdir(resolve(root, 'docs/api'), { recursive: true });
 for (const [name, content] of [['client.md', client], ['types.md', typeText]]) {

@@ -2,36 +2,51 @@ import { DEFAULT_POLICY_FRESH_MS } from './policy-timing.js';
 import type { VariantDefinition } from './browser-types.js';
 import type { BrowserSnapshot, BrowserExposure, BrowserEventResult, BrowserState } from './browser-types.js';
 export type { BrowserSnapshot, BrowserExposure, BrowserEventResult, BrowserState } from './browser-types.js';
+/** 브라우저 전용 설정. 서버 secret·Worker 바인딩은 받지 않는다. */
 export interface BrowserOptions {
+  /** 서버 snapshot과 일치하는 비밀이 아닌 인증 세대. 로그인·로그아웃·계정 변경마다 바꾼다. */
   scope: string;
+  /** 같은 scope의 최신 서버 응답. 없으면 첫 뷰는 fallback을 쓰며 준비를 시작한다. */
   initial?: BrowserSnapshot;
-  /** Host POST endpoints. Same origin by default; authentication stays in host cookies. */
+  /** 준비 POST 경로. 기본 /eye/prepare; 기본 전송은 same-origin 쿠키 인증을 사용한다. */
   prepareUrl?: string;
+  /** 노출 POST 경로. 기본 /eye/events. */
   eventsUrl?: string;
-  /** Defaults to tab sessionStorage. A custom adapter may retain state across reloads. */
+  /** 기본 sessionStorage. 증표·표본 문맥만 저장하며 미전송 이벤트는 저장하지 않는다. */
   storage?: { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void };
+  /** 준비·전송 실패와 노출 거절·유실을 알린다. 콜백에서 던진 오류는 무시한다. */
   onError?: (error: unknown) => void;
-  /** Optional transport adapters for existing data APIs and tests. */
+  /** 기본 HTTP 준비를 대체한다. 같은 scope의 snapshot을 반환하고 인증·timeout은 호스트가 처리한다. */
   prepare?: (experiments: string[], states: Readonly<Record<string, BrowserState>>) => Promise<BrowserSnapshot>;
+  /** 기본 HTTP 전송을 대체한다. 각 eventId의 결과를 반환하며 전송 실패 시 reject해 재시도를 유도한다. 인증·timeout은 호스트 책임이다. */
   send?: (events: BrowserExposure[]) => Promise<BrowserEventResult[]>;
 }
+/** 한 뷰·실험·placement에서 고정된 선택. 준비가 끝나도 현재 value는 바뀌지 않는다. */
 export interface BrowserSelection<T> {
   readonly value: T;
   readonly armId: string | null;
-  /** True means queued locally, not delivered. Fallback/disposed/expired selections return false. */
+  /** 실제 표시 후 호출한다. true는 최초 로컬 접수 또는 이미 접수한 핸들이며 전달 성공은 아니다. 미접수 fallback·만료·폐기 핸들은 false. */
   expose(): boolean;
 }
+/** 실제 라우트·팝업 수명에 맞춘 선택 묶음. 컴포넌트 재렌더 동안 같은 뷰를 유지한다. */
 export interface BrowserView {
+  /** 동기 선택. experimentId·placement별 첫 값을 고정하며 미준비면 fallback과 백그라운드 준비를 사용한다. placement 기본 default. */
   variant<T>(definition: VariantDefinition<T>, placement?: string): BrowserSelection<T>;
+  /** 이 뷰의 추가 노출을 막는다. 이미 접수한 이벤트는 취소하지 않는다. */
   dispose(): void;
 }
+/** 브라우저 앱 수명 동안 재사용한다. 로그인 전환에는 setScope, 화면 전환에는 beginView를 사용한다. */
 export interface EyeBrowser {
+  /** 인증 변경 완료 후 호출한다. 이전 선택·저장 문맥을 비우고 새 뷰를 요구하며 이미 접수한 이벤트의 신원은 유지한다. */
   setScope(scope: string): void;
+  /** 새 화면 수명에 대한 뷰를 만든다. 이 호출 자체가 서버 준비나 노출을 발생시키지는 않는다. */
   beginView(): BrowserView;
+  /** 진행 중 전송과 큐를 제한된 재시도까지 처리한다. 실패는 onError로 보고하므로 resolve가 전체 전달 성공을 뜻하지 않는다. */
   flush(): Promise<void>;
+  /** 타이머·향후 선택을 중단하고 미전송 큐를 비운다. 전송이 필요하면 먼저 flush한다. 진행 중 HTTP는 취소하지 않는다. */
   dispose(): void;
 }
-/** Browser-only, framework-independent client. No Worker bindings or server secrets in this entry point. */
+/** 브라우저 전용의 프레임워크 독립 클라이언트. 선택은 동기이며 실제 표시 시 expose를 호출한다. */
 export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
   let scope = options.scope, generation = 0, stopped = false;
   let ready = new Map<string, { choice: BrowserSnapshot['choices'][number]; received: number; receivedWall: number; serverNow: number; safetyMs: number }>();
@@ -180,13 +195,11 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
   }
   if (options.initial) install(options.initial);
   return {
-    /** Call only after host authentication has changed; old emitted events retain their receipts. */
     setScope(next: string) {
       if (next === scope) return;
       try { storage?.removeItem(storageKey()); } catch { /* optional storage */ }
       scope = next; generation++; ready = new Map(); states = new Map(); samples.clear(); wanted.clear(); nextPrepareAt = 0;
     },
-    /** One view per actual navigation/popup lifetime. Retain the view across component re-renders. */
     beginView(): BrowserView {
       const epoch = generation;
       let disposed = false;
@@ -236,9 +249,7 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
         dispose() { disposed = true; selections.clear(); },
       };
     },
-    /** Best effort on visibilitychange; async fetch acknowledgement supports bounded retry. No unload-only dependency. */
     flush,
-    /** Stops timers and future selection. Call flush first if delivery is desired. */
     dispose() { stopped = true; generation++; clearTimeout(prepareTimer); clearTimeout(sendTimer); wakeDrain?.(); ready.clear(); wanted.clear(); queue.length = 0; },
   };
 }

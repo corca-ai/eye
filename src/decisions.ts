@@ -7,15 +7,17 @@ import { record, timestamp, id, subject as parseSubject, sampleId } from './core
 import type { Decision, Subject } from './core/types.js';
 import type { EyeService, PublishedPolicy, PreparedDecision } from './transport.js';
 
+/** 로컬 선택 결과의 진단. at은 Unix ms이며 실제 노출·학습 완료를 뜻하지 않는다. */
 export interface DecisionMetric {
   experimentId: string; outcome: 'assigned' | 'skipped' | 'no_active_arm';
   reason: 'fresh' | 'stale' | 'cold' | 'expired' | 'unprepared' | 'invalid_state' | 'inactive';
   authenticated: boolean; at: number;
 }
+/** 로컬 배정의 서명·신원별 토큰·공유 정책 캐시 설정. secret은 서버에만 둔다. */
 export interface DecisionOptions {
   /** Host secret, at least 32 UTF-8 bytes; never send it to browsers. */
   secret: string;
-  /** State from a host session or signed cookie, keyed by experiment ID. */
+  /** 실험 ID별 서명 토큰. 호스트 세션/쿠키에서 읽고 로그인·로그아웃·계정 변경 시 호스트가 비운다. */
   tokens?: Readonly<Record<string, string>>;
   /** 서비스 바인딩별 모듈 범위 캐시. 생략하면 바인딩 객체 기준 내부 캐시를 사용한다. */
   cache?: DecisionCache;
@@ -32,8 +34,11 @@ export interface DecisionOptions {
 export class DecisionCache {
   private readonly entries = new Map<string, { policy?: PublishedPolicy; retryAt: number; checkedAt?: number }>();
   constructor(private readonly capacity = 1000) { invariant(Number.isSafeInteger(capacity) && capacity > 0, 'invalid_input', 'Invalid policy cache capacity'); }
+  /** SDK 갱신용. 키에 저장된 정책을 읽으며 최신성을 보장하지 않는다. */
   read(key: string): PublishedPolicy | undefined { return this.entries.get(key)?.policy; }
+  /** SDK 갱신용. 마지막 정책 확인 시각(Unix ms); 확인 이력이 없으면 undefined. */
   checkedAt(key: string): number | undefined { return this.entries.get(key)?.checkedAt; }
+  /** SDK 갱신용. 키별 조회 시작을 10초 간격으로 제한하며 허용되면 true. */
   begin(key: string, now: number): boolean {
     if ((this.entries.get(key)?.retryAt ?? 0) > now) return false;
     const entry = this.entries.get(key);
@@ -42,6 +47,7 @@ export class DecisionCache {
     while (this.entries.size > this.capacity) this.entries.delete(this.entries.keys().next().value!);
     return true;
   }
+  /** SDK 갱신용. 더 오래된 sequence는 무시한다. 채택한 정책은 확인 시각을 기록한다. */
   put(key: string, policy: PublishedPolicy): void {
     const old = this.entries.get(key);
     if (old?.policy && old.policy.sequence > policy.sequence) return;
