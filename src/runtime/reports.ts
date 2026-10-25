@@ -1,7 +1,7 @@
 import type { RuntimeEnv as Env } from './environment.generated.js';
 import { StoredObject, storedJson } from './base.js';
 import { BasinAnalytics, type AnalyticsEnv } from '../analytics/query.js';
-import { canonicalJSON, runJobQuery, validateJobRequest } from '../analytics/job-query.js';
+import { canonicalJSON, jobCacheIdentity, runJobQuery, validateJobRequest } from '../analytics/job-query.js';
 import type { AnalyticsJob, AnalyticsJobInput, AnalyticsJobPage, AnalyticsJobRef, AnalyticsRequest, AnalyticsResult, BasicReport, ReportSchedule, ReportScheduleInput, ReportScheduleRef } from '../analytics/jobs.js';
 import { invariant } from '../core/errors.js';
 import { id, record } from '../core/validation.js';
@@ -48,7 +48,7 @@ export class ReportObject extends StoredObject {
   private async enqueue(siteId: string, input: AnalyticsJobInput, retainMs: number): Promise<AnalyticsJob> {
     id(siteId, 'siteId'); record(input, 'job input'); id(input.scope, 'scope');
     const request = validateJobRequest(siteId, input.request, Date.now());
-    const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([1, siteId, input.scope, request])));
+    const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([1, siteId, input.scope, jobCacheIdentity(request)])));
     const cacheKey = [...new Uint8Array(bytes)].map(b => b.toString(16).padStart(2, '0')).join('');
     const now = Date.now();
     const existing = this.sql.exec<JobRow>(`SELECT * FROM report_jobs WHERE cache_key = ? AND expires_at > ?

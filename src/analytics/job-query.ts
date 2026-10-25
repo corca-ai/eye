@@ -3,6 +3,7 @@ import { invariant } from '../core/errors.js';
 import type { AnalyticsRequest, AnalyticsResult } from './jobs.js';
 import type { BasinAnalytics } from './query.js';
 import { validateSummaryQuery } from './summary-query.js';
+import type { Filter } from './types.js';
 
 /** Sort object keys, keep array order/explicit nulls, and reject values JSON would
  * silently erase. Query validation runs before a key is computed. */
@@ -40,6 +41,32 @@ export function validateJobRequest(siteId: string, input: AnalyticsRequest, now:
   const json = canonicalJSON(normalized);
   invariant(new TextEncoder().encode(json).length <= 32_000, 'invalid_input', 'Analytics request exceeds 32KB');
   return json;
+}
+
+function normalizeFilter(filter: Filter): Filter {
+  if (!('and' in filter) && !('or' in filter)) return 'not' in filter ? { not: normalizeFilter(filter.not) } : filter;
+  const conjunction = 'and' in filter;
+  const children = (conjunction ? filter.and : filter.or).map(normalizeFilter).flatMap(child =>
+    conjunction && 'and' in child ? child.and : !conjunction && 'or' in child ? child.or : [child]);
+  const unique = new Map(children.map(child => [canonicalJSON(child), child]));
+  const ordered = [...unique].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([, child]) => child);
+  return ordered.length === 1 ? ordered[0]! : conjunction ? { and: ordered } : { or: ordered };
+}
+
+/** Cache-only representation of a request already admitted by validateJobRequest.
+ * Keep the original serialized request for execution and page().request. */
+export function jobCacheIdentity(request: string): string {
+  const input = JSON.parse(request) as AnalyticsRequest;
+  if (input.kind !== 'arms' && input.kind !== 'armSeries' && input.kind !== 'goals'
+    && input.kind !== 'series' && input.kind !== 'attributeValues') return request;
+  const query = input.query;
+  const hasEvent = input.kind === 'arms' || input.kind === 'armSeries' ? input.query.hasEvent : undefined;
+  return canonicalJSON({ ...input, query: { ...query,
+    ...(query.filter === undefined ? {} : { filter: normalizeFilter(query.filter) }),
+    ...(hasEvent === undefined ? {} : { hasEvent: { ...hasEvent,
+      ...(hasEvent.filter === undefined ? {} : { filter: normalizeFilter(hasEvent.filter) }),
+    } }),
+  } });
 }
 export async function runJobQuery(api: BasinAnalytics, input: Exclude<AnalyticsRequest, { kind: 'summary' }>): Promise<AnalyticsResult> {
   switch (input.kind) {
