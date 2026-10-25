@@ -1359,7 +1359,7 @@ export type Filter = {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/runtime/site.ts#L13)
+[소스](https://github.com/corca-ai/eye/blob/main/src/runtime/site.ts#L16)
 
 ```ts
 /** 골의 등록·상태 정보. 시각은 Unix ms이며 달성 조건·value는 각 goal 사건에서 서비스가 제공한다. */

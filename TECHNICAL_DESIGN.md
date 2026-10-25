@@ -22,10 +22,10 @@ Stream fan-out은 events, observations, credits, decisions, identity_links, poli
 
 ## 증분 학습
 
-학습·정책에는 두 SQLite Durable Object를 사용하고 운영자 비동기 조회는 별도 ReportObject가 처리한다.
+학습·정책은 사이트별 SiteControl의 한 SQLite 저장소에서 처리하고 운영자 비동기 조회는 별도 ReportObject가 처리한다.
 
-- SiteControl: 골 상태 이력, 실험 목록, goal 중복 방지, 현재 cid 신원 구간, 신원·실험별 마지막 노출, 미완료 관측과 보상 누계, 전달 outbox.
-- ExperimentObject: 실험 정의, arm별 감쇠 평균·분산, 적용한 cohort ID, 정책 발행 outbox.
+- SiteControl: 골 상태 이력, 실험 정의·세대별 설정, goal 중복 방지, 현재 cid 신원 구간, 신원·실험별 마지막 노출, 미완료 관측과 보상 누계, arm별 감쇠 평균·분산, 관측·정책 발행 outbox. 동기 ExperimentState가 같은 트랜잭션 안에서 실험 상태를 다룬다.
+- ExperimentObject: 이전 설치의 통계를 동결·이관하고 남은 정책 outbox를 전달하는 호환 객체다. 새 실험과 정상 학습은 호출하지 않는다.
 - ReportObject: 사이트별 비동기 조회 대기열·R2 결과 캐시. 사용자 선택과 학습 alarm을 호출하지 않는다.
 
 받은 배치만 `(occurredAt, eventId)`로 정렬한다. 전역 재정렬 버퍼·watermark·원본 학습 쿼리는 없다. 오래된 노출은 최근 노출을 덮어쓰지 않는다. 오래된 로그인·로그아웃도 현재 신원 구간을 되돌리지 않는다. 익명 구간의 첫 로그인은 마지막 노출을 uid 쪽과 시각별 최댓값으로 합치고, 로그아웃은 새 익명 구간을 시작한다. 계정 전환은 이전 계정의 노출을 다른 계정으로 넘기지 않는다. 로그아웃 순서 키 이전의 익명 노출은 현재 귀속 참조를 복원하지 않지만 표본 생성·정의 검증은 수행해 0 보상 표본을 보존한다.
@@ -36,7 +36,7 @@ Stream fan-out은 events, observations, credits, decisions, identity_links, poli
 
 첫 노출 시각 t, 관측 기간 W, 유예 G이면 마감 시각은 t+W+G다. 이 시각 이후 수신한 goal은 학습에 더하지 않는다. 배치 사이의 순서 역전은 근사 처리하며 과거 노출을 복원하거나 완료 보상을 정정하지 않는다. 새 실험의 누락된 노출이나 늦은 신원 연결은 다른 실험의 분배 몫도 바꿀 수 있다. `learning_approximation` 로그는 오래된 노출·신원과 미래 노출·마감 이후 골 처리 건수를 보고한다. 현재 신원·마지막 노출과 순서 키가 같은 재전송은 이 지표에 더하지 않는다. 이 지표가 보상 오차의 상한은 아니다.
 
-마감 alarm은 최대 500개 표본, 관측 출력 약 512 KB 단위로 완료 보상과 arm 통계를 outbox에 고정하고 표본을 제거한다. 이 작업은 하나의 SQLite 트랜잭션이다. 통계는 관측 종료부터 기준 시각까지 감쇠해 신규 증거처럼 취급하지 않는다. 이후 실험별 통계 적용 → Stream 출력 → outbox 확인 순서다. 실패·eviction 후 같은 outbox를 재사용하고 ExperimentObject의 cohort ID로 중복 학습을 막는다. 학습에 Basin 인증이나 R2 임시 결과 바인딩은 필요하지 않다.
+마감 alarm은 최대 500개 표본, 관측 출력 약 512 KB 단위로 표본 제거·완료 요약·arm 통계 갱신·출력 outbox 생성을 하나의 SQLite 트랜잭션에 커밋한다. 통계는 관측 종료부터 기준 시각까지 감쇠해 신규 증거처럼 취급하지 않는다. 이후 Stream 출력 → outbox 확인 순서다. 실패·eviction 후에는 출력만 재전송하므로 새 학습에 통계 전달 RPC나 cohort 중복 방지 원장이 필요하지 않다. 학습에 Basin 인증이나 R2 임시 결과 바인딩은 필요하지 않다. 이관 중인 이전 outbox만 기존 적용 기록을 확인한다. [원자적 학습과 이관](docs/ATOMIC-LEARNING.md)에 검증·운영 절차가 있다.
 
 outbox는 한 alarm당 최대 20개를 묶어 전달한다. 정상 관측 마감과 메타데이터 만료는 다음 60초 경계로 올려 합친다. 보상 수락 기준 t+W+G는 그대로이며 반영·출력만 경계 정렬로 60초 미만 늦어질 수 있다. 실제 플랫폼 지연은 별도다. 성공한 alarm 뒤에도 기한이 지난 작업이 남거나 outbox가 있으면 약 1초 후 이어 처리한다. 실패 백오프는 유지하고 빈 사이트는 주기적으로 조회하지 않는다. 동일 사이트의 신원 연결·동시 실험 귀속은 하나의 직렬화 경계에서 처리한다. 사이트별 고부하에서는 이 객체의 CPU·상태 쓰기·처리 지연을 측정해야 하며 사이트 전체를 무제한 처리하는 보장은 없다.
 
@@ -66,6 +66,8 @@ outbox는 한 alarm당 최대 20개를 묶어 전달한다. 정상 관측 마감
 
 Cloudflare 참고: [DO SQLite](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/), [R2 Workers API](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/), [Basin SQL](https://developers.cloudflare.com/basin-sql/), [Pipelines](https://developers.cloudflare.com/pipelines/). 로컬 SQL 호환 테스트는 실제 Basin 실행 계획·비용·처리량 검증을 대신하지 않는다.
 
-기존 조회 기반 v2에서 전환할 때 과거 원본이나 진행 중 관측을 자동 재생하지 않는다. 새로 수신한 노출부터 마지막 노출·보상 상태를 구성하므로 전환을 걸친 관측은 일부 이전 보상을 포함하지 않을 수 있다. 기존 ExperimentObject 통계는 유지한다. 깨끗한 관측 경계가 필요하면 새 Worker/site에서 시작해 호스트를 전환한다. 기존 `eye/cohorts/` 임시 결과는 사용하지 않지만 `COHORTS` 바인딩은 ReportObject 결과 저장에 계속 필요하다.
+기존 조회 기반 v2에서 전환할 때 과거 원본이나 진행 중 관측을 자동 재생하지 않는다. 새로 수신한 노출부터 마지막 노출·보상 상태를 구성하므로 전환을 걸친 관측은 일부 이전 보상을 포함하지 않을 수 있다. 기존 조회 기반 v2의 통계는 보존하며, 현재의 단일 저장소 구조로 올릴 때는 아래 원자적 학습 이관 절차를 적용한다. 깨끗한 관측 경계가 필요하면 새 Worker/site에서 시작해 호스트를 전환한다. 기존 `eye/cohorts/` 임시 결과는 사용하지 않지만 `COHORTS` 바인딩은 ReportObject 결과 저장에 계속 필요하다.
 
 60일보다 오래 전달되지 않은 마감 outbox는 정책 통계 재적용을 생략하고 `learning_retention_gap`을 기록한다. 오래된 cohort의 중복 방지 기록이 만료된 뒤 다시 가산하거나 전체 사이트 전달을 영구 차단하지 않기 위한 정책이며, 해당 기간의 학습 보상 완전성을 보장하지 않는다.
+
+원자적 학습 이전의 증분 v2 설치는 기존 namespace·migration 이력을 유지한 코드 업데이트로 이관한다. 첫 접근에 실험을 동결하고 설정·통계를 재시작 가능한 페이지로 복사한다. EXPERIMENTS 바인딩과 ExperimentObject export를 제거하지 않는다. 전환 후 이전 바이너리로 단순 롤백하면 새 통계를 읽을 수 없다. 자세한 전환 조건과 복구 제한은 [이관 안내](docs/ATOMIC-LEARNING.md#기존-증분-v2-설치-전환)를 따른다.

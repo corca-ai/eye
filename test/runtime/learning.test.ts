@@ -34,14 +34,14 @@ it('closes durable rewards, retries delivery after eviction and applies arm mome
       expect(state.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM learning_outbox').one().n).toBeGreaterThan(0);
       expect(state.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM learning_samples').one().n).toBe(0);
     });
-    const before = await experiment.getPolicy();
+    const before = await site.getExperimentPolicy(siteId, 'exp');
     expect(before.arms[0]!.meanReward).toBeCloseTo(100 * 2 ** (-10 / config.settings.attributionHalfLifeMs));
     await evictDurableObject(site);
     await runInDurableObject(site, async (actor, state) => {
       state.storage.kv.delete('alarmRetryAt'); await actor.alarm();
       expect(state.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM learning_outbox').one().n).toBe(0);
     });
-    expect((await experiment.getPolicy()).arms[0]!.weight).toBeCloseTo(before.arms[0]!.weight, 10);
+    expect((await site.getExperimentPolicy(siteId, 'exp')).arms[0]!.weight).toBeCloseTo(before.arms[0]!.weight, 10);
     expect(rows.filter(r => r.table_name === 'observations' && r.status === 'complete')).toHaveLength(1);
     expect(rows.filter(r => r.table_name === 'credits')).toHaveLength(0);
     expect(fetchSpy).not.toHaveBeenCalled();

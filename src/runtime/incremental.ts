@@ -20,6 +20,8 @@ type OwnerState = { values: Map<string, Last>; loaded: Set<string>; all: boolean
 export interface LearningOutput {
   cohort: Pick<ClosedCohort, 'cohortId' | 'asOf' | 'arms'>;
   records: AnalyticsRecord[];
+  /** Local closure and moments committed together; the outbox now carries export only. */
+  learningApplied?: true;
 }
 export interface LearningDiagnostics { staleExposures: number; staleIdentities: number; futureExposures: number; closedGoals: number }
 export interface LearningReceipt { accepted: boolean[]; diagnostics: LearningDiagnostics }
@@ -271,7 +273,7 @@ export class IncrementalLearning {
     }
   }
   /** Freeze a bounded set of zero/nonzero completed samples and remove them in the same transaction. */
-  close(siteId: string, now: number): number {
+  close(siteId: string, now: number, apply?: (cohort: LearningOutput['cohort']) => void): number {
     const rows = this.sql.exec<SampleRow>('SELECT * FROM learning_samples WHERE close_at <= ? ORDER BY close_at, sample_id LIMIT ?', now, CLOSE_LIMIT);
     const records: AnalyticsRecord[] = [], samples: ClosedSample[] = [];
     const summaries = this.summaries.batch(now);
@@ -298,7 +300,11 @@ export class IncrementalLearning {
       this.sql.exec(`DELETE FROM learning_samples WHERE sample_id IN (${ids.map(() => '?').join(',')})`, ...ids);
     }
     summaries.flush();
-    if (records.length) this.enqueue({ cohort: { cohortId: crypto.randomUUID(), asOf: now, arms: closedSampleMoments(samples, now) }, records });
+    if (records.length) {
+      const cohort = { cohortId: crypto.randomUUID(), asOf: now, arms: closedSampleMoments(samples, now) };
+      if (apply) { apply(cohort); this.enqueue({ cohort: { ...cohort, arms: [] }, records, learningApplied: true }); }
+      else this.enqueue({ cohort, records });
+    }
     return records.length;
   }
   private enqueue(output: LearningOutput): void { this.sql.exec('INSERT INTO learning_outbox(data) VALUES (?)', JSON.stringify(output)); }

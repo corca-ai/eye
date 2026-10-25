@@ -14,6 +14,10 @@ import type { ArmStatus, CreateExperiment, Experiment, ExperimentSettings } from
 import { StoredObject, storedJson } from './base.js';
 
 export class ExperimentObject extends StoredObject {
+  // TEMP-CODE(issue: #13, remove-when: pre-atomic upgrades unsupported, check: each-release): seal retired state before copying.
+  private assertWritable(): void {
+    invariant(this.kv.get('migrationTarget') === undefined, 'unavailable', 'Experiment migrated to SiteControl; use the Worker service');
+  }
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.sql.exec(`
@@ -25,6 +29,7 @@ export class ExperimentObject extends StoredObject {
   }
 
   create(input: CreateExperiment): Experiment {
+    this.assertWritable();
     const current = this.kv.get<Experiment>('config');
     const original = this.kv.get<CreateExperiment>('definition');
     const parsed = parseCreateExperiment(input);
@@ -41,6 +46,7 @@ export class ExperimentObject extends StoredObject {
     return config;
   }
   getConfig(): Experiment {
+    this.assertWritable();
     const config = this.kv.get<Experiment>('config');
     invariant(config, 'not_found', 'Experiment does not exist');
     return config;
@@ -51,6 +57,7 @@ export class ExperimentObject extends StoredObject {
     return result;
   }
   addArm(armId: string): Experiment {
+    this.assertWritable();
     id(armId, 'armId');
     const config = this.getConfig();
     invariant(config.status !== 'deleted', 'conflict', 'Experiment is deleted');
@@ -62,6 +69,7 @@ export class ExperimentObject extends StoredObject {
     return next;
   }
   setArmStatus(armId: string, status: ArmStatus): Experiment {
+    this.assertWritable();
     invariant(status === 'active' || status === 'paused' || status === 'deleted', 'invalid_input', 'Invalid arm status');
     const config = this.getConfig();
     const arm = config.arms.find(a => a.armId === armId);
@@ -74,6 +82,7 @@ export class ExperimentObject extends StoredObject {
     return next;
   }
   setStatus(status: ArmStatus): Experiment {
+    this.assertWritable();
     invariant(status === 'active' || status === 'paused' || status === 'deleted', 'invalid_input', 'Invalid experiment status');
     const config = this.getConfig();
     if ((config.status ?? 'active') === status) return config;
@@ -83,6 +92,7 @@ export class ExperimentObject extends StoredObject {
     return next;
   }
   updateSettings(input: Partial<ExperimentSettings>): Experiment {
+    this.assertWritable();
     const config = this.getConfig();
     invariant(config.status !== 'deleted', 'conflict', 'Experiment is deleted');
     const nextSettings = settings({ ...config.settings, ...input });
@@ -104,6 +114,7 @@ export class ExperimentObject extends StoredObject {
       statsAsOf: this.kv.get<number>('statsAsOf') ?? null };
   }
   applyCohort(cohort: Pick<ClosedCohort, 'cohortId' | 'asOf' | 'arms'>): boolean {
+    this.assertWritable();
     invariant(typeof cohort.cohortId === 'string' && cohort.cohortId.length <= 2048, 'invalid_input', 'Invalid cohort id');
     timestamp(cohort.asOf, 'cohort.asOf');
     invariant(cohort.asOf >= Date.now() - RETENTION_MS && cohort.asOf <= Date.now() + 60_000, 'outside_retention', 'Cohort outside learning retention');
@@ -129,6 +140,7 @@ export class ExperimentObject extends StoredObject {
     });
   }
   async publishedPolicy(siteId?: string, maxAgeMs = POLICY_REEVALUATION_MS): Promise<import('../transport.js').PublishedPolicy> {
+    this.assertWritable();
     if (siteId !== undefined) id(siteId, 'siteId');
     invariant(Number.isSafeInteger(maxAgeMs) && maxAgeMs > 0, 'invalid_input', 'Invalid policy maximum age');
     let config = this.getConfig();
@@ -136,6 +148,7 @@ export class ExperimentObject extends StoredObject {
     if (previous && Date.now() - previous.publishedAt < Math.min(POLICY_REEVALUATION_MS, maxAgeMs, Math.max(1, Math.floor(config.settings.learningHalfLifeMs / 8)))
       && previous.revision === config.revision && !this.kv.get('policyDirty')) return previous;
     if (siteId) await this.wakeAt(Date.now() + 1000);
+    this.assertWritable();
     config = this.getConfig();
     previous = this.kv.get<import('../transport.js').PublishedPolicy>('publishedPolicy');
     if (previous && Date.now() - previous.publishedAt < Math.min(POLICY_REEVALUATION_MS, maxAgeMs, Math.max(1, Math.floor(config.settings.learningHalfLifeMs / 8)))
@@ -166,5 +179,35 @@ export class ExperimentObject extends StoredObject {
       if (this.sql.exec('SELECT id FROM policy_outbox LIMIT 1').toArray().length) await this.wakeAt(Date.now() + 1000);
       else { await this.ctx.storage.deleteAlarm(); this.kv.delete('alarmAt'); }
     });
+  }
+  // TEMP-CODE(issue: #13, remove-when: pre-atomic upgrades unsupported, check: each-release): bounded, restart-safe legacy export. Policy outbox keeps its alarm.
+  beginMigration(siteId: string) {
+    id(siteId, 'siteId');
+    const target = this.kv.get<string>('migrationTarget');
+    invariant(target === undefined || target === siteId, 'conflict', 'Migration site mismatch');
+    this.kv.put('migrationTarget', siteId);
+    return { config: this.kv.get<Experiment>('config') ?? null, definition: this.kv.get<CreateExperiment>('definition'),
+      publishedPolicy: this.kv.get<import('../transport.js').PublishedPolicy>('publishedPolicy'),
+      statsAsOf: this.kv.get<number>('statsAsOf'), policyDirty: this.kv.get<boolean>('policyDirty') };
+  }
+  migrationGenerations(siteId: string, after: number) {
+    invariant(this.kv.get('migrationTarget') === siteId, 'conflict', 'Migration site mismatch');
+    timestamp(after, 'after');
+    const generation = this.kv.get<Experiment>('config')?.generation ?? 0;
+    return Array.from({ length: Math.min(100, Math.max(0, generation - after)) }, (_, i) => {
+      const n = after + i + 1; return { generation: n, settings: this.getGeneration(n) };
+    });
+  }
+  migrationMoments(siteId: string, after: { generation: number; armId: string } | null) {
+    invariant(this.kv.get('migrationTarget') === siteId, 'conflict', 'Migration site mismatch');
+    if (after) { timestamp(after.generation, 'generation'); id(after.armId, 'armId'); }
+    return this.sql.exec<{ generation: number; arm_id: string; data: string }>(
+      'SELECT generation,arm_id,data FROM arm_moments WHERE generation > ? OR (generation=? AND arm_id>?) ORDER BY generation,arm_id LIMIT 100',
+      after?.generation ?? -1, after?.generation ?? -1, after?.armId ?? '').toArray();
+  }
+  migrationApplied(siteId: string, cohortId: string): boolean {
+    invariant(this.kv.get('migrationTarget') === siteId, 'conflict', 'Migration site mismatch');
+    invariant(typeof cohortId === 'string' && cohortId.length <= 2048, 'invalid_input', 'Invalid cohort id');
+    return this.sql.exec('SELECT id FROM applied_cohorts WHERE id=?', cohortId).toArray().length > 0;
   }
 }
