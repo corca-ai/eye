@@ -6,9 +6,9 @@ import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { RuntimeEnv as Env } from './environment.generated.js';
 import { invariant } from '../core/errors.js';
 import { parseCreateExperiment, parseEnvelope } from '../core/events.js';
-import { experimentKey, id, settings } from '../core/validation.js';
-import type { ArmStatus, CreateExperiment, EventEnvelope, ExperimentSettings, GoalStatus } from '../core/types.js';
-import type { EyeService, PublishedPolicy } from '../transport.js';
+import { id } from '../core/validation.js';
+import type { ArmStatus, CreateExperiment, EventEnvelope, Experiment, ExperimentSettings, GoalStatus } from '../core/types.js';
+import type { EyeService, PublishedPolicy, PolicySnapshot } from '../transport.js';
 import { rawRecords, validateRawEnvelope } from '../analytics/raw.js';
 import { type AnalyticsRecord } from '../analytics/records.js';
 import { sendExportBatches } from '../analytics/export.js';
@@ -18,7 +18,7 @@ import type { AnalyticsAPI } from '../analytics/types.js';
 
 export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements EyeService {
   override fetch(): Response { return new Response('Not found', { status: 404 }); }
-  async getPublishedPolicy(siteId: string, experimentId: string, maxAgeMs?: number): Promise<PublishedPolicy> { return this.experiment(siteId, experimentId).publishedPolicy(siteId, maxAgeMs); }
+  async getPublishedPolicy(siteId: string, experimentId: string, maxAgeMs?: number): Promise<PublishedPolicy> { return this.site(siteId).publishedPolicy(siteId, id(experimentId, 'experimentId'), maxAgeMs); }
   async ingest(inputs: readonly EventEnvelope[]): Promise<void> {
     invariant(Array.isArray(inputs) && inputs.length <= 100, 'invalid_input', 'An ingestion batch must contain at most 100 events');
     const envelopes = inputs.map(input => parseEnvelope(input, Date.now()));
@@ -66,25 +66,18 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
     catch (error) { for (const item of items) item.message.retry(); throw error; }
     for (const message of batch.messages) { if (retries.has(message)) message.retry(); else message.ack(); }
   }
-  async createExperiment(siteId: string, input: CreateExperiment) {
-    id(siteId, 'siteId');
-    const parsed = parseCreateExperiment(input);
-    await this.env.SITES.getByName(siteId).noteSettings(parsed.settings);
-    const result = await this.env.EXPERIMENTS.getByName(experimentKey(siteId, parsed.experimentId)).create(parsed);
-    await this.env.SITES.getByName(siteId).registerExperiment(parsed.experimentId, siteId, result.settings);
-    return result;
+  async createExperiment(siteId: string, input: CreateExperiment): Promise<Experiment> {
+    return this.site(siteId).createExperiment(siteId, parseCreateExperiment(input));
   }
-  async getExperiment(siteId: string, experimentId: string) { return this.experiment(siteId, experimentId).getConfig(); }
-  async listExperiments(siteId: string, after = '', limit = 100) { return this.env.SITES.getByName(id(siteId, 'siteId')).listExperiments(after, limit); }
-  async updateExperiment(siteId: string, experimentId: string, input: Partial<ExperimentSettings>) {
-    const actor = this.experiment(siteId, experimentId), config = await actor.getConfig();
-    await this.env.SITES.getByName(siteId).noteSettings(settings({ ...config.settings, ...input }));
-    return actor.updateSettings(input);
+  async getExperiment(siteId: string, experimentId: string): Promise<Experiment> { return this.site(siteId).getExperiment(siteId, id(experimentId, 'experimentId')); }
+  async listExperiments(siteId: string, after = '', limit = 100) { return this.site(siteId).listExperiments(after, limit); }
+  async updateExperiment(siteId: string, experimentId: string, input: Partial<ExperimentSettings>): Promise<Experiment> {
+    return this.site(siteId).updateExperiment(siteId, id(experimentId, 'experimentId'), input);
   }
-  async addArm(siteId: string, experimentId: string, armId: string) { return this.experiment(siteId, experimentId).addArm(armId); }
-  async setArmStatus(siteId: string, experimentId: string, armId: string, status: ArmStatus) { return this.experiment(siteId, experimentId).setArmStatus(armId, status); }
-  async setExperimentStatus(siteId: string, experimentId: string, status: ArmStatus) { return this.experiment(siteId, experimentId).setStatus(status); }
-  async getPolicy(siteId: string, experimentId: string) { return this.experiment(siteId, experimentId).getPolicy(); }
+  async addArm(siteId: string, experimentId: string, armId: string): Promise<Experiment> { return this.site(siteId).addExperimentArm(siteId, id(experimentId, 'experimentId'), id(armId, 'armId')); }
+  async setArmStatus(siteId: string, experimentId: string, armId: string, status: ArmStatus): Promise<Experiment> { return this.site(siteId).setExperimentArmStatus(siteId, id(experimentId, 'experimentId'), id(armId, 'armId'), status); }
+  async setExperimentStatus(siteId: string, experimentId: string, status: ArmStatus): Promise<Experiment> { return this.site(siteId).setExperimentStatus(siteId, id(experimentId, 'experimentId'), status); }
+  async getPolicy(siteId: string, experimentId: string): Promise<PolicySnapshot> { return this.site(siteId).getExperimentPolicy(siteId, id(experimentId, 'experimentId')); }
   async createGoal(siteId: string, goalId: string) { return this.env.SITES.getByName(id(siteId, 'siteId')).createGoal(goalId); }
   async getGoal(siteId: string, goalId: string) { return this.env.SITES.getByName(id(siteId, 'siteId')).getGoal(goalId); }
   async listGoals(siteId: string, after = '', limit = 100) { return this.env.SITES.getByName(id(siteId, 'siteId')).listGoals(after, limit); }
@@ -109,7 +102,7 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
   async analyticsGoals(siteId: string, query: Parameters<AnalyticsAPI['goals']>[0]) { return new BasinAnalytics(this.env, siteId).goals(query); }
   async analyticsSeries(siteId: string, query: Parameters<AnalyticsAPI['series']>[0]) { return new BasinAnalytics(this.env, siteId).series(query); }
   async analyticsAttributeValues(siteId: string, query: Parameters<AnalyticsAPI['attributeValues']>[0]) { return new BasinAnalytics(this.env, siteId).attributeValues(query); }
-  private experiment(siteId: string, experimentId: string) { return this.env.EXPERIMENTS.getByName(experimentKey(id(siteId, 'siteId'), id(experimentId, 'experimentId'))); }
+  private site(siteId: string) { return this.env.SITES.getByName(id(siteId, 'siteId')); }
 }
 function errorCode(error: unknown): string | undefined {
   if (typeof error !== 'object' || error === null || !('code' in error)) return undefined;

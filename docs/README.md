@@ -23,6 +23,7 @@
 | [구현 상태](IMPLEMENTATION.md) | 구현 범위·검증 증거와 남은 운영 검증 |
 | [로그 스트림 검증](ENGINE-VALIDATION.md) | 현재 엔진의 A/A·A/B·우세 전환·재전송·단위 변환 검사 |
 | [요청 경로 수집 예산](REQUEST-PERFORMANCE.md) | 요청별 수집·대기 한도, 배정 지연 초기화, 큰 속성 조기 거절 |
+| [원자적 학습과 이관](ATOMIC-LEARNING.md) | 단일 SQLite 마감·통계 갱신, 기존 설치 전환과 검증 |
 | [원본 조회 구조 개선](QUERY-STRUCTURE.md) | 조회 범위·신원별 조인, 변경 전 SQL과의 결과 대조 및 측정 |
 | [요구사항](../DESIGN.md) | 제품 범위와 보상·신원 규칙, 합의 기록 |
 | [기술 설계](../TECHNICAL_DESIGN.md) | 내부 상태·선택 알고리즘·저장소 구조 |
