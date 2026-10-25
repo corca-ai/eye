@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, readdir, access, writeFile, symlink, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -54,6 +55,21 @@ selection.expose(); client.dispose();
   await exec(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '-p', join(temporary, 'tsconfig.browser.json')]);
   const installation = join(temporary, 'eye');
   await exec(process.execPath, [join(library, 'scripts/eye.mjs'), 'init', installation, '--account-id', 'a'.repeat(32)]);
+  const installedConfig = JSON.parse(await readFile(join(installation, 'wrangler.jsonc'), 'utf8'));
+  assert.deepEqual(installedConfig.durable_objects.bindings, [
+    { name: 'SITES', class_name: 'SiteControl' }, { name: 'REPORTS', class_name: 'ReportObject' },
+  ]);
+  assert.deepEqual(installedConfig.exports, {
+    SiteControl: { type: 'durable-object', storage: 'sqlite' },
+    ReportObject: { type: 'durable-object', storage: 'sqlite' },
+  });
+  assert.deepEqual(installedConfig.r2_buckets, [{ binding: 'REPORT_RESULTS', bucket_name: 'eye-data' }]);
+  const resources = JSON.parse(await readFile(join(installation, 'resources.json'), 'utf8'));
+  assert.deepEqual(resources.tables, ['events', 'observations', 'identity_links', 'policies', 'attribute_keys']);
+  assert.equal(resources.sinkRollIntervalSeconds, 300);
+  const fanout = await readFile(join(installation, 'fanout.sql'), 'utf8');
+  assert.equal((fanout.match(/INSERT INTO /g) ?? []).length, resources.tables.length);
+  for (const table of resources.tables) assert.ok(fanout.includes(`WHERE table_name = '${table}'`));
   const deployed = await exec(process.execPath, [join(root, 'node_modules/wrangler/bin/wrangler.js'), 'deploy', '--dry-run', '--config', join(installation, 'wrangler.jsonc')]);
   const bundle = deployed.stdout.split('\n').find(line => line.includes('Total Upload:'));
   console.log(JSON.stringify({ tarballBytes: size, externalConsumerTypes: 'passed', browserConsumerTypes: 'passed', generatedWorkerBundle: bundle?.trim() ?? 'passed', deployed: false }));

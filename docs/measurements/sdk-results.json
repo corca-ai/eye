@@ -66,40 +66,5 @@
       "queueMessages": 100,
       "events": 500
     }
-  ],
-  "learningPages": [
-    {
-      "limit": 1000,
-      "queries": 3,
-      "samples": 2001,
-      "maxFrozenResultBytes": 1681598,
-      "elapsedMs": [
-        2193.461042,
-        2077.522542,
-        2078.5008339999995
-      ]
-    },
-    {
-      "limit": 2000,
-      "queries": 2,
-      "samples": 2001,
-      "maxFrozenResultBytes": 3359367,
-      "elapsedMs": [
-        1380.2874999999995,
-        1408.6255420000007,
-        1401.7561670000014
-      ]
-    },
-    {
-      "limit": 5000,
-      "queries": 1,
-      "samples": 2001,
-      "maxFrozenResultBytes": 3361094,
-      "elapsedMs": [
-        748.697709,
-        751.5039589999997,
-        724.6553750000003
-      ]
-    }
   ]
 }

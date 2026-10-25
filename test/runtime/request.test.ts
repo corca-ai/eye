@@ -95,7 +95,7 @@ it('session token writes merge and stale authentication epochs cannot repopulate
   const { env } = await import('cloudflare:workers');
   const { runInDurableObject } = await import('cloudflare:test');
   const { EyeSession, eyeSessionAdapter } = await import('../../examples/session.js');
-  await runInDurableObject(env.EXPERIMENTS.getByName(crypto.randomUUID()), async (_instance, state) => {
+  await runInDurableObject(env.SITES.getByName(crypto.randomUUID()), async (_instance, state) => {
     const session = new EyeSession(state, env);
     const first = session.snapshot();
     const adapter = eyeSessionAdapter(first, async (epoch, id, token) => session.setToken(epoch, id, token));

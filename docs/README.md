@@ -23,20 +23,12 @@
 | [구현 상태](IMPLEMENTATION.md) | 구현 범위·검증 증거와 남은 운영 검증 |
 | [로그 스트림 검증](ENGINE-VALIDATION.md) | 현재 엔진의 A/A·A/B·우세 전환·재전송·단위 변환 검사 |
 | [요청 경로 수집 예산](REQUEST-PERFORMANCE.md) | 요청별 수집·대기 한도, 배정 지연 초기화, 큰 속성 조기 거절 |
-| [원자적 학습과 이관](ATOMIC-LEARNING.md) | 단일 SQLite 마감·통계 갱신, 기존 설치 전환과 검증 |
+| [원자적 학습](ATOMIC-LEARNING.md) | 단일 SQLite 마감·통계 갱신과 실패·재시도 검증 |
 | [원본 조회 구조 개선](QUERY-STRUCTURE.md) | 조회 범위·신원별 조인, 변경 전 SQL과의 결과 대조 및 측정 |
 | [요구사항](../DESIGN.md) | 제품 범위와 보상·신원 규칙, 합의 기록 |
 | [기술 설계](../TECHNICAL_DESIGN.md) | 내부 상태·선택 알고리즘·저장소 구조 |
-| [증분 비용 최적화](INCREMENTAL-COST.md) | 현재 상태 조회·알람·사전 생성·요약 보고서의 로컬 비교와 한계 |
+| [증분 비용 최적화](INCREMENTAL-COST.md) | 상태 조회·알람·사전 생성·요약 보고서의 로컬 비교와 한계 |
 | [상태 최적화 기록](STATE-OPTIMIZATION.md) | 선행 배치 쓰기 결합·압축·사전 캐시 측정 |
-| [조회 기반 v2 비용 기록](COST-V2.md) | 증분 학습 이전의 비용 항목·가정별 총액 |
-| [과거 비용 기록](COST.md) | v1 사용량 가정과 비용 기록 |
-| [실배포 부하테스트](LOAD-TEST-2026-10-23.md) | v1 실제 계정의 측정 조건·실패와 제한 |
-| [DO 동작 점검](DO-REVIEW-2026-10-23.md) | 저장 gate·알람·배경 발행 수정과 독립 프로브·재측정 |
-| [최적화 검증](PERFORMANCE.md) | v1 수집 경로·SQLite 쓰기 측정 |
-| [시뮬레이션](SIMULATION.md) | v1 정책의 장기 비정상 환경 비교 |
-
-다음은 과거 검토 기록이며 현재 연동 절차로 사용하지 않는다: [요청 경로 계획](REQUEST-PATH-PLAN.md), [문서·구현 대조](DOC-CODE-AUDIT.md), [코드 점검](REVIEW-2026-10-23.md).
 
 ## 문서 유지보수
 
@@ -46,4 +38,4 @@ API 설명은 `src/`의 JSDoc, 함수 시그니처와 타입을 원본으로 한
 
 저장소 검사 명령은 [README](../README.md#개발과-문서-갱신)에 있다. `src/`는 SDK·런타임, `test/`는 순수 로직·workerd 검사, `templates/`는 계정 설치 구성, `scripts/`는 도구다. 루트 Wrangler Stream ID는 로컬 검사용 placeholder이며 실제 설정은 `eye init`으로 만든다. 자격 증명은 환경 변수·secrets로 공급하고 실제 계정 설치 디렉터리는 소스 저장소 밖에 둔다.
 
-- [SDK 반복 작업 최적화 평가](PERFORMANCE-SDK.md): 서명·준비 RPC·수집 묶음의 전후 측정과 학습 페이지 크기 비교.
+- [SDK 반복 작업 최적화 평가](PERFORMANCE-SDK.md): 서명·준비 RPC·수집 묶음의 전후 측정.

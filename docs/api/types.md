@@ -421,7 +421,6 @@ export interface ArmRow {
     groups: Scalar[];
     completed: number;
     pending: number;
-    interrupted: number;
     /** 관측에 기록된 고유 신원 키 수. cid/uid 전환을 합친 실제 사람 수가 아니다. */
     subjects: number;
     /** 현재 조회 가능한 원본으로 재계산한 귀속 보상. */
@@ -926,8 +925,7 @@ export interface CreateExperiment {
 export type Decision = {
     readonly status: 'assigned';
     readonly assignment: Assignment;
-    readonly reason: 'selected' | 'held' | 'adopted';
-    readonly routingKey?: string;
+    readonly reason: 'selected' | 'held';
     readonly localContext?: import('./local-assignment.js').LocalAssignmentContext;
     readonly applyUntil?: number;
 } | {
@@ -1058,8 +1056,8 @@ export type EventInput<T> = Omit<T, 'kind' | 'eventId' | 'occurredAt'> & {
 ```ts
 /** 현재 실험 정의. 상태 변경은 이력을 보존하며 설정 변경은 새 generation으로 학습한다. */
 export interface Experiment {
-    /** Missing on legacy records means active. */
-    readonly status?: ExperimentStatus;
+    /** 실험 전체의 선택 허용 상태. */
+    readonly status: ExperimentStatus;
     readonly experimentId: string;
     /** 설정 변경으로 구분되는 학습 세대. */
     readonly generation: number;
@@ -1138,7 +1136,6 @@ export type ExposureEvent = EventBase & {
     readonly kind: 'exposure';
     readonly assignment: Assignment;
     readonly userAttributes?: Attributes;
-    readonly routingKey?: string;
     readonly sample?: {
         readonly sampleId: string;
         readonly startAt: number;
@@ -1513,8 +1510,8 @@ export interface LearningRow {
 [소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L12)
 
 ```ts
-/** 관측의 완료 여부. 평균 분모에는 complete만 포함하며 interrupted는 0 보상 완료가 아니다. */
-export type ObservationStatus = 'pending' | 'complete' | 'interrupted';
+/** 관측의 완료 여부. 평균 분모에는 complete만 포함한다. */
+export type ObservationStatus = 'pending' | 'complete';
 ```
 
 타입: [ObservationStatus](types.md#observationstatus)

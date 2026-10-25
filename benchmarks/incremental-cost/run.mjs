@@ -46,7 +46,7 @@ for (const attributeBytes of [0, 25000]) for (const batchSize of [1, 100]) {
   const goals = Array.from({ length: 100 }, (_, i) => ({ kind: 'goal', eventId: 'g' + i, occurredAt: 20 + i, subject: { cid: 'c', uid: 'u' }, goalId: 'pay', value: i - 30 }));
   for (let i = 0; i < goals.length; i += batchSize) engine.accept(goals.slice(i, i + batchSize), 200);
   const sampleResultBytes = counts.sampleBytes;
-  engine.close('site', 2000);
+  engine.close('site', 2000, () => {});
   const reward = engine.outputs().flatMap(o => o.output.records)[0].value;
   const expected = goals.reduce((sum, g) => sum + g.value * 2 ** (-(g.occurredAt - 10) / config.attributionHalfLifeMs), 0);
   assert.ok(Math.abs(reward - expected) < 1e-10);
@@ -55,7 +55,7 @@ for (const attributeBytes of [0, 25000]) for (const batchSize of [1, 100]) {
 function alarms() {
   const { db, engine } = open(); let scheduled = null, wakes = 0, cohorts = 0, samples = 0;
   const flush = now => {
-    wakes++; engine.close('site', now);
+    wakes++; engine.close('site', now, () => {});
     const outputs = engine.outputs(); cohorts += outputs.length;
     for (const { output } of outputs) { samples += output.records.length; assert.ok(output.records.every(r => r.value === 0)); }
     engine.acknowledge(outputs.map(o => o.id)); scheduled = engine.nextWake(now, true);

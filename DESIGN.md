@@ -30,4 +30,4 @@ cid는 브라우저 식별자이며 항상 필요하다. uid는 서비스 인증
 
 API는 arm별 관측·보상·정책·트래픽, 속성별 필터/그룹, cid/uid 시계열을 제공한다. 적응 배분 결과를 탐색하는 자료이며 평균 차이를 인과적 uplift로 해석하지 않는다. SDK는 SSR 요청 래퍼와 CSR 뷰/노출 API를 제공하고 프레임워크·DOM 자동 감지·관리 UI를 포함하지 않는다.
 
-정확한 설정 기본값은 [자동 생성 타입 문서](docs/api/types.md), 저장·쿼리 한도와 배포 호환성은 [구현 구조](TECHNICAL_DESIGN.md), 실측 여부는 [검증 범위](docs/IMPLEMENTATION.md)를 따른다.
+정확한 설정 기본값은 [자동 생성 타입 문서](docs/api/types.md), 저장·쿼리 한도와 설치 구조은 [구현 구조](TECHNICAL_DESIGN.md), 실측 여부는 [검증 범위](docs/IMPLEMENTATION.md)를 따른다.

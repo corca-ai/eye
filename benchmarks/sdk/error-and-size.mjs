@@ -1,14 +1,13 @@
-// npm run build; node benchmarks/sdk/error-and-size.mjs [absolute dist directory]
+// npm run build; node benchmarks/sdk/error-and-size.mjs
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import assert from 'node:assert/strict';
-const base = pathToFileURL(resolve(process.argv[2] ?? 'dist') + '/');
-const { createEye, encodedSize, MAX_EVENT_BYTES, MAX_BATCH_BYTES } = await import(new URL('client.js', base));
+const base = pathToFileURL(resolve('dist') + '/');
+const { createEye } = await import(new URL('client.js', base));
 const { createEyeRequest } = await import(new URL('request.js', base));
 const { packEvents, packIngestion } = await import(new URL('runtime/queue-batch.js', base));
 const { parseEnvelope } = await import(new URL('core/events.js', base));
-const { invariant } = await import(new URL('core/errors.js', base));
 const median = values => values.sort((a, b) => a - b)[2];
 const results = [], subject = { cid: 'browser' };
 for (const mode of ['raw', 'wrapper-no-hook', 'wrapper-counter-hook']) {
@@ -36,12 +35,6 @@ for (const mode of ['raw', 'wrapper-no-hook', 'wrapper-counter-hook']) {
   results.push({ name: mode, ...last, medianSynchronousRequestAverageMs: median(samples) });
 }
 const now = Date.now();
-const legacyPack = envelopes => {
-  const sizes = envelopes.map(event => encodedSize(event) + 200);
-  invariant(sizes.every(size => size <= MAX_EVENT_BYTES) && sizes.reduce((sum, size) => sum + size, 0) <= MAX_BATCH_BYTES,
-    'invalid_input', 'Ingestion batch exceeds encoded size limits');
-  return packEvents(envelopes);
-};
 for (const [count, detail] of [[1, 'view'], [50, 'view'], [2, '한'.repeat(20_000)]]) {
   const inputs = Array.from({ length: count }, (_, i) => ({ siteId: 'site', receivedAt: now,
     event: { kind: 'track', eventId: String(i), occurredAt: now, subject, name: 'view', attributes: { detail } } }));
@@ -51,7 +44,7 @@ for (const [count, detail] of [[1, 'view'], [50, 'view'], [2, '한'.repeat(20_00
     const start = performance.now();
     for (let i = 0; i < 300; i++) {
       const envelopes = inputs.map(input => parseEnvelope(input, now));
-      actual = (packIngestion ?? legacyPack)(envelopes);
+      actual = packIngestion(envelopes);
     }
     if (pass) samples.push((performance.now() - start) / 300);
     assert.deepEqual(actual, expected);

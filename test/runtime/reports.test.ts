@@ -128,7 +128,7 @@ it('reuses an R2 result after publication interruption and expires both status a
   try {
     await runInDurableObject(actor, async (a, state) => {
       const key = `eye/reports/${state.id.toString()}/${job.jobId}.json`;
-      await env.COHORTS.put(key, JSON.stringify({ kind: 'goals', data: result() }));
+      await env.REPORT_RESULTS.put(key, JSON.stringify({ kind: 'goals', data: result() }));
       state.storage.sql.exec("UPDATE report_jobs SET status='running', next_at=0, attempts=1 WHERE job_id=?", job.jobId);
     });
     await evictDurableObject(actor);
@@ -139,7 +139,7 @@ it('reuses an R2 result after publication interruption and expires both status a
       state.storage.sql.exec('UPDATE report_jobs SET expires_at=0 WHERE job_id=?', job.jobId);
       await expect(a.status(ref)).rejects.toThrow('not found');
       await a.alarm();
-      expect(await env.COHORTS.head(`eye/reports/${state.id.toString()}/${job.jobId}.json`)).toBeNull();
+      expect(await env.REPORT_RESULTS.head(`eye/reports/${state.id.toString()}/${job.jobId}.json`)).toBeNull();
     });
   } finally { query.mockRestore(); }
 });

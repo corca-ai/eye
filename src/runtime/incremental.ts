@@ -18,10 +18,7 @@ type SampleState = { row: RewardRow; detail: SampleDetail | null; inserted: bool
 type FullSampleState = SampleState & { detail: SampleDetail };
 type OwnerState = { values: Map<string, Last>; loaded: Set<string>; all: boolean; dirty: Set<string> };
 export interface LearningOutput {
-  cohort: Pick<ClosedCohort, 'cohortId' | 'asOf' | 'arms'>;
   records: AnalyticsRecord[];
-  /** Local closure and moments committed together; the outbox now carries export only. */
-  learningApplied?: true;
 }
 export interface LearningDiagnostics { staleExposures: number; staleIdentities: number; futureExposures: number; closedGoals: number }
 export interface LearningReceipt { accepted: boolean[]; diagnostics: LearningDiagnostics }
@@ -41,11 +38,6 @@ export interface LearningSQL {
 function lastReference(event: SampleEvent): Last {
   return { occurredAt: event.occurredAt, eventId: event.eventId,
     sampleId: event.sample.sampleId, attributionWindowMs: event.attributionWindowMs };
-}
-function readLast(data: string): Last {
-  const value = decode<Last | SampleEvent>(data);
-  // Old full-event rows are rewritten only when the reference changes.
-  return 'assignment' in value ? lastReference(value) : value;
 }
 
 /** One accept call, discarded even when the surrounding transaction rolls back. */
@@ -75,7 +67,7 @@ class LearningBatch {
       for (const row of this.sql.exec<{ experiment_id: string; data: string }>(
         'SELECT experiment_id, data FROM learning_last WHERE owner = ?', owner)) {
         // Preserve point reads, local updates and tombstones when upgrading to a full read.
-        if (!state.loaded.has(row.experiment_id)) state.values.set(row.experiment_id, readLast(row.data));
+        if (!state.loaded.has(row.experiment_id)) state.values.set(row.experiment_id, decode<Last>(row.data));
       }
       state.all = true;
     }
@@ -85,7 +77,7 @@ class LearningBatch {
     const state = this.owner(owner);
     if (!state.all && !state.loaded.has(experimentId)) {
       const row = this.sql.exec<{ data: string }>('SELECT data FROM learning_last WHERE owner = ? AND experiment_id = ?', owner, experimentId).toArray()[0];
-      if (row) state.values.set(experimentId, readLast(row.data));
+      if (row) state.values.set(experimentId, decode<Last>(row.data));
       state.loaded.add(experimentId);
     }
     return state.values.get(experimentId);
@@ -108,7 +100,7 @@ class LearningBatch {
         this.samples.set(id, row ? this.fullSample(row, decode<SampleEvent>(row.data), false) : null);
       } else {
         // definition is small and immutable. Do not fetch/parse the potentially
-        // large exposure attributes on every reward update; no schema migration.
+        // large exposure attributes on every reward update.
         const row = this.sql.exec<RewardRow>(`SELECT sample_id, close_at, scale, sum, correction,
           json_extract(definition, '$[1]') AS start_at,
           json_extract(definition, '$[1]') + json_extract(definition, '$[0].settings.observationWindowMs') AS end_at,
@@ -273,7 +265,7 @@ export class IncrementalLearning {
     }
   }
   /** Freeze a bounded set of zero/nonzero completed samples and remove them in the same transaction. */
-  close(siteId: string, now: number, apply?: (cohort: LearningOutput['cohort']) => void): number {
+  close(siteId: string, now: number, apply: (cohort: Pick<ClosedCohort, 'asOf' | 'arms'>) => void): number {
     const rows = this.sql.exec<SampleRow>('SELECT * FROM learning_samples WHERE close_at <= ? ORDER BY close_at, sample_id LIMIT ?', now, CLOSE_LIMIT);
     const records: AnalyticsRecord[] = [], samples: ClosedSample[] = [];
     const summaries = this.summaries.batch(now);
@@ -301,9 +293,8 @@ export class IncrementalLearning {
     }
     summaries.flush();
     if (records.length) {
-      const cohort = { cohortId: crypto.randomUUID(), asOf: now, arms: closedSampleMoments(samples, now) };
-      if (apply) { apply(cohort); this.enqueue({ cohort: { ...cohort, arms: [] }, records, learningApplied: true }); }
-      else this.enqueue({ cohort, records });
+      apply({ asOf: now, arms: closedSampleMoments(samples, now) });
+      this.enqueue({ records });
     }
     return records.length;
   }

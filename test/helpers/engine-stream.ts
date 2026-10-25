@@ -61,16 +61,20 @@ export function simulate(input: Scenario) {
   };
   const flush = (now: number) => {
     alarms++;
-    atomic(() => { engine.prune(now); engine.close('site', now); });
+    atomic(() => {
+      engine.prune(now);
+      engine.close('site', now, cohort => {
+        for (const arm of cohort.arms) {
+          const old = moments.get(arm.armId) ?? emptyMoments(now);
+          moments.set(arm.armId, mergeMoments(ageMoments(old, now, cfg.learningHalfLifeMs), arm.moments));
+        }
+      });
+    });
     for (const { id, output } of engine.outputs()) {
       for (const row of output.records) {
         assert.ok(!observations.has(row.record_id), 'one completion per sample');
         assert.ok(Number.isFinite(row.value), 'finite completed reward');
         observations.set(row.record_id, row.value!);
-      }
-      for (const arm of output.cohort.arms) {
-        const old = moments.get(arm.armId) ?? emptyMoments(now);
-        moments.set(arm.armId, mergeMoments(ageMoments(old, now, cfg.learningHalfLifeMs), arm.moments));
       }
       atomic(() => engine.acknowledge([id]));
     }

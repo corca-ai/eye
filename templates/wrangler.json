@@ -22,30 +22,11 @@
         "class_name": "SiteControl"
       },
       {
-        "name": "EXPERIMENTS",
-        "class_name": "ExperimentObject"
-      },
-      {
         "name": "REPORTS",
         "class_name": "ReportObject"
       }
     ]
   },
-  "migrations": [
-    {
-      "tag": "v2-fresh",
-      "new_sqlite_classes": [
-        "SiteControl",
-        "ExperimentObject"
-      ]
-    },
-    {
-      "tag": "v2-reports",
-      "new_sqlite_classes": [
-        "ReportObject"
-      ]
-    }
-  ],
   "pipelines": [
     {
       "binding": "ANALYTICS",
@@ -71,8 +52,18 @@
   },
   "r2_buckets": [
     {
-      "binding": "COHORTS",
+      "binding": "REPORT_RESULTS",
       "bucket_name": "eye-analytics"
     }
-  ]
+  ],
+  "exports": {
+    "SiteControl": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "ReportObject": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  }
 }

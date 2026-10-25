@@ -94,6 +94,3 @@ export function settings(value: unknown): ExperimentSettings {
 export function subjectKey(siteId: string, value: Subject): string {
   return JSON.stringify([siteId, value.uid === undefined ? 'cid' : 'uid', value.uid ?? value.cid]);
 }
-export function experimentKey(siteId: string, experimentId: string): string {
-  return JSON.stringify([siteId, experimentId]);
-}

@@ -45,7 +45,7 @@ export interface ArmRow {
   armId: string; generation: number; observationWindowMs: number;
   /** 요청 groupBy와 같은 순서의 값. */
   groups: Scalar[];
-  completed: number; pending: number; interrupted: number;
+  completed: number; pending: number;
   /** 관측에 기록된 고유 신원 키 수. cid/uid 전환을 합친 실제 사람 수가 아니다. */
   subjects: number;
   /** 현재 조회 가능한 원본으로 재계산한 귀속 보상. */

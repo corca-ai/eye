@@ -20,7 +20,7 @@ const goal = (eventId: string, at: number, value: number, cid = 'paid', uid?: st
 function fixture(initial: EyeEvent[], later: EyeEvent[] = []) {
   const learning = learningDatabase();
   for (const event of [...initial].sort(compareEvents)) learning.engine.accept([event], event.occurredAt);
-  learning.engine.close('site', start + 2000);
+  learning.engine.close('site', start + 2000, () => {});
   const records = learning.engine.outputs().flatMap(item => item.output.records);
   learning.close();
   const rows = [...initial, ...later].flatMap(event => rawRecords({ siteId: 'site', receivedAt: now - 1, event }));
@@ -104,33 +104,15 @@ it('reconstructs one pending sample and assignment from repeated receipts, using
   } finally { db.close(); }
 });
 
-it('recovers pending projections when the first receipt is lost and preserves legacy-only rows', async () => {
+it('recovers pending projections when the first receipt is lost', async () => {
   const first = exposure('survivor', 'browser');
   const event = { ...first, eventId: 'later-only', occurredAt: start + 100 };
   const rows = rawRecords({ siteId: 'site', receivedAt: now - 1, event });
-  const legacy = { ...rows[0]!, table_name: 'observations' as const, record_id: 'legacy', observation_id: 'legacy',
-    occurred_at: start, status: 'pending', value: 0, attributes_json: '{"country":"old"}',
-    payload_json: JSON.stringify({ generation: 1, endAt: start + 1000 }) };
-  const db = database([...rows, legacy]);
+  const db = database(rows);
   try {
     const api = new BasinAnalytics(env, 'site', db.request, () => now);
     const report = await api.arms({ from: start, to: now, experimentId: 'exp' });
-    expect(report.rows[0]).toMatchObject({ pending: 2, completed: 0 });
-  } finally { db.close(); }
-});
-
-it('retains earlier legacy projection attributes during a rolling upgrade without double counting', async () => {
-  const event = exposure('shared-sample', 'browser');
-  const rows = rawRecords({ siteId: 'site', receivedAt: now - 1, event });
-  const legacy = { ...rows[0]!, table_name: 'observations' as const, record_id: 'shared-sample',
-    occurred_at: start, received_at: now - 20, status: 'pending', value: 0, attributes_json: '{"country":"legacy"}',
-    payload_json: JSON.stringify({ generation: 1, endAt: start + 1000 }) };
-  const db = database([...rows, legacy, legacy]);
-  try {
-    const api = new BasinAnalytics(env, 'site', db.request, () => now);
-    const report = await api.arms({ from: start, to: now, experimentId: 'exp', groupBy: [{ key: 'country', type: 'string' }] });
-    expect(report.rows).toHaveLength(1);
-    expect(report.rows[0]).toMatchObject({ pending: 1, completed: 0, groups: ['legacy'] });
+    expect(report.rows[0]).toMatchObject({ pending: 1, completed: 0 });
   } finally { db.close(); }
 });
 

@@ -122,7 +122,7 @@ export class BasinAnalytics implements AnalyticsAPI {
       ...(bucketMs === undefined ? {} : { bucketStart: numeric(row, 'bucket_start') }),
       armId: text(row, 'arm_id'), generation: numeric(row, 'generation'), observationWindowMs: numeric(row, 'window_ms'),
       groups: (query.groupBy ?? []).map((_, i) => scalar(row[`group_${i}`])), completed: numeric(row, 'completed'), pending: numeric(row, 'pending'),
-      interrupted: numeric(row, 'interrupted'), subjects: numeric(row, 'subjects'), totalValue: numeric(row, 'total_value'), learningValue: numeric(row, 'learning_value'),
+      subjects: numeric(row, 'subjects'), totalValue: numeric(row, 'total_value'), learningValue: numeric(row, 'learning_value'),
       meanValue: row.mean_value === null ? null : numeric(row, 'mean_value'), latestReceivedAt: numeric(row, 'latest_received_at'),
     })) };
   }

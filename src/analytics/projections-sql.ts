@@ -2,7 +2,7 @@ import { analyticsRecord } from './records.js';
 
 const columns = Object.keys(analyticsRecord({ siteId: '', subjectKey: '' }, 'events', '', 1, 0, 0, {}));
 /** Reconstruct pending samples and selected assignments from durable exposures.
- * Keep physical rows for closed learning results and rolling upgrades. No
+ * Physical rows contain completed learning results. No
  * first-receipt marker or per-user ledger is needed: any retained receipt works.
  * All SQL identifiers/values are supplied by the validated query builder.
  */
@@ -28,7 +28,7 @@ export function exposureProjection(table: 'observations' | 'decisions', alias: s
     payload_json: payload,
   };
   // subject_key is JSON-encoded at ingestion because Basin has no portable
-  // scalar-to-JSON quoting function. Legacy rows supply their original payload.
+  // scalar-to-JSON quoting function.
   // Relevant samples/assignments start >= from; their receipts cannot predate
   // that start. Keep receipts after to: first actual exposure can arrive later.
   return `${alias}_receipts AS (SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY ${key} ORDER BY occurred_at, record_id, received_at) AS receipt_rank
@@ -36,7 +36,7 @@ FROM ${namespace}.events WHERE site_id = ${site} AND occurred_at >= ${Math.max(r
 AND received_at <= ${receivedBefore} AND status = 'accepted' AND json_get_str(payload_json, 'kind') = 'exposure'
 AND json_get_json(payload_json, 'projectionSubjectKey') IS NOT NULL) r WHERE receipt_rank = 1),
 ${alias}_derived AS (SELECT ${columns.map(column => `${overrides[column] ?? column} AS ${column}`).join(', ')} FROM ${alias}_receipts),
-${alias}_sources AS (SELECT ${columns.join(', ')}, 1 AS source_priority FROM ${alias}_derived WHERE occurred_at >= ${from} AND occurred_at < ${to}${extra}
-UNION ALL SELECT ${columns.join(', ')}, 0 AS source_priority FROM ${namespace}.${table} WHERE site_id = ${site} AND occurred_at >= ${from} AND occurred_at < ${to} AND received_at <= ${receivedBefore}${extra}),
-${alias} AS (SELECT ${columns.join(', ')}, _revision_rank FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY record_id ORDER BY revision DESC, received_at ASC, source_priority DESC) AS _revision_rank FROM ${alias}_sources) r WHERE _revision_rank = 1)`;
+${alias}_sources AS (SELECT ${columns.join(', ')} FROM ${alias}_derived WHERE occurred_at >= ${from} AND occurred_at < ${to}${extra}${observation ? `
+UNION ALL SELECT ${columns.join(', ')} FROM ${namespace}.observations WHERE site_id = ${site} AND occurred_at >= ${from} AND occurred_at < ${to} AND received_at <= ${receivedBefore} AND status = 'complete'${extra}` : ''}),
+${alias} AS (SELECT ${columns.join(', ')}, _revision_rank FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY record_id ORDER BY revision DESC, received_at ASC) AS _revision_rank FROM ${alias}_sources) r WHERE _revision_rank = 1)`;
 }

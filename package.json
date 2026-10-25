@@ -43,7 +43,6 @@
     "TECHNICAL_DESIGN.md",
     "docs",
     "examples",
-    "scripts/simulate_bandit.py",
     "LICENSE"
   ],
   "engines": {

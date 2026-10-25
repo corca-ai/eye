@@ -15,8 +15,8 @@ it('packs without reordering, respects UTF-8 bytes and the decoder event limit',
   }
   expect(packEvents(Array.from({ length: 201 }, (_, i) => envelope(i))).map(b => b.events.length)).toEqual([100, 100, 1]);
 });
-it('accepts the single-event wire format and rejects invalid wrappers and oversized events', () => {
-  expect(unpackEvents(envelope(1))).toEqual([envelope(1)]);
+it('rejects unwrapped events, invalid wrappers and oversized events', () => {
+  expect(() => unpackEvents(envelope(1))).toThrow();
   expect(packEvents([])).toEqual([]);
   expect(() => unpackEvents({ version: 2, events: 'bad' })).toThrow();
   expect(() => unpackEvents({ version: 2, events: Array(101).fill(null) })).toThrow();
