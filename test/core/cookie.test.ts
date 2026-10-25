@@ -1,6 +1,10 @@
 import { expect, it } from 'vitest';
 import { getOrCreateCid } from '../../src/cookie.js';
 
+it.each(['\u212a', '\u017f'])('rejects non-ASCII cookie name %s before producing an unusable response header', name => {
+  expect(() => getOrCreateCid(new Request('https://example.com/'), { name })).toThrow('Invalid cookie name');
+});
+
 it('creates a host-only cookie once and reads it on the next request', () => {
   const first = getOrCreateCid(new Request('https://example.com/'));
   expect(first.setCookie).toContain('HttpOnly; SameSite=Lax; Secure');

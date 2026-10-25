@@ -188,7 +188,22 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
         && latest.sample.startAt > decision.localContext.sample.startAt)) ? latest : decision.localContext;
     const result = exposeLocal({ status: 'assigned', refreshPolicy: false, reason: decision.reason === 'selected' ? 'selected' : 'held', context, applyUntil: decision.applyUntil }, occurredAt, eventId);
     return { exposure: result.exposure, commit: () => {
-      if (contexts.get(decision.assignment.experimentId) !== result.context) persist(decision.assignment.experimentId, result.context);
+      const current = contexts.get(decision.assignment.experimentId);
+      // A delayed receipt still describes its original exposure. It cannot
+      // rewind an assignment or sample, but a newer external decision can advance it.
+      if (current) {
+        const incoming = result.context;
+        if (current.assignment.assignmentId === incoming.assignment.assignmentId) {
+          if (current.sample && current.sample.startAt > result.exposure.startAt) return;
+        } else {
+          const newer = incoming.assignment.assignedAt > current.assignment.assignedAt
+            || (incoming.assignment.assignedAt === current.assignment.assignedAt
+              && incoming.subject.cid === current.subject.cid && incoming.subject.uid === current.subject.uid
+              && incoming.drawIndex > current.drawIndex);
+          if (!newer) return;
+        }
+      }
+      if (current !== result.context) persist(decision.assignment.experimentId, result.context);
     } };
   };
   const expose = (...args: Parameters<typeof stageExposure>) => {

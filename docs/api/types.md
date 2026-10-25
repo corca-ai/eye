@@ -730,7 +730,7 @@ export interface CidCookie {
 
 ```ts
 export interface CidCookieOptions {
-    /** Host-only cookie name. Defaults to `cid`. */
+    /** Host-only ASCII HTTP token name. Defaults to `cid`. */
     readonly name?: string;
     /** Lifetime in seconds; this option follows HTTP cookie units. Defaults to one year. */
     readonly maxAgeSeconds?: number;

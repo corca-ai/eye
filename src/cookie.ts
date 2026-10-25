@@ -1,7 +1,7 @@
 import { invariant } from './core/errors.js';
 
 export interface CidCookieOptions {
-  /** Host-only cookie name. Defaults to `cid`. */
+  /** Host-only ASCII HTTP token name. Defaults to `cid`. */
   readonly name?: string;
   /** Lifetime in seconds; this option follows HTTP cookie units. Defaults to one year. */
   readonly maxAgeSeconds?: number;
@@ -16,7 +16,7 @@ export interface CidCookie {
 export function getOrCreateCid(request: Request, options: CidCookieOptions = {}): CidCookie {
   const name = options.name ?? 'cid';
   const maxAge = options.maxAgeSeconds ?? 31_536_000;
-  invariant(/^[!#$%&'*+.^_`|~\da-z-]+$/iu.test(name), 'invalid_input', 'Invalid cookie name');
+  invariant(/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name), 'invalid_input', 'Invalid cookie name');
   invariant(Number.isSafeInteger(maxAge) && maxAge > 0, 'invalid_input', 'maxAgeSeconds must be a positive integer');
   const secure = new URL(request.url).protocol === 'https:';
   invariant(secure || (!name.startsWith('__Host-') && !name.startsWith('__Secure-')), 'invalid_input', 'Secure cookie prefixes require HTTPS');
