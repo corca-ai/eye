@@ -206,3 +206,19 @@ if (first.nextCursor) {
 ### 노출 기반 조회
 
 pending 관측과 배정은 실제 노출에서 재구성한다. 같은 표본의 반복 노출은 발생 시각·event ID 순으로 최초 노출의 속성을 선택하며, complete 학습 결과가 pending보다 우선한다. 운영자 조회는 원본을 읽으므로 비동기 작업·결과 캐시 사용을 권장한다.
+
+## 전체 사건 목록
+
+`eye.analytics.events({ from, to, name?, goalId?, uid?, cid?, filter?, limit?, cursor? })`는
+사이트의 `events` 원본만 발생 시각·사건 ID 오름차순으로 조회한다. 관측·귀속·배정
+기록은 포함하지 않으며, 골 중지 등으로 비활성 처리된 원본 사건도 상태와 함께 반환한다.
+`name`은 track 사건의 이름이며, 골은 `goalId`로 찾는다. 선택 조건은 모두 AND다.
+`uid`는 사건에 직접 기록된 계정만 찾는다. 로그인 전 익명 이력을 연결하려면
+기존 `timeline({ subject: { uid }, ... })`을 사용한다.
+
+`filter`는 사건 속성의 타입을 유지하므로 프로젝트 등 대상 ID로 범위를 좁힐 수 있다.
+범위·limit·속성 필터의 제한은 다른 원본 조회와 같다. 다음 페이지는 같은 조건과
+`nextCursor`로 요청한다. 커서는 최초 페이지의 `receivedBefore`를 유지하지만
+Iceberg snapshot이나 수집 완료를 보장하지 않는다. `nextCursor=null`이면 끝이다.
+기간·필터를 바꾸면 새 조회를 시작한다. 비동기 저장 조회는
+`jobs.create({ scope, request: { kind: 'events', query } })`를 사용한다.

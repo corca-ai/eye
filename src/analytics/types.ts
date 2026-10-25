@@ -23,6 +23,11 @@ export interface TimelineQuery extends QueryRange {
   /** Include anonymous events in the interval claimed by the first subsequent login. Defaults to true. */
   includeLinked?: boolean; cursor?: string;
 }
+/** 사이트 전체 원본 사건. 각 선택 조건은 AND로 적용하며 uid는 사건에 기록된 uid만 조회한다.
+ * 익명 이력을 연결한 사용자 조회에는 timeline을 사용한다. 다음 페이지는 조건을 유지한다. */
+export interface EventsQuery extends QueryRange {
+  name?: string; goalId?: string; uid?: string; cid?: string; filter?: Filter; cursor?: string;
+}
 /** 발생 시각 기준 accepted 원본 골 합계. filter는 사건 attributes에 적용한다. */
 export interface GoalQuery extends QueryRange { goalId?: string; filter?: Filter }
 /** bucketMs는 양의 정수 밀리초이며 Unix epoch 기준 UTC 경계로 묶는다. */
@@ -108,6 +113,8 @@ export interface AnalyticsAPI {
   arms(query: ArmQuery): Promise<ArmReport>;
   /** 한 cid 또는 uid의 이력을 cursor로 이어 읽는다. */
   timeline(query: TimelineQuery): Promise<TimelinePage>;
+  /** 전체 원본 사건만 조회한다. 내부 관측·배정 기록은 포함하지 않는다. */
+  events(query: EventsQuery): Promise<TimelinePage>;
   /** accepted 원본 골 수·가치 합. */
   goals(query: GoalQuery): Promise<AnalyticsPage<GoalRow>>;
   /** 발생 시각 bucket별 골 합계. 빈 bucket은 생략한다. */
