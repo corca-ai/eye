@@ -1,20 +1,49 @@
+/** Internal query scope; values and identifiers are already validated/quoted. */
+export interface AttributionScope { key: 'cid' | 'uid'; value: string; includeLinked: boolean }
+
 /** SQL counterpart of IdentityHistory + last-touch attribution. Input identifiers
  * and bounds are already validated/quoted by AnalyticsSQL. CTEs keep latest-touch
  * selection before the finite-horizon filter, and split before learning eligibility.
  */
-export function attributionCTEs(table: string, site: string, min: number, from: number, to: number, receivedBefore: number, eventMin = min): string[] {
+export function attributionCTEs(table: string, site: string, min: number, from: number, to: number, receivedBefore: number, scope?: AttributionScope): string[] {
   const before = (a: string, b: string) => `(${a}.occurred_at < ${b}.occurred_at OR (${a}.occurred_at = ${b}.occurred_at AND ${a}.record_id <= ${b}.record_id))`;
   const candidate = `g.record_id AS goal_event_id, g.goal_id, g.value AS goal_value, g.payload_json AS goal_payload,
 g.occurred_at, CASE WHEN g.received_at > e.received_at THEN g.received_at ELSE e.received_at END AS received_at,
 e.record_id AS exposure_id, e.occurred_at AS exposure_at, e.payload_json AS exposure_payload, e.subject_key, e.cid, g.uid,
 e.experiment_id, e.arm_id, e.assignment_id, e.observation_id, g.occurred_at - e.occurred_at AS gap`;
+  const scopeCTEs: string[] = [];
+  let goalScope = '';
+  if (scope) {
+    const cids = scope.key === 'cid' ? `SELECT ${scope.value} AS cid`
+      : `SELECT cid FROM ac_links WHERE uid = ${scope.value}`;
+    scopeCTEs.push(`ac_scope_cids AS (${cids})`);
+    const uids = scope.key === 'uid' ? `SELECT ${scope.value} AS uid`
+      : `SELECT uid FROM ac_events WHERE cid = ${scope.value} AND json_get_str(payload_json, 'kind') = 'exposure' AND uid IS NOT NULL
+UNION SELECT uid FROM ac_links WHERE cid = ${scope.value} AND uid IS NOT NULL`;
+    scopeCTEs.push(`ac_scope_uids AS (${uids})`);
+    // Conservative identity sets retain every goal that can yield a matching
+    // credit, including purchases on another device. Final membership is unchanged.
+    goalScope = scope.key === 'uid' && !scope.includeLinked ? ` AND uid = ${scope.value}`
+      : ' AND (uid IN (SELECT uid FROM ac_scope_uids) OR cid IN (SELECT cid FROM ac_scope_cids))';
+  }
   return [
     `ac_events AS (SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY record_id ORDER BY received_at ASC) AS rn FROM ${table}.events
-WHERE site_id = ${site} AND occurred_at >= ${eventMin} AND occurred_at < ${to} AND received_at <= ${receivedBefore} AND status = 'accepted') a WHERE rn = 1)`,
+WHERE site_id = ${site} AND occurred_at >= ${min} AND occurred_at < ${to} AND received_at <= ${receivedBefore} AND status = 'accepted') a WHERE rn = 1)`,
     `ac_links AS (SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY record_id ORDER BY received_at ASC) AS rn FROM ${table}.identity_links
 WHERE site_id = ${site} AND occurred_at >= ${min} AND occurred_at < ${to} AND received_at <= ${receivedBefore} AND status IN ('identify','logout')) a WHERE rn = 1)`,
-    `ac_exposures AS (SELECT * FROM ac_events WHERE json_get_str(payload_json, 'kind') = 'exposure')`,
-    `ac_goals AS (SELECT * FROM ac_events WHERE json_get_str(payload_json, 'kind') = 'goal' AND occurred_at >= ${from})`,
+    ...scopeCTEs,
+    // Scope goals first, but retain all experiments capable of competing for them.
+    `ac_goals AS (SELECT * FROM ac_events WHERE json_get_str(payload_json, 'kind') = 'goal' AND occurred_at >= ${from}${goalScope})`,
+    `ac_exposures AS (SELECT * FROM ac_events WHERE json_get_str(payload_json, 'kind') = 'exposure'${scope ? ` AND (
+uid IN (SELECT uid FROM ac_goals WHERE uid IS NOT NULL)
+OR (uid IS NULL AND (cid IN (SELECT cid FROM ac_goals WHERE uid IS NULL)
+OR cid IN (SELECT cid FROM ac_links WHERE uid IN (SELECT uid FROM ac_goals WHERE uid IS NOT NULL)))))` : ''})`,
+    // Each direct UID exposure is latest only until its successor in the same
+    // experiment. Rank the ownership branches together before testing expiry.
+    `ac_uid_exposures AS (SELECT *,
+LEAD(occurred_at) OVER (PARTITION BY uid, experiment_id ORDER BY occurred_at, record_id) AS next_exposure_at,
+LEAD(record_id) OVER (PARTITION BY uid, experiment_id ORDER BY occurred_at, record_id) AS next_exposure_id
+FROM ac_exposures WHERE uid IS NOT NULL)`,
     `ac_before AS (SELECT * FROM (SELECT e.record_id AS exposure_key, l.status AS previous_kind,
 ROW_NUMBER() OVER (PARTITION BY e.record_id ORDER BY l.occurred_at DESC, l.record_id DESC) AS position
 FROM ac_exposures e LEFT JOIN ac_links l ON l.cid = e.cid AND ${before('l', 'e')}) a WHERE position = 1)`,
@@ -25,8 +54,9 @@ FROM ac_exposures e LEFT JOIN ac_links l ON l.cid = e.cid AND NOT ${before('l', 
     // equivalent here (goal/exposure IDs are unique) and avoids Basin's known
     // distributed UNION ALL issue. Rank after union, before horizon/eligibility.
     `ac_matches AS (
-SELECT ${candidate} FROM ac_goals g JOIN ac_exposures e ON e.uid = g.uid AND ${before('e', 'g')}
-WHERE e.uid IS NOT NULL
+SELECT ${candidate} FROM ac_goals g JOIN ac_uid_exposures e ON e.uid = g.uid AND ${before('e', 'g')}
+AND (e.next_exposure_at IS NULL OR g.occurred_at < e.next_exposure_at
+OR (g.occurred_at = e.next_exposure_at AND g.record_id < e.next_exposure_id))
 UNION
 SELECT ${candidate} FROM ac_goals g JOIN ac_after a ON a.next_uid = g.uid
 JOIN ac_exposures e ON e.record_id = a.exposure_key AND ${before('e', 'g')}

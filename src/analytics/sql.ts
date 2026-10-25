@@ -166,9 +166,10 @@ MAX(received_at) AS latest_received_at FROM scaled GROUP BY ${dimensions} ORDER 
     invariant(!cursor || (cursor.fingerprint === fp && cursor.receivedBefore <= this.now && cursor.at >= q.from && cursor.at < q.to), 'invalid_input', 'Cursor does not belong to this query');
     const receivedBefore = cursor?.receivedBefore ?? this.now;
     // An interval can begin before the 60-day event horizon and still be active now.
-    const ctes = [this.latest('identity_links', 'links', Math.max(0, this.now - RETENTION_MS), q.to, receivedBefore),
-      ...attributionCTEs(this.namespace, literal(this.siteId), Math.max(0, this.now - RETENTION_MS), q.from, q.to, receivedBefore)];
     const linked = key === 'uid' && q.includeLinked !== false;
+    const ctes = [this.latest('identity_links', 'links', Math.max(0, this.now - RETENTION_MS), q.to, receivedBefore),
+      ...attributionCTEs(this.namespace, literal(this.siteId), Math.max(0, this.now - RETENTION_MS), q.from, q.to, receivedBefore,
+        { key, value, includeLinked: linked })];
     if (linked) ctes.push(identitySegments('links', 'link_segments'));
     for (const table of TABLES.filter(t => t !== 'identity_links' && t !== 'policies' && t !== 'attribute_keys' && t !== 'credits')) {
       // Subject membership is applied after revision deduplication; revisions may change identity metadata.

@@ -32,3 +32,37 @@ node /tmp/eye-analytics-query.mjs
 npm run check
 npm run check:package
 ```
+
+## 최신 노출 구간과 타임라인 범위 축소
+
+기준 `9db4e79` 이후 명시적 uid의 노출을 `(uid, experiment_id)`별 `(occurred_at, record_id)` 순서로 정렬하고 LEAD로 다음 노출을 구한다. 각 노출은 자신의 순서 키 이상·다음 노출의 순서 키 미만인 골에만 후보가 된다. 같은 uid의 다른 기기 노출도 이 순서에 포함한다. 명시적 uid 경로에서는 골·실험별 최대 한 후보만 만든다.
+
+익명·첫 로그인 후보는 그대로 합친 뒤 소유권 경로 전체에서 최신 노출을 고른다. 귀속 기간 검사는 그 다음이며, 최신 노출이 만료됐다고 과거 노출로 되돌아가지 않는다. 경쟁 실험의 분모, 관측 적격성, 부호 있는 보상, 수신 시각 상한과 event ID 동률 규칙을 유지한다.
+
+타임라인은 조회 uid 또는 cid와 관련된 uid·로그인 cid의 보수적인 집합으로 먼저 골 후보를 좁힌다. cid 조회도 다른 기기에서 발생한 uid 구매를 유지한다. 선택한 골에 귀속될 가능성이 있는 모든 실험의 명시적 uid 노출과 익명 cid 노출을 남긴다. 과거 로그인 이력을 잘라 다음/이전 신원 경계를 바꾸지 않으며 최종 타임라인의 사용자 조건과 커서 조건은 그대로 적용한다.
+
+원본의 중복 제거·노출 projection·신원 이력 읽기는 남는다. 따라서 타임라인 전체의 계산·스캔량이 O(1)이 되는 것은 아니다. 관련 없는 사용자가 늘어도 귀속 조인의 골·노출 후보 집합을 유지하는 개선이다. 익명 경로의 후보 조합도 별도로 남아 있어 모든 귀속을 선형 시간에 처리한다고 보장하지 않는다.
+
+[로컬 결과](measurements/temporal-query-results.json)는 같은 입력의 모든 credit 열과 타임라인·arm 결과가 기준 SQL과 일치하는지 먼저 검사한 뒤 한 번 예열·세 번 측정한 중앙값이다.
+
+| 한 uid의 이벤트 수 | 이전 후보 | 현재 후보 | 이전 ms | 현재 ms |
+| ---: | ---: | ---: | ---: | ---: |
+| 160 | 3,240 | 80 | 35.03 | 5.54 |
+| 320 | 12,880 | 160 | 127.04 | 11.01 |
+| 640 | 51,360 | 320 | 528.97 | 24.69 |
+
+| 무관한 사용자 수 | 전체 이벤트 | 범위 축소 후 골/노출/후보 | 이전 타임라인 ms | 현재 타임라인 ms |
+| ---: | ---: | ---: | ---: | ---: |
+| 0 | 60 | 30 / 30 / 30 | 8.79 | 9.51 |
+| 40 | 380 | 30 / 30 / 30 | 26.98 | 23.75 |
+| 160 | 1,340 | 30 / 30 / 30 | 85.60 | 67.67 |
+
+작은 입력에는 범위 집합 생성의 고정 비용이 있다. 관측 분석까지 같은 범위 필터를 적용하는 시도는 로컬 추가 비용이 커서 채택하지 않았다. arm 조회에는 명시적 uid 구간 최적화만 적용한다. 위 시간과 후보 수는 Basin 실행 계획·bytesScanned·과금 절감률이 아니다. 실제 환경에서는 [EXPLAIN과 predicate pushdown](https://developers.cloudflare.com/basin-sql/reference/limitations-best-practices/)을 확인해야 한다. LEAD는 [지원 window 함수](https://developers.cloudflare.com/basin-sql/sql-reference/#window-functions)다.
+
+기준 SQL 두 파일 `reference-temporal-attribution.ts`, `reference-scoped-sql.ts`는 비교 검증 전용이며 런타임이나 제품 패키지에서 사용하지 않는다. 회귀 검사는 같은 밀리초의 ID 순서, 다른 기기, 익명 경쟁, 만료된 최신 노출, 재전송, Unicode 순서, includeLinked, 페이지 커서, hasEvent와 경쟁 실험 분모를 포함한다.
+
+```sh
+node_modules/.bin/esbuild benchmarks/analytics/temporal-query.ts --bundle --platform=node --format=esm --outfile=/tmp/eye-temporal-query.mjs
+node /tmp/eye-temporal-query.mjs
+npx vitest run --project core test/core/temporal-query.test.ts
+```
