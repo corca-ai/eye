@@ -1,3 +1,4 @@
+import type { SummariesAPI } from './analytics/summaries.js';
 import type { AnalyticsJobsAPI } from './analytics/jobs.js';
 import type { ArmStatus, Assignment, CreateExperiment, Decision, EventEnvelope, Experiment, ExperimentSettings, GoalStatus, Subject } from './core/types.js';
 import type { GoalDefinition } from './runtime/site.js';
@@ -16,6 +17,9 @@ export interface PublishedPolicy extends PolicySnapshot {
 export interface PreparedDecision { decision: Decision; reuseUntil: number; policy: PublishedPolicy }
 /** Structural RPC contract: hosts may name their Service Binding freely. */
 export interface EyeService {
+  configureSummaries(siteId: string, input: Parameters<SummariesAPI['configure']>[0]): ReturnType<SummariesAPI['configure']>;
+  summaryStatus(siteId: string): ReturnType<SummariesAPI['status']>;
+  querySummary(siteId: string, input: Parameters<SummariesAPI['query']>[0]): ReturnType<SummariesAPI['query']>;
   analyticsJobSchedule(siteId: string, input: Parameters<AnalyticsJobsAPI['schedule']>[0]): ReturnType<AnalyticsJobsAPI['schedule']>;
   analyticsJobScheduled(siteId: string, input: Parameters<AnalyticsJobsAPI['scheduled']>[0]): ReturnType<AnalyticsJobsAPI['scheduled']>;
   analyticsJobUnschedule(siteId: string, input: Parameters<AnalyticsJobsAPI['unschedule']>[0]): ReturnType<AnalyticsJobsAPI['unschedule']>;

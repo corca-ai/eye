@@ -1,3 +1,4 @@
+import type { SummariesAPI } from '../analytics/summaries.js';
 import type { AnalyticsJobsAPI } from '../analytics/jobs.js';
 import { compareEvents } from '../core/attribution.js';
 import { packEvents, unpackEvents } from './queue-batch.js';
@@ -11,7 +12,7 @@ import type { ArmStatus, CreateExperiment, EventEnvelope, ExperimentSettings, Go
 import type { EyeService, PublishedPolicy } from '../transport.js';
 import { rawRecords, validateRawEnvelope } from '../analytics/raw.js';
 import { type AnalyticsRecord } from '../analytics/records.js';
-import { exportBatches } from '../analytics/export.js';
+import { sendExportBatches } from '../analytics/export.js';
 import { BasinAnalytics } from '../analytics/query.js';
 import type { AnalyticsEnv } from '../analytics/query.js';
 import type { AnalyticsAPI } from '../analytics/types.js';
@@ -61,10 +62,8 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
       items.push({ message, records: rawRecords(envelope, accepted) });
     }
     // Retry-safe learning is separate from lazy, bounded raw projection delivery.
-    for (const group of exportBatches(items.flatMap(item => item.records.map(record => ({ record }))))) {
-      try { await this.env.ANALYTICS.send(group); }
-      catch (error) { for (const item of items) item.message.retry(); throw error; }
-    }
+    try { await sendExportBatches(items.flatMap(item => item.records.map(record => ({ record }))), group => this.env.ANALYTICS.send(group)); }
+    catch (error) { for (const item of items) item.message.retry(); throw error; }
     for (const message of batch.messages) { if (retries.has(message)) message.retry(); else message.ack(); }
   }
   async createExperiment(siteId: string, input: CreateExperiment) {
@@ -89,6 +88,9 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
   async getGoal(siteId: string, goalId: string) { return this.env.SITES.getByName(id(siteId, 'siteId')).getGoal(goalId); }
   async listGoals(siteId: string, after = '', limit = 100) { return this.env.SITES.getByName(id(siteId, 'siteId')).listGoals(after, limit); }
   async setGoalStatus(siteId: string, goalId: string, status: GoalStatus) { return this.env.SITES.getByName(id(siteId, 'siteId')).setGoalStatus(goalId, status); }
+  async configureSummaries(siteId: string, input: Parameters<SummariesAPI['configure']>[0]) { return this.env.SITES.getByName(id(siteId, 'siteId')).configureSummaries(siteId, input); }
+  async summaryStatus(siteId: string) { return this.env.SITES.getByName(id(siteId, 'siteId')).summaryStatus(); }
+  async querySummary(siteId: string, input: Parameters<SummariesAPI['query']>[0]) { return this.env.SITES.getByName(id(siteId, 'siteId')).querySummary(input); }
   async analyticsJobSchedule(siteId: string, input: Parameters<AnalyticsJobsAPI['schedule']>[0]) { id(siteId, 'siteId'); return this.env.REPORTS.getByName(siteId).schedule(siteId, input); }
   async analyticsJobScheduled(siteId: string, input: Parameters<AnalyticsJobsAPI['scheduled']>[0]) { id(siteId, 'siteId'); return this.env.REPORTS.getByName(siteId).getSchedule(input); }
   async analyticsJobUnschedule(siteId: string, input: Parameters<AnalyticsJobsAPI['unschedule']>[0]) { id(siteId, 'siteId'); return this.env.REPORTS.getByName(siteId).unschedule(input); }

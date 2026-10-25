@@ -1,10 +1,11 @@
+import type { SummaryConfig, SummaryQuery, SummaryReport, SummaryStatus } from '../analytics/summaries.js';
 import type { RuntimeEnv as Env } from './environment.generated.js';
 import { invariant } from '../core/errors.js';
 import { id, timestamp } from '../core/validation.js';
 import type { GoalStatus } from '../core/types.js';
 import { StoredObject } from './base.js';
 import { IncrementalLearning } from './incremental.js';
-import { exportBatches } from '../analytics/export.js';
+import { sendExportBatches } from '../analytics/export.js';
 import { experimentKey, RETENTION_MS } from '../core/validation.js';
 import type { EyeEvent } from '../core/types.js';
 
@@ -93,6 +94,20 @@ export class SiteControl extends StoredObject {
     invariant(goals.length <= 100, 'invalid_input', 'Too many goals');
     return goals.map(g => this.goalStatusAt(g.goalId, g.occurredAt) === 'active');
   }
+  async configureSummaries(siteId: string, input: SummaryConfig): Promise<SummaryStatus> {
+    id(siteId, 'siteId');
+    const previous = this.kv.get<string>('siteId');
+    invariant(previous === undefined || previous === siteId, 'conflict', 'Summary site does not match this object');
+    const result = this.atomic(() => {
+      const status = this.learning.summaries.configure(input, Date.now());
+      this.kv.put('siteId', siteId);
+      return status;
+    });
+    await this.scheduleLearning(Date.now());
+    return result;
+  }
+  summaryStatus(): SummaryStatus { return this.learning.summaries.status(Date.now()); }
+  querySummary(input: SummaryQuery): SummaryReport { return this.learning.summaries.query(input, Date.now()); }
   /** Queue ingestion and reward updates commit together. Only this batch is sorted. */
   async consumeLearning(siteId: string, events: readonly EyeEvent[]): Promise<boolean[]> {
     id(siteId, 'siteId');
@@ -129,7 +144,7 @@ export class SiteControl extends StoredObject {
         }
       }
       const rows = pending.flatMap(item => item.output.records.map(record => ({ record })));
-      for (const batch of exportBatches(rows)) await this.env.ANALYTICS.send(batch);
+      await sendExportBatches(rows, batch => this.env.ANALYTICS.send(batch));
       this.atomic(() => this.learning.acknowledge(pending.map(item => item.id)));
       await this.scheduleLearning(Date.now(), true);
     });

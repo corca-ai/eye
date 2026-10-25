@@ -64,6 +64,29 @@ if (schedule.latestJob) {
 
 ReportObject의 SQLite 테이블은 최초 사용 시 추가하며 새 binding이나 DO migration은 필요 없다. scope별 격리는 일반 작업과 동일하다. 자동 보고서가 읽는 전체 사이트 또는 선택한 실험에 대한 권한을 호스트가 확인해야 한다.
 
+## 원본 조회 없이 읽는 선택적 요약
+
+자주 조회하는 기본 합계는 `analytics.summaries`를 별도로 활성화한다. 기존 `learning/goals/jobs`는 그대로 원본 저장소를 읽는다. 호스트가 인증한 관리자만 설정하고, 조회 역시 해당 사이트·goal·실험 권한을 확인한다.
+
+```ts
+// 관리 경로에서 한 번 설정. 같은 목록의 재호출은 집계를 지우지 않는다.
+await eye.analytics.summaries.configure({ goalIds: ['purchase'], experimentIds: ['checkout'] });
+const status = await eye.analytics.summaries.status();
+const hour = 3_600_000, to = Math.floor(Date.now() / hour) * hour;
+const from = to - 24 * hour;
+if (status.state === 'collecting' && status.coverageFrom !== null && from >= status.coverageFrom) {
+  const report = await eye.analytics.summaries.query({ kind: 'learning', experimentId: 'checkout', from, to });
+  // rows: armId, generation, observationWindowMs, count, total, mean
+  // goal: { kind: 'goals', goalId: 'purchase', from, to }
+}
+```
+
+UTC 전체 시간 경계의 `[from,to)`만 허용하며 최대 59일, 끝은 현재 시간의 시작 이하이다. goal은 발생 시각, learning은 관측 시작 시각으로 선택한다. `coverageFrom`은 설정한 이후 첫 전체 시간과 최근 60일 보존 경계 중 늦은 쪽이다. 과거 데이터는 소급 집계하지 않는다. 전 구간 coverage가 없거나 ID가 미설정이면 `unavailable`이며 0 합계로 대신하지 않는다. 호출자는 필요하면 기존 원본 API를 선택한다. 집계가 있는 범위의 사건 없는 결과는 빈 rows다.
+
+`meta.basis='durable_local'`은 내부에서 수락한 goal/완료한 관측 기준이다. 원본 Stream이 아직 가시화되지 않아도 보일 수 있다. `queriedAt`은 읽은 시각이며 원래 수신 시각이나 수집 완료 watermark가 아니다. 늦은 goal 또는 후속 마감으로 과거 시간의 값이 바뀔 수 있다. learning은 0 보상 표본도 count에 넣고 arm·세대·관측 기간별로 나누며, 평균은 표본 합계/count다. 버킷 평균을 단순 평균하지 않는다. 최종 합계/평균을 표현할 수 없으면 `numeric_range`이며 학습 수집은 계속된다.
+
+설정 ID는 goal·실험 합계 최대 32개, 저장은 사이트당 최대 50,000 버킷 행이다. 설정 목록 변경은 전체 요약을 초기화하므로 필요한 ID를 한 번에 등록한다. 한도 때문에 새 버킷을 만들 수 없으면 `capacity_exceeded`로 요약 수집·조회를 중단하며 원본 수집·학습은 계속한다. 빈 목록으로 비활성화한 뒤 다시 설정하면 새 coverage로 시작한다. 원본 필터·사용자·속성별 요약이나 과거 backfill은 제공하지 않는다. 추가 SQLite 쓰기 비용이 있으므로 자주 쓰는 요약부터 선택한다.
+
 ## 공통 규칙
 
 `from`, `to`는 최근 60일 안의 Unix 밀리초이며 `[from, to)`다. 기본 `limit=100`, 최대 1,000행이다. 한 행을 추가로 조회해 `meta.truncated`를 표시한다. 집계가 잘리면 arm·세대·속성·기간 조건을 좁힌다. 쿼리는 30초, 응답은 16 MiB로 제한하며 초과를 빈 성공 결과로 바꾸지 않는다.
@@ -94,7 +117,7 @@ cohort 기간은 관측 시작 시각이며 속성은 최초 실제 노출에서
 
 `eq: null`은 키가 존재하고 명시적으로 null인 값에 일치한다. 없는 키는 `missing`으로 선택한다. `ne`는 eq의 부정이므로 없는 키·다른 타입도 포함할 수 있다. 그룹과 속성값 조회에서는 없는 키·null·다른 타입이 null 그룹으로 합쳐진다. 필터는 최대 64개 노드·깊이 8, `in`은 최대 100개 값이다.
 
-`attributeValues({ from, to, field, filter?, limit? })`는 원본 이벤트 속성의 값별 빈도다. `attributeKeys({ from, to, limit? })`는 수집된 키·타입·출처(event/user) 목록을 제공한다. 같은 키의 여러 타입과 명시적 null을 구분하며 누락된 키를 추정하지 않는다. 요청 구간에 걸친 UTC 날짜 전체에서 키를 탐색하며 응답의 coverage가 실제 날짜 범위와 basis=utc_day를 명시한다. 좁은 시간 구간보다 넓은 날짜의 키가 포함될 수 있고, 발생 횟수나 정확한 시각 필터는 제공하지 않는다. 요청 자체는 최근 60일 제한을 지키지만 경계 날짜의 사전 메타데이터는 날짜 전체를 읽는다.
+`attributeValues({ from, to, field, filter?, limit? })`는 원본 이벤트 속성의 값별 빈도다. `attributeKeys({ from, to, limit? })`는 수집된 키·타입·출처(event/user) 목록을 제공한다. 같은 키의 여러 타입과 명시적 null을 구분하며 누락된 키를 추정하지 않는다. 요청 구간에 걸친 UTC 날짜 전체에서 키를 탐색하며 응답의 coverage가 실제 날짜 범위와 basis=utc_day를 명시한다. 좁은 시간 구간보다 넓은 날짜의 키가 포함될 수 있고, 발생 횟수나 정확한 시각 필터는 제공하지 않는다. 사전은 isolate의 성공 전송 캐시로 반복 발행을 줄이므로 latestReceivedAt은 발행된 사전 메타데이터의 시각이다. 동일 일별 ID·revision에서는 최초 수신 행을 고르고 그 일별 결과들 중 최댓값을 반환한다. 원본 속성의 마지막 사용 시각이 아니며 같은 날 재발행해도 최신 사용 시각으로 갱신하지 않는다. 요청 자체는 최근 60일 제한을 지키지만 경계 날짜의 사전 메타데이터는 날짜 전체를 읽는다.
 
 ## Goal과 시계열
 

@@ -11,3 +11,18 @@ export function addReward(total: RewardSum, value: number): void {
   total.sum = next;
   total.scale = scale;
 }
+
+/** Merge all compensated components at a shared scale; never materialize bucket totals. */
+export function mergeReward(total: RewardSum, other: RewardSum): void {
+  const scale = Math.max(total.scale, other.scale);
+  if (scale === 0) return;
+  const a = total.scale / scale, b = other.scale / scale;
+  const terms = [total.sum * a, total.correction * a, other.sum * b, other.correction * b];
+  let sum = 0, correction = 0;
+  for (const term of terms) {
+    const next = sum + term;
+    correction += Math.abs(sum) >= Math.abs(term) ? (sum - next) + term : (term - next) + sum;
+    sum = next;
+  }
+  total.scale = scale; total.sum = sum; total.correction = correction;
+}

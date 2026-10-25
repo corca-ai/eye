@@ -104,13 +104,13 @@ it.each([false, true])('exports admitted high-cardinality attributes in bounded 
   const ctx = createExecutionContext(), service = new EyeWorker(ctx, env);
   const envelopes: EventEnvelope[] = [];
   const ingest = vi.spyOn(service, 'ingest').mockImplementation(async items => { envelopes.push(...items); });
-  const eye = createEye({ siteId: 'attribute-expansion', ctx, service });
+  const eye = createEye({ siteId: crypto.randomUUID(), ctx, service });
   const attributes = Object.fromEntries(Array.from({ length: 10000 }, (_, i) => [String(i), 0]));
   for (const [eventId, attrs] of [['before', {}], ['large', attributes], ['after', {}]] as const) {
     expect(eye.track({ eventId, subject: { cid: 'c' }, name: 'view', attributes: attrs }).accepted).toBe(true);
   }
   await eye.flush(); ingest.mockRestore();
-  const sent: AnalyticsRecord[][] = [];
+  const sent: AnalyticsRecord[][] = [], previouslyDelivered: AnalyticsRecord[] = [];
   let attempts = 0;
   const send = vi.spyOn(env.ANALYTICS, 'send').mockImplementation(async records => {
     expect(new TextEncoder().encode(JSON.stringify(records)).byteLength).toBeLessThanOrEqual(4_500_000);
@@ -123,14 +123,15 @@ it.each([false, true])('exports admitted high-cardinality attributes in bounded 
       const first = batch();
       await expect(service.queue(first)).rejects.toThrow('temporary chunk failure');
       expect((await getQueueResult(first, ctx)).retryMessages).toHaveLength(envelopes.length);
+      previouslyDelivered.push(...sent.flat());
       sent.length = 0;
     }
     const complete = batch(); await service.queue(complete);
     expect((await getQueueResult(complete, ctx)).retryMessages).toHaveLength(0);
-    expect(sent.length).toBeGreaterThan(1);
+    expect(attempts).toBeGreaterThan(1);
     const rows = sent.flat();
     expect(rows.filter(r => r.table_name === 'events').map(r => r.record_id)).toEqual(['before', 'large', 'after']);
-    expect(new Set(rows.filter(r => r.table_name === 'attribute_keys').map(r => JSON.parse(r.payload_json).key)).size).toBe(10000);
+    expect(new Set([...previouslyDelivered, ...rows].filter(r => r.table_name === 'attribute_keys').map(r => JSON.parse(r.payload_json).key)).size).toBe(10000);
   } finally { send.mockRestore(); await waitOnExecutionContext(ctx); }
 });
 

@@ -1,3 +1,4 @@
+import type { SummariesAPI } from './analytics/summaries.js';
 import type { AnalyticsJobsAPI, AnalyticsJobPage } from './analytics/jobs.js';
 import { decisionRuntime, type DecisionOptions } from './decisions.js';
 import { EyeError, invariant } from './core/errors.js';
@@ -122,6 +123,14 @@ export function createEye(options: EyeOptions) {
     /** Optional for jobs/tests that need to await Queue ingestion. Normal request handlers need not await this. */
     flush,
     analytics: {
+      summaries: {
+        /** 관리 경로에서 자주 쓰는 ID만 활성화한다. 설정 변경은 집계를 초기화한다. */
+        configure: input => service.configureSummaries(siteId, input),
+        /** 집계 시작 시각·상태를 확인한다. */
+        status: () => service.summaryStatus(siteId),
+        /** 원본 SQL 없이 전체 UTC 시간 구간의 로컬 확정 합계·평균을 조회한다. */
+        query: input => service.querySummary(siteId, input),
+      } satisfies SummariesAPI,
       /** 원본 귀속을 다시 계산하지 않고 확정 학습 표본의 합계·평균을 조회한다. */
       learning: query => service.analyticsLearning(siteId, query),
       jobs: {
@@ -158,7 +167,7 @@ export function createEye(options: EyeOptions) {
       series: query => service.analyticsSeries(siteId, query),
       /** 원본 사건 attributes의 지정 키 값별 빈도. 관측 userAttributes의 분포와는 다르다. */
       attributeValues: query => service.analyticsAttributeValues(siteId, query),
-    } satisfies AnalyticsAPI & { jobs: AnalyticsJobsAPI },
+    } satisfies AnalyticsAPI & { jobs: AnalyticsJobsAPI; summaries: SummariesAPI },
     /** 신뢰할 수 있는 관리 경로에서 사용한다. */
     experiments: {
       /** 최초 정의를 등록한다. 같은 최초 정의로 재호출하면 현재 정의를 반환하며, 다른 최초 정의는 conflict다. */

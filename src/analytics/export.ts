@@ -18,10 +18,34 @@ export function validateExport(record: AnalyticsRecord): void {
   }
   invariant(record.value === null || (typeof record.value === 'number' && Number.isFinite(record.value)), 'numeric_range', 'Invalid analytics value');
 }
+const dictionaryKey = (record: AnalyticsRecord) => JSON.stringify([record.site_id, record.record_id]);
+/** Positive acknowledgements only; eviction/restart merely permits more dictionary rows. */
+export class DictionaryCache {
+  private readonly keys = new Set<string>();
+  constructor(private readonly capacity = 10_000) {
+    invariant(Number.isSafeInteger(capacity) && capacity > 0, 'invalid_input', 'Invalid dictionary cache capacity');
+  }
+  has(key: string): boolean { return this.keys.has(key); }
+  acknowledge(batch: readonly AnalyticsRecord[]): void {
+    for (const record of batch) if (record.table_name === 'attribute_keys') {
+      this.keys.add(dictionaryKey(record));
+      if (this.keys.size > this.capacity) this.keys.delete(this.keys.values().next().value!);
+    }
+  }
+}
+const dictionaryCache = new DictionaryCache();
+/** Cache is shared only within this isolate. Concurrent misses may safely emit duplicates. */
+export async function sendExportBatches(rows: readonly { record: AnalyticsRecord }[], send: (batch: AnalyticsRecord[]) => Promise<unknown>, cache = dictionaryCache): Promise<void> {
+  for (const batch of exportBatches(rows, cache)) {
+    await send(batch);
+    cache.acknowledge(batch);
+  }
+}
+
 /** Expand before sizing: a valid event's dictionary may span several requests.
  * Yield wire records directly so callers never expand an already-sized batch.
  */
-export function* exportBatches(rows: readonly { record: AnalyticsRecord }[]): Generator<AnalyticsRecord[]> {
+export function* exportBatches(rows: readonly { record: AnalyticsRecord }[], cache?: DictionaryCache): Generator<AnalyticsRecord[]> {
   let batch: AnalyticsRecord[] = [], bytes = 2;
   const keys = new Set<string>();
   for (const row of rows) {
@@ -30,7 +54,7 @@ export function* exportBatches(rows: readonly { record: AnalyticsRecord }[]): Ge
     for (const [index, record] of expanded.entries()) {
       if (index !== 0) validateExport(record);
       const key = index === 0 ? null : JSON.stringify([record.site_id, record.record_id]);
-      if (key !== null && keys.has(key)) continue;
+      if (key !== null && (keys.has(key) || cache?.has(key))) continue;
       const size = encoder.encode(JSON.stringify(record)).byteLength;
       invariant(size + 2 <= EXPORT_BATCH_BYTES, 'invalid_input', 'Analytics record exceeds the Stream request limit');
       if (bytes + size + (batch.length ? 1 : 0) > EXPORT_BATCH_BYTES) {

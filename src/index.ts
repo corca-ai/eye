@@ -33,3 +33,5 @@ export type { AnalyticsKind, AnalyticsRequest, AnalyticsResult, AnalyticsJobInpu
 
 export type { LearningQuery, LearningRow, LearningReport } from './analytics/types.js';
 export type { BasicReport, ReportScheduleRef, ReportScheduleInput, ReportSchedule } from './analytics/jobs.js';
+
+export type { SummaryConfig, SummaryStatus, SummaryQuery, SummaryRow, SummaryReport, SummariesAPI } from './analytics/summaries.js';

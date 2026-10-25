@@ -24,6 +24,9 @@ createEye(options: EyeOptions): EyeClient
 - [eye.logout](#eyelogout)
 - [eye.decide](#eyedecide)
 - [eye.flush](#eyeflush)
+- [eye.analytics.summaries.configure](#eyeanalyticssummariesconfigure)
+- [eye.analytics.summaries.status](#eyeanalyticssummariesstatus)
+- [eye.analytics.summaries.query](#eyeanalyticssummariesquery)
 - [eye.analytics.learning](#eyeanalyticslearning)
 - [eye.analytics.jobs.schedule](#eyeanalyticsjobsschedule)
 - [eye.analytics.jobs.scheduled](#eyeanalyticsjobsscheduled)
@@ -145,6 +148,36 @@ Optional for jobs/tests that need to await Queue ingestion. Normal request handl
 ```ts
 eye.flush(): Promise<void>
 ```
+
+## eye.analytics.summaries.configure
+
+관리 경로에서 자주 쓰는 ID만 활성화한다. 설정 변경은 집계를 초기화한다.
+
+```ts
+eye.analytics.summaries.configure(input: SummaryConfig): Promise<SummaryStatus>
+```
+
+타입: [SummaryConfig](types.md#summaryconfig) · [SummaryStatus](types.md#summarystatus)
+
+## eye.analytics.summaries.status
+
+집계 시작 시각·상태를 확인한다.
+
+```ts
+eye.analytics.summaries.status(): Promise<SummaryStatus>
+```
+
+타입: [SummaryStatus](types.md#summarystatus)
+
+## eye.analytics.summaries.query
+
+원본 SQL 없이 전체 UTC 시간 구간의 로컬 확정 합계·평균을 조회한다.
+
+```ts
+eye.analytics.summaries.query(input: SummaryQuery): Promise<SummaryReport>
+```
+
+타입: [SummaryQuery](types.md#summaryquery) · [SummaryReport](types.md#summaryreport)
 
 ## eye.analytics.learning
 

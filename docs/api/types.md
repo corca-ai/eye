@@ -90,6 +90,12 @@
 - [SeriesRow](#seriesrow)
 - [Subject](#subject)
 - [Submission](#submission)
+- [SummariesAPI](#summariesapi)
+- [SummaryConfig](#summaryconfig)
+- [SummaryQuery](#summaryquery)
+- [SummaryReport](#summaryreport)
+- [SummaryRow](#summaryrow)
+- [SummaryStatus](#summarystatus)
 - [TimelinePage](#timelinepage)
 - [TimelineQuery](#timelinequery)
 - [TimelineRow](#timelinerow)
@@ -402,7 +408,7 @@ export type ArmStatus = 'active' | 'paused' | 'deleted';
 
 ## AssignedDecision
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L52)
+[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L56)
 
 ```ts
 export type AssignedDecision = Extract<Decision, {
@@ -842,7 +848,7 @@ export interface EventEnvelope {
 
 ## EventInput
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/client.ts#L15)
+[소스](https://github.com/corca-ai/eye/blob/main/src/client.ts#L16)
 
 ```ts
 /** eventId 기본 UUID, occurredAt 기본 현재 시각. attributes는 선택적 사건 속성이다. */
@@ -981,7 +987,7 @@ export type EyeEvent = TrackEvent | GoalEvent | ExposureEvent | IdentityEvent;
 
 ## EyeOptions
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/client.ts#L18)
+[소스](https://github.com/corca-ai/eye/blob/main/src/client.ts#L19)
 
 ```ts
 export interface EyeOptions {
@@ -1039,11 +1045,14 @@ export interface EyeRequestOptions extends EyeOptions {
 
 ## EyeService
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L18)
+[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L19)
 
 ```ts
 /** Structural RPC contract: hosts may name their Service Binding freely. */
 export interface EyeService {
+    configureSummaries(siteId: string, input: Parameters<SummariesAPI['configure']>[0]): ReturnType<SummariesAPI['configure']>;
+    summaryStatus(siteId: string): ReturnType<SummariesAPI['status']>;
+    querySummary(siteId: string, input: Parameters<SummariesAPI['query']>[0]): ReturnType<SummariesAPI['query']>;
     analyticsJobSchedule(siteId: string, input: Parameters<AnalyticsJobsAPI['schedule']>[0]): ReturnType<AnalyticsJobsAPI['schedule']>;
     analyticsJobScheduled(siteId: string, input: Parameters<AnalyticsJobsAPI['scheduled']>[0]): ReturnType<AnalyticsJobsAPI['scheduled']>;
     analyticsJobUnschedule(siteId: string, input: Parameters<AnalyticsJobsAPI['unschedule']>[0]): ReturnType<AnalyticsJobsAPI['unschedule']>;
@@ -1078,7 +1087,7 @@ export interface EyeService {
 }
 ```
 
-타입: [AnalyticsAPI](types.md#analyticsapi) · [AnalyticsJobsAPI](types.md#analyticsjobsapi) · [ArmStatus](types.md#armstatus) · [CreateExperiment](types.md#createexperiment) · [EventEnvelope](types.md#eventenvelope) · [Experiment](types.md#experiment) · [ExperimentSettings](types.md#experimentsettings) · [EyeService](types.md#eyeservice) · [GoalDefinition](types.md#goaldefinition) · [GoalStatus](types.md#goalstatus) · [PolicySnapshot](types.md#policysnapshot) · [PublishedPolicy](types.md#publishedpolicy)
+타입: [AnalyticsAPI](types.md#analyticsapi) · [AnalyticsJobsAPI](types.md#analyticsjobsapi) · [ArmStatus](types.md#armstatus) · [CreateExperiment](types.md#createexperiment) · [EventEnvelope](types.md#eventenvelope) · [Experiment](types.md#experiment) · [ExperimentSettings](types.md#experimentsettings) · [EyeService](types.md#eyeservice) · [GoalDefinition](types.md#goaldefinition) · [GoalStatus](types.md#goalstatus) · [PolicySnapshot](types.md#policysnapshot) · [PublishedPolicy](types.md#publishedpolicy) · [SummariesAPI](types.md#summariesapi)
 
 ## Filter
 
@@ -1114,7 +1123,7 @@ export type Filter = {
 
 ## GoalDefinition
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/runtime/site.ts#L11)
+[소스](https://github.com/corca-ai/eye/blob/main/src/runtime/site.ts#L12)
 
 ```ts
 export interface GoalDefinition {
@@ -1299,7 +1308,7 @@ export interface PolicyQuery extends QueryRange {
 
 ## PolicySnapshot
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L8)
+[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L9)
 
 ```ts
 /** statsAsOf는 마지막 적용한 마감 구간의 기준 시각이며 null은 적용 이력 없음. 전체 데이터 수신 완료 watermark가 아니다. */
@@ -1315,7 +1324,7 @@ export interface PolicySnapshot extends UnreservedPolicyEvaluation {
 
 ## PreparedDecision
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L16)
+[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L17)
 
 ```ts
 /** reuseUntil은 이번 결정의 적용 기한(Unix 밀리초)이다. 정책 유효기간과 유지·관측 조건으로 결정하며 저장 문맥의 삭제 시각은 아니다. */
@@ -1330,7 +1339,7 @@ export interface PreparedDecision {
 
 ## PublishedPolicy
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L11)
+[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L12)
 
 ```ts
 export interface PublishedPolicy extends PolicySnapshot {
@@ -1455,7 +1464,7 @@ export type Subject = {
 
 ## Submission
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/client.ts#L17)
+[소스](https://github.com/corca-ai/eye/blob/main/src/client.ts#L18)
 
 ```ts
 /** accepted는 로컬 검증 성공이지 영속 저장 확인이 아니다. 실패는 error.code와 message로 반환된다. */
@@ -1472,6 +1481,119 @@ export type Submission = {
 ```
 
 타입: [ErrorCode](types.md#errorcode) · [Submission](types.md#submission)
+
+## SummariesAPI
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/summaries.ts#L30)
+
+```ts
+export interface SummariesAPI {
+    /** Trusted admin route only. Changed configuration resets all summaries; identical retries preserve them.
+     * To restart after capacity_exceeded, disable with empty lists, then configure again. */
+    configure(config: SummaryConfig): Promise<SummaryStatus>;
+    status(): Promise<SummaryStatus>;
+    /** Whole UTC hours, at most 59 days, entirely inside coverage and before the current hour.
+     * Throws unavailable for missing coverage; use existing raw analytics when needed. */
+    query(query: SummaryQuery): Promise<SummaryReport>;
+}
+```
+
+타입: [SummariesAPI](types.md#summariesapi) · [SummaryConfig](types.md#summaryconfig) · [SummaryQuery](types.md#summaryquery) · [SummaryReport](types.md#summaryreport) · [SummaryStatus](types.md#summarystatus)
+
+## SummaryConfig
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/summaries.ts#L2)
+
+```ts
+/** Optional, bounded summaries of durable local acceptance/closure; no raw-store query. */
+export interface SummaryConfig {
+    /** Combined maximum 32 goal/experiment IDs. Empty lists disable collection. */
+    goalIds: string[];
+    experimentIds: string[];
+}
+```
+
+타입: [SummaryConfig](types.md#summaryconfig)
+
+## SummaryQuery
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/summaries.ts#L14)
+
+```ts
+export type SummaryQuery = {
+    from: number;
+    to: number;
+} & ({
+    kind: 'goals';
+    goalId: string;
+} | {
+    kind: 'learning';
+    experimentId: string;
+});
+```
+
+타입: [SummaryQuery](types.md#summaryquery)
+
+## SummaryReport
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/summaries.ts#L21)
+
+```ts
+export interface SummaryReport {
+    rows: SummaryRow[];
+    meta: {
+        basis: 'durable_local';
+        from: number;
+        to: number;
+        coverageFrom: number;
+        bucketMs: number;
+        /** Snapshot read time, NOT a completeness watermark or original receipt time.
+         * Late accepted goals and subsequently closed samples may revise older hours. */
+        queriedAt: number;
+    };
+}
+```
+
+타입: [SummaryReport](types.md#summaryreport) · [SummaryRow](types.md#summaryrow)
+
+## SummaryRow
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/summaries.ts#L17)
+
+```ts
+export type SummaryRow = {
+    count: number;
+    total: number;
+    mean: number;
+} & ({
+    kind: 'goals';
+    goalId: string;
+} | {
+    kind: 'learning';
+    experimentId: string;
+    armId: string;
+    generation: number;
+    observationWindowMs: number;
+});
+```
+
+타입: [SummaryRow](types.md#summaryrow)
+
+## SummaryStatus
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/summaries.ts#L7)
+
+```ts
+export interface SummaryStatus {
+    config: SummaryConfig;
+    state: 'disabled' | 'collecting' | 'capacity_exceeded';
+    /** First fully covered UTC hour on goal occurrence / observation start axis. No backfill. */
+    coverageFrom: number | null;
+    bucketMs: number;
+}
+```
+
+타입: [SummaryConfig](types.md#summaryconfig) · [SummaryStatus](types.md#summarystatus)
 
 ## TimelinePage
 
