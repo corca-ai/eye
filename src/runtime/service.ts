@@ -6,7 +6,7 @@ import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { RuntimeEnv as Env } from './environment.generated.js';
 import { MAX_BATCH_BYTES, MAX_EVENT_BYTES, encodedSize } from '../client.js';
 import { invariant } from '../core/errors.js';
-import { parseEnvelope } from '../core/events.js';
+import { parseCreateExperiment, parseEnvelope } from '../core/events.js';
 import { experimentKey, id, settings } from '../core/validation.js';
 import type { ArmStatus, CreateExperiment, EventEnvelope, ExperimentSettings, GoalStatus } from '../core/types.js';
 import type { EyeService, PublishedPolicy } from '../transport.js';
@@ -70,9 +70,10 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
   }
   async createExperiment(siteId: string, input: CreateExperiment) {
     id(siteId, 'siteId');
-    await this.env.SITES.getByName(siteId).noteSettings(settings(input.settings));
-    const result = await this.env.EXPERIMENTS.getByName(experimentKey(siteId, id(input.experimentId, 'experimentId'))).create(input);
-    await this.env.SITES.getByName(siteId).registerExperiment(input.experimentId, siteId, result.settings);
+    const parsed = parseCreateExperiment(input);
+    await this.env.SITES.getByName(siteId).noteSettings(parsed.settings);
+    const result = await this.env.EXPERIMENTS.getByName(experimentKey(siteId, parsed.experimentId)).create(parsed);
+    await this.env.SITES.getByName(siteId).registerExperiment(parsed.experimentId, siteId, result.settings);
     return result;
   }
   async getExperiment(siteId: string, experimentId: string) { return this.experiment(siteId, experimentId).getConfig(); }

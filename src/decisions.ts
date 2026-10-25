@@ -134,7 +134,9 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
       invariant(value.version === 2, 'invalid_input', 'Unsupported state version');
       const context = parseLocalContext(value.context);
       invariant(context.siteId === siteId && context.assignment.experimentId === experimentId, 'invalid_input', 'State scope mismatch');
-      contexts.set(experimentId, context); tokens.set(experimentId, token);
+      // Signature verification yields: a receipt may have opened a newer sample
+      // while restoration was in flight. Local updates take precedence.
+      if (!contexts.has(experimentId)) { contexts.set(experimentId, context); tokens.set(experimentId, token); }
     } catch (error) { report(error); }
   };
   const choose = (subject: Subject, experimentId: string, policy: PublishedPolicy | undefined): { decision: Decision; selection: LocalSelection } => {

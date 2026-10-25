@@ -277,3 +277,32 @@ it('stops sharing a hung policy load after ten seconds', async () => {
   expect((await slow).decision.status).toBe('no_active_arm');
   await Promise.all(f.pending);
 });
+
+it('does not overwrite a new exposure when older signed state finishes restoring', async () => {
+  const f = fixture();
+  const first = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache }, () => {});
+  const prepared = await first.prepare({ cid: 'c' }, 'exp');
+  if (prepared.decision.status !== 'assigned') throw new Error('Expected assignment');
+  const tokens = await first.state();
+  let entered!: () => void, release!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const verify = crypto.subtle.verify.bind(crypto.subtle);
+  const blocked = vi.spyOn(crypto.subtle, 'verify').mockImplementation(async (...args) => {
+    entered(); await held; return verify(...args);
+  });
+  const next = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache, tokens }, () => {});
+  const deciding = next.decide({ cid: 'c' }, 'exp');
+  try {
+    await started;
+    const exposure = next.expose(prepared.decision, now, 'during-restore');
+    release();
+    expect(await deciding).toMatchObject({ status: 'assigned', localContext: {
+      sample: { sampleId: exposure.sampleId, startAt: now },
+    } });
+    const restored = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache, tokens: await next.state() }, () => {});
+    expect(await restored.decide({ cid: 'c' }, 'exp')).toMatchObject({ status: 'assigned', localContext: {
+      sample: { sampleId: exposure.sampleId, startAt: now },
+    } });
+  } finally { release(); await deciding; blocked.mockRestore(); await Promise.all(f.pending); }
+});

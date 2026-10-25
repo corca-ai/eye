@@ -29,6 +29,7 @@ export function id(value: unknown, name: string): string {
 }
 export function sampleId(value: unknown): string {
   invariant(typeof value === 'string' && value.length > 0 && value.length <= 2048 && !/[\u0000-\u001f]/u.test(value), 'invalid_input', 'Invalid sample ID');
+  invariant(!/[\uD800-\uDFFF]/u.test(value), 'invalid_input', 'Sample ID must contain valid Unicode');
   return value;
 }
 export function number(value: unknown, name: string): number {

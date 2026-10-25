@@ -204,3 +204,43 @@ it.each(['arm', 'expired window'] as const)('rejects a conflicting %s without re
     });
   } finally { clock.mockRestore(); warn.mockRestore(); send.mockRestore(); await waitOnExecutionContext(ctx); }
 });
+
+it('rejects malformed Unicode sample IDs while preserving valid packed exposures through closure', async () => {
+  const siteId = crypto.randomUUID(), ctx = createExecutionContext(), service = new EyeWorker(ctx, env);
+  const config = await service.createExperiment(siteId, { experimentId: 'exp', arms: ['a'], settings: { minHoldMs: 0 } });
+  const at = Date.now();
+  const events: EventEnvelope[] = ['\ud800', '\udfff', 'valid-😀'].map((sampleId, i) => ({ siteId, receivedAt: at,
+    event: { kind: 'exposure', eventId: String(i), occurredAt: at, subject: { cid: 'c' },
+      assignment: { assignmentId: String(i), experimentId: 'exp', armId: 'a', generation: 1, policyRevision: 1, assignedAt: at, probability: 1, settings: config.settings },
+      sample: { sampleId, startAt: at }, attributionWindowMs: 1000 } }));
+  const rows: AnalyticsRecord[] = [];
+  const send = vi.spyOn(env.ANALYTICS, 'send').mockImplementation(async batch => { rows.push(...batch as AnalyticsRecord[]); });
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const batch = createMessageBatch('eye-events', [{ id: 'unicode', timestamp: at, attempts: 1, body: { version: 2, events } }]);
+    await service.queue(batch);
+    expect((await getQueueResult(batch, ctx)).retryMessages).toHaveLength(0);
+    expect(rows.filter(r => r.table_name === 'events').map(r => r.record_id)).toEqual(['2']);
+    await runInDurableObject(env.SITES.getByName(siteId), async (_actor, state) => {
+      const { IncrementalLearning } = await import('../../src/runtime/incremental.js');
+      const engine = new IncrementalLearning(state.storage.sql);
+      state.storage.transactionSync(() => engine.close(siteId, at + config.settings.observationWindowMs + config.settings.allowedLatenessMs));
+      expect(state.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM learning_samples').one().n).toBe(0);
+      expect(engine.outputs().flatMap(output => output.output.records).map(row => row.record_id)).toEqual(['valid-😀']);
+    });
+  } finally { send.mockRestore(); warn.mockRestore(); await waitOnExecutionContext(ctx); }
+});
+
+it('validates the entire experiment definition before changing site retention bounds', async () => {
+  const siteId = crypto.randomUUID(), ctx = createExecutionContext(), service = new EyeWorker(ctx, env), day = 86_400_000;
+  try {
+    await expect(service.createExperiment(siteId, { experimentId: 'invalid', arms: [], settings: {
+      minHoldMs: 0, observationWindowMs: day, allowedLatenessMs: 40 * day, attributionWindowMs: day,
+    } })).rejects.toThrow('At least one arm');
+    const valid = await service.createExperiment(siteId, { experimentId: 'valid', arms: ['a'], settings: {
+      minHoldMs: 0, observationWindowMs: 40 * day, allowedLatenessMs: 0, attributionWindowMs: day,
+    } });
+    expect(valid.experimentId).toBe('valid');
+    expect(await service.listExperiments(siteId)).toEqual(['valid']);
+  } finally { await waitOnExecutionContext(ctx); }
+});
