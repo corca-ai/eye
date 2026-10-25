@@ -43,7 +43,11 @@
     "TECHNICAL_DESIGN.md",
     "docs",
     "examples",
-    "LICENSE"
+    "LICENSE",
+    "maintenance/retention.py",
+    "maintenance/pyproject.toml",
+    "maintenance/uv.lock",
+    "maintenance/README.md"
   ],
   "engines": {
     "node": ">=22"
