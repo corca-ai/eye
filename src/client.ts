@@ -12,10 +12,11 @@ import type { AnalyticsAPI } from './analytics/types.js';
 export const MAX_EVENT_BYTES = 100_000;
 export const MAX_BATCH_BYTES = 240_000;
 const encoder = new TextEncoder();
-/** eventId 기본 UUID, occurredAt 기본 현재 시각. attributes는 선택적 사건 속성이다. */
+/** eventId 기본 UUID, occurredAt 기본 현재 시각(Unix ms). 재전송은 두 값과 subject·payload를 모두 보존한다. */
 export type EventInput<T> = Omit<T, 'kind' | 'eventId' | 'occurredAt'> & { eventId?: string; occurredAt?: number };
 /** accepted는 로컬 검증 성공이지 영속 저장 확인이 아니다. 실패는 error.code와 message로 반환된다. */
 export type Submission = { accepted: true; eventId: string } | { accepted: false; error: { code: ErrorCode; message: string } };
+/** 요청별 서버 SDK 설정. 사용자 신원은 각 수집·배정 호출에 전달한다. */
 export interface EyeOptions {
   /** 빠른 배정의 서명·세션·정책 캐시 설정. 생략하면 decide는 배정을 준비하거나 재사용할 수 없다. */
   decisions?: DecisionOptions;
@@ -95,7 +96,7 @@ export function createEye(options: EyeOptions) {
   return {
     /** 사용 가능한 정책 캐시로 준비하고 오래된 캐시는 백그라운드 갱신한다. 캐시가 없거나 forceRefresh=true이면 정책 조회를 기다린다. decisions.secret 필요. 반환 token은 미배정이면 null이며 호출자가 저장한다. 문맥이 바뀌면 onPrepared에도 전달한다. */
     prepare: (input: { subject: Subject; experimentId: string; context?: import('./core/local-assignment.js').LocalAssignmentContext; forceRefresh?: boolean }) => decisions.prepare(parseSubject(input.subject), id(input.experimentId, 'experimentId'), input.context, input.forceRefresh),
-    /** 최신 로컬 배정 문맥을 서명한다. 쿠키 응답을 만들 때 사용하며 원격 I/O를 하지 않는다. */
+    /** 이 인스턴스가 복원·갱신한 실험별 토큰을 반환한다. 노출 후 호출해 응답 쿠키에 저장한다. 로컬 서명만 기다리며 onPrepared의 저장 완료는 기다리지 않는다. */
     state: () => decisions.state(),
     /** 일반 사건을 분석에 기록한다. name은 서비스가 정의한다. goal 학습을 직접 발생시키지 않는다. */
     track: (input: EventInput<TrackEvent>): Submission => submit(() => ({ ...base(input), kind: 'track' })),
@@ -114,13 +115,13 @@ export function createEye(options: EyeOptions) {
         return { ...event, kind: 'exposure', assignment: decision.assignment, sample: { sampleId: exposed.sampleId, startAt: exposed.startAt }, attributionWindowMs: exposed.attributionWindowMs };
       }, () => commit?.());
     },
-    /** 로그인 시 cid와 인증된 uid를 함께 전달한다. 마감 집계에서 익명 구간을 uid에 연결한다. 호스트의 이전 배정 토큰도 비운다. */
+    /** 로그인 시 cid와 인증된 uid를 기록해 익명 노출의 귀속을 연결한다. 호스트가 이전 배정 토큰을 비워야 하며 이 호출이 세션을 수정하지는 않는다. */
     identify: (input: EventInput<IdentityEvent> & { subject: Subject & { uid: string } }): Submission => submit(() => ({ ...base(input), kind: 'identify' })),
-    /** 로그아웃 시 uid 없이 현재 cid를 전달한다. 새 익명 구간을 시작한다. 호스트의 이전 배정 토큰도 비운다. */
+    /** uid 없이 현재 cid를 기록해 새 익명 구간을 시작한다. 호스트가 이전 배정 토큰을 비우고 새 신원으로 요청 클라이언트를 만든다. */
     logout: (input: EventInput<IdentityEvent>): Submission => submit(() => ({ ...base(input), kind: 'logout' })),
-    /** 원격 응답을 기다리지 않고 준비된 배정을 재사용한다. unavailable이면 기본 화면을 사용하고 노출을 기록하지 않는다. 세션 준비와 최신성은 빠른 배정 가이드를 따른다. */
+    /** 유효한 로컬 정책으로 선택·재사용한다. 서명 검증은 기다리지만 원격 조회는 기다리지 않는다. assigned가 아니면 기본 화면을 사용하고 expose하지 않는다. */
     decide: (input: { subject: Subject; experimentId: string }) => decisions.decide(parseSubject(input.subject), id(input.experimentId, 'experimentId')),
-    /** Optional for jobs/tests that need to await Queue ingestion. Normal request handlers need not await this. */
+    /** 대기 중인 사건의 Queue 접수를 기다린다. 실패하면 reject하며 SDK가 자동 재전송하지 않는다. 학습·분석 반영 완료는 보장하지 않는다. 일반 요청은 waitUntil 전송으로 충분하다. */
     flush,
     analytics: {
       summaries: {
@@ -175,7 +176,7 @@ export function createEye(options: EyeOptions) {
       },
       /** 현재 실험 정의를 반환한다. 없으면 not_found 오류. */
       get: (experimentId: string) => service.getExperiment(siteId, id(experimentId, 'experimentId')),
-/** ID 오름차순 목록. after는 제외할 마지막 ID, limit 기본 100·최대 1000. 삭제된 실험도 포함한다. */
+      /** ID 오름차순 목록. after는 제외할 마지막 ID, limit 기본 100·최대 1000. 삭제된 실험도 포함한다. */
       list: (options: { after?: string; limit?: number } = {}) => service.listExperiments(siteId, options.after, options.limit),
       /** 설정 patch를 반영하고 변경 시 새 학습 세대를 시작한다. 기존 배정의 설정·최소 유지 기간은 보존한다. */
       update: (experimentId: string, input: Partial<ExperimentSettings>) => service.updateExperiment(siteId, id(experimentId, 'experimentId'), input),
@@ -201,7 +202,7 @@ export function createEye(options: EyeOptions) {
       create: (goalId: string) => service.createGoal(siteId, id(goalId, 'goalId')),
       /** 없으면 null. 실험 get은 없으면 not_found 오류라는 차이가 있다. */
       get: (goalId: string) => service.getGoal(siteId, id(goalId, 'goalId')),
-/** goalId 오름차순 정의 목록. after는 제외할 마지막 ID, limit 기본 100·최대 1000. 삭제된 골도 포함한다. */
+      /** goalId 오름차순 정의 목록. after는 제외할 마지막 ID, limit 기본 100·최대 1000. 삭제된 골도 포함한다. */
       list: (options: { after?: string; limit?: number } = {}) => service.listGoals(siteId, options.after, options.limit),
       /** 일시중지 이후 발생한 골을 무시한다. 늦게 도착한 사건은 발생 당시 상태로 판단한다. */
       pause: (goalId: string) => service.setGoalStatus(siteId, id(goalId, 'goalId'), 'paused'),
@@ -212,4 +213,5 @@ export function createEye(options: EyeOptions) {
     },
   };
 }
+/** createEye의 요청별 클라이언트. 수집은 Submission, 관리·조회·준비는 실패할 수 있는 Promise를 반환한다. */
 export type EyeClient = ReturnType<typeof createEye>;

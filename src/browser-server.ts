@@ -9,14 +9,17 @@ import type { Attributes, Subject } from './core/types.js';
 import type { AssignedDecision } from './transport.js';
 import type { BrowserSnapshot, BrowserEventResult } from './browser-types.js';
 
+/** 인증된 서버 요청마다 구성한다. prepare에는 decisions.secret도 필요하다. */
 export interface BrowserServerOptions extends EyeOptions {
+  /** 호스트 인증에서 확정한다. 브라우저가 보낸 subject를 그대로 신뢰하지 않는다. */
   subject: Subject;
   /** Host-authenticated browser binding, stable across login/logout, never taken from request JSON. */
   browserBinding: string;
-  /** Host authentication epoch; rotate on every login/logout/account switch. */
+  /** 브라우저와 공유하는 비밀이 아닌 인증 세대. 로그인·로그아웃·계정 변경마다 바꾼다. */
   scope: string;
   /** Secret of at least 32 UTF-8 bytes; kept on server. Domain-separated from decision signing. */
   receiptSecret: string;
+  /** 증표에 고정할 사용자군 속성. 첫 실제 노출의 관측 속성으로 사용한다. */
   userAttributes?: Attributes;
 }
 const encoder = new TextEncoder();
@@ -24,7 +27,7 @@ const grace = 300_000;
 function encode(bytes: Uint8Array) { return btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', ''); }
 function decode(text: string) { return Uint8Array.from(atob(text.replaceAll('-', '+').replaceAll('_', '/')), c => c.charCodeAt(0)); }
 
-/** Request-scoped adapter. Mount behind host authentication and same-origin POST checks. */
+/** 요청별 브라우저 준비·노출 어댑터. 호스트가 인증·동일 Origin POST·허용 실험·본문 크기를 확인한 뒤 호출한다. */
 export function createEyeBrowserServer(options: BrowserServerOptions) {
   const eye = createEye(options), subject = parseSubject(options.subject);
   const userAttributes = attributes(options.userAttributes ?? {});
@@ -52,7 +55,8 @@ export function createEyeBrowserServer(options: BrowserServerOptions) {
   };
   const withSample = (context: LocalAssignmentContext, sample: unknown) => sample === undefined ? context : parseLocalContext({ ...context, sample });
   return {
-    /** Explicit waiting route; call after rendering or during host data loading, never from synchronous browser selection. Up to 20 experiments. */
+    /** 최대 20실험을 준비한다. 필요하면 정책 조회를 기다리며 실패·비활성 실험은 choices에서 제외한다.
+     * previous는 실험별 BrowserState이며 검증 후 재사용한다. 실험별 실패는 onError로 보고한다. 잘못된 배치 입력은 reject한다. */
     async prepare(experimentIds: readonly string[], previous: unknown = {}): Promise<BrowserSnapshot> {
       invariant(experimentIds.length <= 20, 'invalid_input', 'At most 20 experiments per preparation');
       const states = record(previous, 'states');
@@ -86,7 +90,8 @@ export function createEyeBrowserServer(options: BrowserServerOptions) {
       }
       return { scope, serverNow: Date.now(), choices };
     },
-    /** Accept original identity from authenticated receipts, even after host auth changes. Waits for Queue ingestion, not analytics. Body cap must also be enforced by the HTTP host. */
+    /** 최대 50노출·48KB를 검증하고 Queue 접수를 기다린다. 같은 browserBinding이면 인증 전환 전 증표의 원래 신원을 보존한다.
+     * 사건별 거절은 accepted:false, 배치 오류·일시적 미래 시각·Queue 실패는 reject한다. 재시도는 원래 payload를 유지한다. */
     async receive(input: unknown): Promise<BrowserEventResult[]> {
       invariant(Array.isArray(input) && input.length <= 50, 'invalid_input', 'At most 50 exposures per batch');
       invariant(encoder.encode(JSON.stringify(input)).length <= 48_000, 'invalid_input', 'Exposure batch exceeds 48 KB');

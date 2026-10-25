@@ -4,9 +4,11 @@
 
 [문서 안내](../README.md) · [연동 가이드](../INTEGRATION.md) · [SDK API](client.md) · [타입과 파라미터](types.md) · [분석 해석](../ANALYTICS.md)
 
-공개 SDK의 실제 타입에서 생성한다. 모든 기간·시각은 별도 표시가 없으면 밀리초다. 공통 이벤트 입력과 설정 기본값은 [타입 문서](types.md), 호출 순서·오류 처리는 [연동 가이드](../INTEGRATION.md)를 따른다.
+공개 SDK의 실제 타입에서 생성한다. 시각은 Unix 밀리초, 기간은 별도 표시가 없으면 밀리초다. `eye`는 createEye, `request`는 createEyeRequest, `browser`는 createEyeBrowser, `browserServer`는 createEyeBrowserServer의 반환값이다. 공통 이벤트 입력과 설정 기본값은 [타입 문서](types.md), 호출 순서·오류 처리는 [연동 가이드](../INTEGRATION.md)를 따른다.
 
 ## createEye
+
+임포트: `@eye/workers`
 
 요청마다 생성한다. 관리·조회만 필요하면 decisions 설정을 생략할 수 있다.
 ```ts
@@ -62,6 +64,16 @@ createEye(options: EyeOptions): EyeClient
 - [eye.goals.pause](#eyegoalspause)
 - [eye.goals.resume](#eyegoalsresume)
 - [eye.goals.delete](#eyegoalsdelete)
+- [request.state](#requeststate)
+- [request.variant](#requestvariant)
+- [request.track](#requesttrack)
+- [request.goal](#requestgoal)
+- [browser.setScope](#browsersetscope)
+- [browser.beginView](#browserbeginview)
+- [browser.flush](#browserflush)
+- [browser.dispose](#browserdispose)
+- [browserServer.prepare](#browserserverprepare)
+- [browserServer.receive](#browserserverreceive)
 
 ## eye.prepare
 
@@ -75,7 +87,7 @@ eye.prepare(input: { subject: Subject; experimentId: string; context?: import(".
 
 ## eye.state
 
-최신 로컬 배정 문맥을 서명한다. 쿠키 응답을 만들 때 사용하며 원격 I/O를 하지 않는다.
+이 인스턴스가 복원·갱신한 실험별 토큰을 반환한다. 노출 후 호출해 응답 쿠키에 저장한다. 로컬 서명만 기다리며 onPrepared의 저장 완료는 기다리지 않는다.
 
 ```ts
 eye.state(): Promise<{ [k: string]: string; }>
@@ -113,7 +125,7 @@ eye.expose(input: { subject: Subject; decision: AssignedDecision; eventId?: stri
 
 ## eye.identify
 
-로그인 시 cid와 인증된 uid를 함께 전달한다. 마감 집계에서 익명 구간을 uid에 연결한다. 호스트의 이전 배정 토큰도 비운다.
+로그인 시 cid와 인증된 uid를 기록해 익명 노출의 귀속을 연결한다. 호스트가 이전 배정 토큰을 비워야 하며 이 호출이 세션을 수정하지는 않는다.
 
 ```ts
 eye.identify(input: EventInput<IdentityEvent> & { subject: Subject & { uid: string; }; }): Submission
@@ -123,7 +135,7 @@ eye.identify(input: EventInput<IdentityEvent> & { subject: Subject & { uid: stri
 
 ## eye.logout
 
-로그아웃 시 uid 없이 현재 cid를 전달한다. 새 익명 구간을 시작한다. 호스트의 이전 배정 토큰도 비운다.
+uid 없이 현재 cid를 기록해 새 익명 구간을 시작한다. 호스트가 이전 배정 토큰을 비우고 새 신원으로 요청 클라이언트를 만든다.
 
 ```ts
 eye.logout(input: EventInput<IdentityEvent>): Submission
@@ -133,7 +145,7 @@ eye.logout(input: EventInput<IdentityEvent>): Submission
 
 ## eye.decide
 
-원격 응답을 기다리지 않고 준비된 배정을 재사용한다. unavailable이면 기본 화면을 사용하고 노출을 기록하지 않는다. 세션 준비와 최신성은 빠른 배정 가이드를 따른다.
+유효한 로컬 정책으로 선택·재사용한다. 서명 검증은 기다리지만 원격 조회는 기다리지 않는다. assigned가 아니면 기본 화면을 사용하고 expose하지 않는다.
 
 ```ts
 eye.decide(input: { subject: Subject; experimentId: string; }): Promise<Decision>
@@ -143,7 +155,7 @@ eye.decide(input: { subject: Subject; experimentId: string; }): Promise<Decision
 
 ## eye.flush
 
-Optional for jobs/tests that need to await Queue ingestion. Normal request handlers need not await this.
+대기 중인 사건의 Queue 접수를 기다린다. 실패하면 reject하며 SDK가 자동 재전송하지 않는다. 학습·분석 반영 완료는 보장하지 않는다. 일반 요청은 waitUntil 전송으로 충분하다.
 
 ```ts
 eye.flush(): Promise<void>
@@ -527,7 +539,103 @@ eye.goals.delete(goalId: string): Promise<GoalDefinition>
 
 타입: [GoalDefinition](types.md#goaldefinition)
 
+## request.state
+
+실제 노출 후 응답 쿠키 등에 저장할 실험별 토큰. 로컬 서명만 기다리며 서버 세션 저장 완료는 기다리지 않는다.
+
+```ts
+request.state(): Promise<Record<string, string>>
+```
+
+## request.variant
+
+로컬 검증 후 지원하는 arm 값을 반환한다. 원격 조회는 기다리지 않으며 오류·미준비·미지원 arm은 fallback이다. 호출마다 새 노출 핸들을 만든다.
+
+```ts
+request.variant<T>(definition: VariantDefinition<T>): Promise<VariantSelection<T>>
+```
+
+타입: [VariantDefinition](types.md#variantdefinition) · [VariantSelection](types.md#variantselection)
+
+## request.track
+
+신원을 다시 전달하지 않는다. 접수 거절과 비동기 전송 실패 모두 onError로 보고한다.
+
+```ts
+request.track(input: Omit<EventInput<TrackEvent>, "subject">): Submission
+```
+
+타입: [EventInput](types.md#eventinput) · [Submission](types.md#submission) · [TrackEvent](types.md#trackevent)
+
+## request.goal
+
+사이트가 확정한 값. 재전송은 원래 eventId·occurredAt·subject·payload를 보존한다.
+
+```ts
+request.goal(input: Omit<EventInput<GoalEvent>, "subject">): Submission
+```
+
+타입: [EventInput](types.md#eventinput) · [GoalEvent](types.md#goalevent) · [Submission](types.md#submission)
+
+## browser.setScope
+
+인증 변경 완료 후 호출한다. 이전 선택·저장 문맥을 비우고 새 뷰를 요구하며 이미 접수한 이벤트의 신원은 유지한다.
+
+```ts
+browser.setScope(scope: string): void
+```
+
+## browser.beginView
+
+새 화면 수명에 대한 뷰를 만든다. 이 호출 자체가 서버 준비나 노출을 발생시키지는 않는다.
+
+```ts
+browser.beginView(): BrowserView
+```
+
+타입: [BrowserView](types.md#browserview)
+
+## browser.flush
+
+진행 중 전송과 큐를 제한된 재시도까지 처리한다. 실패는 onError로 보고하므로 resolve가 전체 전달 성공을 뜻하지 않는다.
+
+```ts
+browser.flush(): Promise<void>
+```
+
+## browser.dispose
+
+타이머·향후 선택을 중단하고 미전송 큐를 비운다. 전송이 필요하면 먼저 flush한다. 진행 중 HTTP는 취소하지 않는다.
+
+```ts
+browser.dispose(): void
+```
+
+## browserServer.prepare
+
+최대 20실험을 준비한다. 필요하면 정책 조회를 기다리며 실패·비활성 실험은 choices에서 제외한다.
+previous는 실험별 BrowserState이며 검증 후 재사용한다. 실험별 실패는 onError로 보고한다. 잘못된 배치 입력은 reject한다.
+
+```ts
+browserServer.prepare(experimentIds: readonly string[], previous?: unknown): Promise<BrowserSnapshot>
+```
+
+타입: [BrowserSnapshot](types.md#browsersnapshot)
+
+## browserServer.receive
+
+최대 50노출·48KB를 검증하고 Queue 접수를 기다린다. 같은 browserBinding이면 인증 전환 전 증표의 원래 신원을 보존한다.
+사건별 거절은 accepted:false, 배치 오류·일시적 미래 시각·Queue 실패는 reject한다. 재시도는 원래 payload를 유지한다.
+
+```ts
+browserServer.receive(input: unknown): Promise<BrowserEventResult[]>
+```
+
+타입: [BrowserEventResult](types.md#browsereventresult)
+
 ## EyeError
+
+임포트: `@eye/workers`
 
 Stable codes are part of the public API; message text is diagnostic only.
 
@@ -541,6 +649,8 @@ code: ErrorCode
 
 ## getOrCreateCid
 
+임포트: `@eye/workers`
+
 cid가 없거나 잘못됐으면 UUID와 Set-Cookie를 만든다. 기존 쿠키면 setCookie=null. Path=/, HttpOnly, SameSite=Lax, HTTPS에서 Secure를 사용한다.
 
 ```ts
@@ -551,19 +661,27 @@ getOrCreateCid(request: Request, options?: CidCookieOptions): CidCookie
 
 ## DecisionCache
 
+임포트: `@eye/workers`
+
 정책만 저장하는 isolate 캐시. capacity 기본 1000, 양의 정수. 호스트는 생성 후 decisions.cache에 전달하며 read/checkedAt/begin/put은 SDK 내부 갱신용이다.
 
 ```ts
 constructor(capacity?: number): DecisionCache
+/** SDK 갱신용. 키에 저장된 정책을 읽으며 최신성을 보장하지 않는다. */
 read: (key: string) => PublishedPolicy | undefined
+/** SDK 갱신용. 마지막 정책 확인 시각(Unix ms); 확인 이력이 없으면 undefined. */
 checkedAt: (key: string) => number | undefined
+/** SDK 갱신용. 키별 조회 시작을 10초 간격으로 제한하며 허용되면 true. */
 begin: (key: string, now: number) => boolean
+/** SDK 갱신용. 더 오래된 sequence는 무시한다. 채택한 정책은 확인 시각을 기록한다. */
 put: (key: string, policy: PublishedPolicy) => void
 ```
 
 타입: [PublishedPolicy](types.md#publishedpolicy)
 
 ## createEyeRequest
+
+임포트: `@eye/workers`
 
 공통 요청 경계에서 한 번 생성한다. SDK 초기화·선택 실패는 fallback, 수집 실패는 Submission으로 반환하며 onError에 보고한다.
 
@@ -575,7 +693,9 @@ createEyeRequest(options: EyeRequestOptions): EyeRequest
 
 ## createEyeBrowserServer
 
-Request-scoped adapter. Mount behind host authentication and same-origin POST checks.
+임포트: `@eye/workers`
+
+요청별 브라우저 준비·노출 어댑터. 호스트가 인증·동일 Origin POST·허용 실험·본문 크기를 확인한 뒤 호출한다.
 
 ```ts
 createEyeBrowserServer(options: BrowserServerOptions): { prepare(experimentIds: readonly string[], previous?: unknown): Promise<BrowserSnapshot>; receive(input: unknown): Promise<BrowserEventResult[]>; }
@@ -585,7 +705,9 @@ createEyeBrowserServer(options: BrowserServerOptions): { prepare(experimentIds: 
 
 ## createEyeBrowser
 
-Browser-only, framework-independent client. No Worker bindings or server secrets in this entry point.
+임포트: `@eye/workers/browser`
+
+브라우저 전용의 프레임워크 독립 클라이언트. 선택은 동기이며 실제 표시 시 expose를 호출한다.
 
 ```ts
 createEyeBrowser(options: BrowserOptions): EyeBrowser

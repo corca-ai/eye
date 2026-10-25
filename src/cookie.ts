@@ -1,11 +1,13 @@
 import { invariant } from './core/errors.js';
 
+/** 호스트 전용 cid 쿠키 설정. 수명만 초 단위이며 SDK의 다른 기간은 ms다. */
 export interface CidCookieOptions {
   /** Host-only ASCII HTTP token name. Defaults to `cid`. */
   readonly name?: string;
   /** Lifetime in seconds; this option follows HTTP cookie units. Defaults to one year. */
   readonly maxAgeSeconds?: number;
 }
+/** 요청에서 재사용하거나 새로 생성한 cid와 필요한 응답 쿠키 헤더. */
 export interface CidCookie {
   readonly cid: string;
   /** Append to Set-Cookie only when non-null; never replace the host's other cookies. */

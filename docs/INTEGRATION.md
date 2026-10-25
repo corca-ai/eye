@@ -95,7 +95,7 @@ const eye = createEye({
 
 응답 반환 전에 `cookie.setCookie`가 있으면 `response.headers.append('Set-Cookie', cookie.setCookie)`로 추가한다. `onPrepared`는 응답 후 실행될 수 있으므로 이미 보낸 응답 쿠키를 수정할 수 없다. 서버 세션이 없다면 실제 노출 후 `await eye.state()`의 문맥을 응답 쿠키에 저장한다. 이 함수는 로컬 서명 완료를 기다린다. `prepare()`는 캐시가 없거나 만료된 경우, 또는 forceRefresh=true인 경우 정책 RPC를 기다린다. [세션·SWR 계약](FAST-DECISIONS.md)을 참고한다.
 
-로그인 시 `eye.identify({ subject: { cid, uid } })`, 로그아웃 시 `eye.logout({ subject: { cid } })`을 호출한다. 로그인·로그아웃·계정 변경 시 이전 배정 토큰도 비운다. uid를 우선해 새 신원으로 선택한다. 익명 노출은 첫 로그인 이력으로 연결하지만 배정·보상 상태를 인계하지 않는다. 같은 uid의 기기별 arm은 다를 수 있다. 신원 전환을 이유로 이미 보낸 골을 다른 subject로 다시 보내지 않는다.
+로그인 시 `eye.identify({ subject: { cid, uid } })`, 로그아웃 시 `eye.logout({ subject: { cid } })`을 호출한다. 이 호출은 신원 사건을 기록하며 호스트의 인증·세션을 수정하지 않는다. 로그인·로그아웃·계정 변경 시 **호스트가 이전 배정 토큰을 비우고**, 새 신원으로 요청 클라이언트를 만든다. uid를 우선해 선택하며 익명 노출은 첫 로그인 이력으로 귀속을 연결한다. 같은 uid의 기기별 arm은 다를 수 있다. 이미 보낸 골을 새 subject로 다시 보내지 않는다.
 
 ## 4. 화면 적용과 사건 수집
 
@@ -131,15 +131,15 @@ eye.track({ subject, name: 'page_view', attributes: { path: '/checkout' } });
 
 `userAttributes`는 arm 비교용 사용자군 속성이고 첫 노출 때 관측에 고정된다. `attributes`는 개별 사건 속성이다. 두 값 모두 최상위 키와 scalar 값만 허용한다. SPA처럼 표시 사실을 브라우저만 알 수 있으면 사이트 수집 경로가 실제 표시 시점에 `expose`를 호출해야 한다. Eye는 DOM 표시 여부를 감지하지 않는다.
 
-구매 확정 등 업무 사건이 발생한 경로에서 호출한다. 다음 변수는 사이트의 주문·환불 데이터다.
+구매 확정 등 업무 사건이 발생한 경로에서 호출한다. 다음 변수는 사이트가 저장한 주문·가입·환불 데이터다.
 
 ```ts
-eye.goal({ subject, eventId: `purchase:${order.id}`, goalId: 'purchase', value: order.amount });
-eye.goal({ subject, eventId: `signup:${uid}`, goalId: 'signup', value: 10_000 });
-eye.goal({ subject, eventId: `refund:${refund.id}`, goalId: 'refund', value: -refund.amount });
+eye.goal({ subject, eventId: `purchase:${order.id}`, occurredAt: order.paidAt, goalId: 'purchase', value: order.amount });
+eye.goal({ subject, eventId: `signup:${uid}`, occurredAt: user.signedUpAt, goalId: 'signup', value: 10_000 });
+eye.goal({ subject, eventId: `refund:${refund.id}`, occurredAt: refund.completedAt, goalId: 'refund', value: -refund.amount });
 ```
 
-`occurredAt` 생략 시 현재 Unix 밀리초를 사용한다. 지연 전달이면 실제 발생 시각을 전달한다. 재시도에는 동일한 eventId·subject·payload를 사용한다. goal 중지·삭제는 수신 시각이 아니라 발생 당시 상태로 판정한다.
+위 시각은 업무 사건이 확정될 때 저장한 Unix 밀리초다. `occurredAt`을 생략하면 현재 시각을 사용하므로 재전송 가능한 사건은 최초부터 시각을 명시한다. 재시도에는 동일한 **eventId·occurredAt·subject·payload**를 사용한다. goal 중지·삭제는 수신 시각이 아니라 발생 당시 상태로 판정한다. [업무 사건 예제](../examples/business-events.ts)처럼 원래 신원을 주문/outbox에 함께 보관한다.
 
 ## 5. 결과 확인과 운영
 
@@ -165,7 +165,17 @@ arm을 추가하려면 `experiments.addArm(id, armId)`, 잠시 멈추려면 `pau
 
 ## 오류와 첫 연동 점검
 
-수집과 대기 API의 실패를 구분한다.
+반환값의 성공 범위를 구분한다.
+
+| 호출 | 성공의 의미 | 실패 처리 |
+| --- | --- | --- |
+| 서버 `track/goal/expose` | `accepted:true`는 로컬 검증·전송 큐 접수 | 로컬 거절은 `Submission`, 이후 전송 오류는 `onError` |
+| 서버 `flush()` | 현재 대기 사건의 Queue 접수 완료 | Promise reject. SDK가 자동 재전송하지 않음 |
+| 브라우저 `selection.expose()` | 최초 로컬 접수 또는 이미 접수한 핸들 | 미접수 fallback·만료·폐기 핸들은 false |
+| 브라우저 `flush()` | 제한된 재시도를 포함한 큐 처리 종료 | 실패·포기는 `onError`. resolve가 전체 전달 성공을 뜻하지 않음 |
+| 관리·조회·`prepare()` | 해당 요청 결과 반환 | Promise reject를 처리. 브라우저 서버의 prepare는 실험별 실패를 제외하고 반환할 수 있음 |
+
+Queue 접수도 학습 마감·정책 갱신·분석 가시성 완료를 보장하지 않는다.
 
 ```ts
 const result = eye.track({ subject, name: 'page_view' });

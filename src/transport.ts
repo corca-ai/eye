@@ -9,13 +9,17 @@ import type { AnalyticsAPI } from './analytics/types.js';
 export interface PolicySnapshot extends UnreservedPolicyEvaluation {
   experimentId: string; generation: number; revision: number; statsAsOf: number | null;
 }
+/** 로컬 선택에 사용하는 발행 정책. sequence는 발행 순서, publishedAt은 발행 Unix ms이며 조회로 연장되지 않는다. */
 export interface PublishedPolicy extends PolicySnapshot {
   settings: ExperimentSettings;
-  publishedAt: number; sequence: number; status: ArmStatus; activeArms: string[];
+  publishedAt: number; sequence: number;
+  /** 실험 전체의 상태와 신규 선택 가능한 arm ID 목록. */
+  status: ArmStatus; activeArms: string[];
 }
 /** reuseUntil은 이번 결정의 적용 기한(Unix 밀리초)이다. 정책 유효기간과 유지·관측 조건으로 결정하며 저장 문맥의 삭제 시각은 아니다. */
 export interface PreparedDecision { decision: Decision; reuseUntil: number; policy: PublishedPolicy }
-/** Structural RPC contract: hosts may name their Service Binding freely. */
+/** 호스트 Worker의 Service Binding 타입. 바인딩 이름은 자유이며 일반 연동은 createEye로 호출한다.
+ * 저수준 RPC 계약이며 호스트의 사용자 인증이나 HTTP 라우팅을 대신하지 않는다. */
 export interface EyeService {
   configureSummaries(siteId: string, input: Parameters<SummariesAPI['configure']>[0]): ReturnType<SummariesAPI['configure']>;
   summaryStatus(siteId: string): ReturnType<SummariesAPI['status']>;
@@ -53,5 +57,6 @@ export interface EyeService {
   analyticsSeries(siteId: string, query: Parameters<AnalyticsAPI['series']>[0]): ReturnType<AnalyticsAPI['series']>;
   analyticsAttributeValues(siteId: string, query: Parameters<AnalyticsAPI['attributeValues']>[0]): ReturnType<AnalyticsAPI['attributeValues']>;
 }
+/** 실제 적용·노출 가능한 결정. decide/prepare의 status를 확인해 좁히고 원본 객체를 expose에 전달한다. */
 export type AssignedDecision = Extract<Decision, { status: 'assigned' }>;
 export type { Assignment, GoalDefinition };
