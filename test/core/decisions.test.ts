@@ -3,6 +3,57 @@ import { DecisionCache, decisionRuntime } from '../../src/decisions.js';
 import { settings } from '../../src/core/validation.js';
 import type { PublishedPolicy } from '../../src/transport.js';
 const now = 1_800_000_000_000, secret = 'test-secret-with-at-least-32-bytes-long';
+
+it.each([0, 10])('records an old assignment exposure without replacing a newer selected assignment (%i ms apart)', async gap => {
+  const f = fixture(), runtime = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache }, () => {});
+  const first = await runtime.prepare({ cid: 'c', uid: 'alice' }, 'exp');
+  if (first.decision.status !== 'assigned') throw new Error('Expected assignment');
+  f.advance(gap);
+  const next = await runtime.prepare({ cid: 'c', uid: 'bob' }, 'exp');
+  if (next.decision.status !== 'assigned') throw new Error('Expected assignment');
+  const late = runtime.expose(first.decision, now, 'late-alice');
+  expect(late.event.subject.uid).toBe('alice');
+  const restored = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache, tokens: await runtime.state() }, () => {});
+  expect(await restored.decide({ cid: 'c', uid: 'bob' }, 'exp')).toMatchObject({
+    status: 'assigned', assignment: { assignmentId: next.decision.assignment.assignmentId }, reason: 'held',
+  });
+  await Promise.all(f.pending);
+});
+
+it('records an earlier sample receipt without regressing the current sample in signed state', async () => {
+  const f = fixture(); f.policy.settings = settings({ minHoldMs: 100000, observationWindowMs: 1000 });
+  const runtime = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache }, () => {});
+  const prepared = await runtime.prepare({ cid: 'c' }, 'exp');
+  if (prepared.decision.status !== 'assigned') throw new Error('Expected assignment');
+  runtime.expose(prepared.decision, now, 'first');
+  const held = await runtime.decide({ cid: 'c' }, 'exp');
+  if (held.status !== 'assigned') throw new Error('Expected assignment');
+  f.advance(1000);
+  const latest = runtime.expose(prepared.decision, now + 1000, 'next');
+  const late = runtime.expose(held, now + 1, 'late-first');
+  expect(late.startAt).toBe(now);
+  const restored = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache, tokens: await runtime.state() }, () => {});
+  expect(await restored.decide({ cid: 'c' }, 'exp')).toMatchObject({
+    status: 'assigned', localContext: { sample: { sampleId: latest.sampleId, startAt: now + 1000 } },
+  });
+  await Promise.all(f.pending);
+});
+
+it('still adopts a newer original decision supplied by another request', async () => {
+  const f = fixture(), options = { secret, cache: f.cache };
+  const runtime = decisionRuntime(f.service, f.ctx, 'site', options, () => {});
+  await runtime.prepare({ cid: 'c' }, 'exp');
+  f.advance(10);
+  const source = decisionRuntime(f.service, f.ctx, 'site', options, () => {});
+  const newer = await source.prepare({ cid: 'c' }, 'exp');
+  if (newer.decision.status !== 'assigned') throw new Error('Expected assignment');
+  const receipt = runtime.expose(newer.decision, now + 10, 'newer');
+  const restored = decisionRuntime(f.service, f.ctx, 'site', { ...options, tokens: await runtime.state() }, () => {});
+  expect(await restored.decide({ cid: 'c' }, 'exp')).toMatchObject({ status: 'assigned',
+    assignment: { assignmentId: newer.decision.assignment.assignmentId }, localContext: { sample: { sampleId: receipt.sampleId } },
+  });
+  await Promise.all(f.pending);
+});
 afterEach(() => vi.restoreAllMocks());
 function fixture() {
   let clock = now;
