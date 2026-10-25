@@ -159,7 +159,7 @@ const timeline = await eye.analytics.timeline({
 });
 ```
 
-`report.rows`의 `completed/pending`와 `meanValue`를 함께 본다. `learningValue`는 마감 때 고정한 학습 보상이며 뒤늦게 반영된 원본 귀속 보상과 다를 수 있다. 관측이 끝나기 전에는 완료 평균이 없을 수 있다. `policy`는 현재 선택 정책, `traffic`은 실제 노출된 배정·노출, `analytics.policies`는 발행 정책 이력이다. 분석에는 반영 지연이 있으며 평균 차이는 인과적 uplift가 아니다. [조회별 의미·응답·필터 예제](ANALYTICS.md)를 참고한다.
+`report.rows`의 `completed/pending`와 `meanValue`를 함께 본다. `learningValue`는 마감 때 고정한 학습 보상이며 뒤늦게 반영된 원본 귀속 보상과 다를 수 있다. 관측이 끝나기 전에는 완료 평균이 없을 수 있다. `policy`는 현재 선택 정책, `traffic`은 실제 노출된 배정·노출, `analytics.policies`는 발행 정책 이력이다. 분석에는 반영 지연이 있으며 평균 차이는 인과적 uplift가 아니다. [조회별 의미·응답·필터 예제](ANALYTICS.md)를 참고한다. 자주 보는 기본 합계는 [선택적 요약](ANALYTICS.md#원본-조회-없이-읽는-선택적-요약)을 설정하고 명시적 summary 보고서를 사용하면 반복 원본 조회를 줄일 수 있다. [대시보드 예제](../examples/summary-dashboard.ts)는 범위가 부족할 때 합계를 0으로 표시하거나 원본 SQL을 자동 실행하지 않는다.
 
 arm을 추가하려면 `experiments.addArm(id, armId)`, 잠시 멈추려면 `pauseArm/resumeArm`, 실험 전체는 `pause/resume`을 사용한다. `delete/deleteArm`은 이력을 보존하는 영구 비활성화이며 ID 재사용을 금지한다. 로컬 결정에는 정책 갱신 지연이 있다. 골도 `goals.pause/resume/delete`로 관리한다.
 

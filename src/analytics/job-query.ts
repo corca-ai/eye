@@ -2,6 +2,7 @@ import { AnalyticsSQL } from './sql.js';
 import { invariant } from '../core/errors.js';
 import type { AnalyticsRequest, AnalyticsResult } from './jobs.js';
 import type { BasinAnalytics } from './query.js';
+import { validateSummaryQuery } from './summary-query.js';
 
 /** Sort object keys, keep array order/explicit nulls, and reject values JSON would
  * silently erase. Query validation runs before a key is computed. */
@@ -19,6 +20,7 @@ export function validateJobRequest(siteId: string, input: AnalyticsRequest, now:
   invariant(input && typeof input === 'object' && input.query && typeof input.query === 'object', 'invalid_input', 'Invalid analytics request');
   const sql = new AnalyticsSQL('eye', siteId, now);
   switch (input.kind) {
+    case 'summary': break; // Normalized and validated below; no raw SQL builder.
     case 'learning': sql.learning(input.query); break;
     case 'arms': sql.arms(input.query); break;
     case 'armSeries':
@@ -33,12 +35,13 @@ export function validateJobRequest(siteId: string, input: AnalyticsRequest, now:
     case 'attributeValues': sql.attributeValues(input.query); break;
     default: invariant(false, 'invalid_input', 'Unknown analytics kind');
   }
-  const normalized = { ...input, query: { ...input.query, limit: input.query.limit ?? 100 } };
+  const normalized = input.kind === 'summary' ? { kind: input.kind, query: validateSummaryQuery(input.query, now) }
+    : { ...input, query: { ...input.query, limit: input.query.limit ?? 100 } };
   const json = canonicalJSON(normalized);
   invariant(new TextEncoder().encode(json).length <= 32_000, 'invalid_input', 'Analytics request exceeds 32KB');
   return json;
 }
-export async function runJobQuery(api: BasinAnalytics, input: AnalyticsRequest): Promise<AnalyticsResult> {
+export async function runJobQuery(api: BasinAnalytics, input: Exclude<AnalyticsRequest, { kind: 'summary' }>): Promise<AnalyticsResult> {
   switch (input.kind) {
     case 'learning': return { kind: input.kind, data: await api.learning(input.query) };
     case 'arms': return { kind: input.kind, data: await api.arms(input.query) };

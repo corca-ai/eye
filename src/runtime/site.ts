@@ -116,9 +116,16 @@ export class SiteControl extends StoredObject {
     const previousSiteId = this.kv.get<string>('siteId');
     invariant(previousSiteId === undefined || previousSiteId === siteId, 'invalid_input', 'Learning site does not match this object');
     const accepted = this.atomic(() => {
+      // This synchronous transaction observes one definition per goal. Older
+      // events still use history; no cache survives an administrative change.
+      const definitions = new Map<string, GoalDefinition | null>();
       const { accepted, diagnostics } = this.learning.accept(events, now,
-        goal => this.goalStatusAt(goal.goalId, goal.occurredAt) === 'active');
-      this.kv.put('siteId', siteId);
+        goal => {
+          if (!definitions.has(goal.goalId)) definitions.set(goal.goalId, this.getGoal(goal.goalId));
+          const current = definitions.get(goal.goalId)!;
+          return current !== null && (goal.occurredAt >= current.changedAt ? current.status : this.goalStatusAt(goal.goalId, goal.occurredAt)) === 'active';
+        });
+      if (previousSiteId === undefined) this.kv.put('siteId', siteId);
       const rejectedExposures = events.filter((event, i) => event.kind === 'exposure' && !accepted[i]).length;
       if (rejectedExposures) console.warn(JSON.stringify({ component: 'eye', operation: 'learning_rejected_exposures', siteId, count: rejectedExposures, code: 'conflict' }));
       if (Object.values(diagnostics).some(value => value > 0))
@@ -154,7 +161,7 @@ export class SiteControl extends StoredObject {
     });
   }
   private async scheduleLearning(now: number, replace = false): Promise<void> {
-    const at = this.learning.nextWake(now);
+    const at = this.learning.nextWake(now, replace);
     if (at === null) { await this.ctx.storage.deleteAlarm(); this.kv.delete('alarmAt'); return; }
     if (!replace) { await this.wakeAt(at); return; }
     const pending = this.ctx.storage.setAlarm(at);

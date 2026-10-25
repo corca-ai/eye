@@ -5,6 +5,7 @@ import { canonicalJSON, runJobQuery, validateJobRequest } from '../analytics/job
 import type { AnalyticsJob, AnalyticsJobInput, AnalyticsJobPage, AnalyticsJobRef, AnalyticsRequest, AnalyticsResult, BasicReport, ReportSchedule, ReportScheduleInput, ReportScheduleRef } from '../analytics/jobs.js';
 import { invariant } from '../core/errors.js';
 import { id, record } from '../core/validation.js';
+import { SUMMARY_HOUR_MS, validateSummaryTarget } from '../analytics/summary-query.js';
 
 const RETAIN_MS = 3_600_000, FRESH_MS = 900_000, LEASE_MS = 120_000;
 interface JobRow extends Record<string, SqlStorageValue> {
@@ -74,9 +75,13 @@ AND (status IN ('queued','running') OR (status = 'complete' AND completed_at > ?
   async schedule(siteId: string, input: ReportScheduleInput): Promise<ReportSchedule> {
     id(siteId, 'siteId'); record(input, 'schedule'); id(input.scope, 'scope'); id(input.scheduleId, 'scheduleId');
     const report = record(input.report, 'basic report');
-    invariant(report.kind === 'learning' || report.kind === 'goals', 'invalid_input', 'Only learning and goals support schedules');
-    invariant(Object.keys(report).every(key => key === 'kind' || (report.kind === 'learning' && key === 'experimentId')), 'invalid_input', 'Unsupported basic report option');
+    invariant(report.kind === 'learning' || report.kind === 'goals' || report.kind === 'summary', 'invalid_input', 'Unsupported report kind');
+    invariant(Object.keys(report).every(key => key === 'kind' || (report.kind === 'learning' && key === 'experimentId') || (report.kind === 'summary' && key === 'target')), 'invalid_input', 'Unsupported basic report option');
     if (report.experimentId !== undefined) id(report.experimentId, 'experimentId');
+    if (report.kind === 'summary') {
+      validateSummaryTarget(report.target);
+      invariant(input.windowMs % SUMMARY_HOUR_MS === 0, 'invalid_input', 'Summary windowMs must be whole hours');
+    }
     const interval = input.intervalMs ?? RETAIN_MS;
     invariant(Number.isSafeInteger(interval) && interval >= RETAIN_MS && interval <= 24 * RETAIN_MS, 'invalid_input', 'intervalMs must be 1–24 hours');
     invariant(Number.isSafeInteger(input.windowMs) && input.windowMs >= RETAIN_MS && input.windowMs <= 59 * 24 * RETAIN_MS, 'invalid_input', 'windowMs must be 1 hour–59 days');
@@ -113,7 +118,10 @@ next_at=excluded.next_at,current_job=NULL,latest_job=NULL,version=excluded.versi
     if (!row) return;
     const report = storedJson<BasicReport>(row.report);
     const range = { from: now - row.window_ms, to: now, limit: 1000 };
-    const request: AnalyticsRequest = report.kind === 'goals' ? { kind: 'goals', query: range }
+    const endHour = Math.floor(now / SUMMARY_HOUR_MS) * SUMMARY_HOUR_MS;
+    const request: AnalyticsRequest = report.kind === 'summary'
+      ? { kind: 'summary', query: { ...report.target, from: endHour - row.window_ms, to: endHour } }
+      : report.kind === 'goals' ? { kind: 'goals', query: range }
       : { kind: 'learning', query: { ...range, ...(report.experimentId === undefined ? {} : { experimentId: report.experimentId }) } };
     try {
       const job = await this.enqueue(this.kv.get<string>('siteId')!, { scope: row.scope, request }, 2 * row.interval_ms + RETAIN_MS);
@@ -170,7 +178,10 @@ next_at=excluded.next_at,current_job=NULL,latest_job=NULL,version=excluded.versi
           invariant(job.attempts < 3, 'unavailable', 'Report retry limit reached');
           const siteId = this.kv.get<string>('siteId');
           invariant(siteId, 'unavailable', 'Missing report site');
-          const result = await runJobQuery(new BasinAnalytics(this.env as Env & AnalyticsEnv, siteId), storedJson<AnalyticsRequest>(job.request));
+          const request = storedJson<AnalyticsRequest>(job.request);
+          const result: AnalyticsResult = request.kind === 'summary'
+            ? { kind: 'summary', data: await this.env.SITES.getByName(siteId).querySummary(request.query) }
+            : await runJobQuery(new BasinAnalytics(this.env as Env & AnalyticsEnv, siteId), request);
           const json = JSON.stringify(result);
           invariant(new TextEncoder().encode(json).length <= 16 * 1024 * 1024, 'invalid_input', 'Report result exceeds 16 MiB; narrow the query');
           await this.env.COHORTS.put(this.key(job.job_id), json, { onlyIf: { etagDoesNotMatch: '*' } });

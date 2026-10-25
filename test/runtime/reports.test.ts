@@ -3,9 +3,87 @@ import { evictDurableObject, runInDurableObject } from 'cloudflare:test';
 import { expect, it, vi } from 'vitest';
 import { BasinAnalytics } from '../../src/analytics/query.js';
 import type { AnalyticsJobInput, AnalyticsJobPage } from '../../src/analytics/jobs.js';
+import { IncrementalLearning } from '../../src/runtime/incremental.js';
+import type { GoalEvent } from '../../src/core/types.js';
 const input = (): AnalyticsJobInput => ({ scope: 'admins', request: { kind: 'goals', query: { from: Date.now() - 60000, to: Date.now() - 1 } } });
 const result = () => ({ meta: { queriedAt: Date.now(), receivedBefore: Date.now(), consistency: 'eventual' as const, truncated: false, bytesScanned: 100 },
   rows: [1, 2, 3].map(i => ({ goalId: `g${i}`, events: i, totalValue: i * 10, latestReceivedAt: Date.now() })) });
+
+it('freezes explicitly selected summaries through the SDK without raw queries, including late revisions', async () => {
+  const { createExecutionContext, waitOnExecutionContext } = await import('cloudflare:test');
+  const { EyeWorker } = await import('../../src/runtime/service.js');
+  const { createEye } = await import('../../src/client.js');
+  const siteId = crypto.randomUUID(), ctx = createExecutionContext(), H = 3_600_000;
+  const eye = createEye({ siteId, ctx, service: new EyeWorker(ctx, env) });
+  const to = Math.floor(Date.now() / H) * H, from = to - H;
+  const event: GoalEvent = { kind: 'goal', eventId: 'first', occurredAt: from + 1, subject: { cid: 'c' }, goalId: 'pay', value: 7 };
+  const add = async (e: GoalEvent, configure = false) => runInDurableObject(env.SITES.getByName(siteId), (_a, state) => {
+    const engine = new IncrementalLearning(state.storage.sql);
+    state.storage.transactionSync(() => {
+      if (configure) engine.summaries.configure({ goalIds: ['pay'], experimentIds: [] }, from);
+      engine.accept([e], Date.now());
+    });
+  });
+  const query = vi.spyOn(BasinAnalytics.prototype, 'goals').mockRejectedValue(new Error('Raw queries must not run'));
+  try {
+    await add(event, true);
+    const input: AnalyticsJobInput = { scope: 'staff', request: { kind: 'summary', query: { kind: 'goals', goalId: 'pay', from, to } } };
+    const job = await eye.analytics.jobs.create(input), ref = { scope: input.scope, jobId: job.jobId };
+    await runInDurableObject(env.REPORTS.getByName(siteId), a => a.alarm());
+    const page = await eye.analytics.jobs.page(ref);
+    expect(page.result.kind).toBe('summary');
+    expect(page.result.data.meta).toMatchObject({ basis: 'durable_local', from, to });
+    expect(page.result.data.rows).toEqual([{ kind: 'goals', goalId: 'pay', count: 1, total: 7, mean: 7 }]);
+    expect(page.request).toEqual(input.request);
+    await add({ ...event, eventId: 'late', value: 3 });
+    expect((await eye.analytics.summaries.query({ kind: 'goals', goalId: 'pay', from, to })).rows[0]!.total).toBe(10);
+    await evictDurableObject(env.REPORTS.getByName(siteId));
+    expect((await eye.analytics.jobs.page(ref)).result).toEqual(page.result);
+    expect((await eye.analytics.jobs.page({ ...ref, offset: 1 })).result.data.rows).toEqual([]);
+    expect((await eye.analytics.jobs.create(input)).jobId).toBe(job.jobId);
+    expect(query).not.toHaveBeenCalled();
+  } finally { query.mockRestore(); await waitOnExecutionContext(ctx); }
+});
+
+it('aligns summary schedules to completed UTC hours and fails missing coverage without falling back', async () => {
+  const site = crypto.randomUUID(), actor = env.REPORTS.getByName(site), H = 3_600_000;
+  const to = Math.floor(Date.now() / H) * H, from = to - H;
+  const request = { scope: 'staff', scheduleId: 'summary', report: { kind: 'summary' as const, target: { kind: 'goals' as const, goalId: 'pay' } }, windowMs: H };
+  const query = vi.spyOn(BasinAnalytics.prototype, 'goals').mockRejectedValue(new Error('No raw fallback'));
+  try {
+    await runInDurableObject(actor, async a => {
+      await expect(a.schedule(site, { ...request, windowMs: H + 1 })).rejects.toThrow('whole hours');
+      await expect(a.create(site, { scope: 'staff', request: { kind: 'summary', query: { kind: 'goals', goalId: 'pay', from: from + 1, to } } })).rejects.toThrow('whole completed');
+      await expect(a.create(site, { scope: 'staff', request: { kind: 'summary', query: { kind: 'goals', goalId: 'pay', from, to: to + H } } })).rejects.toThrow('whole completed');
+      await expect(a.create(site, { scope: 'staff', request: { kind: 'summary', query: { kind: 'goals', from, to } } } as AnalyticsJobInput)).rejects.toThrow('summary target');
+      await expect(a.create(site, { scope: 'staff', request: { kind: 'summary', query: { kind: 'goals', goalId: 'pay', from, to, limit: 100 } } } as AnalyticsJobInput)).rejects.toThrow('Unsupported summary');
+    });
+    await actor.schedule(site, request);
+    await runInDurableObject(actor, a => a.alarm());
+    let schedule = await actor.getSchedule(request);
+    expect(schedule.currentJob?.kind).toBe('summary');
+    for (let i = 0; i < 2; i++) await runInDurableObject(actor, async (a, state) => {
+      state.storage.sql.exec('UPDATE report_jobs SET next_at=0'); await a.alarm();
+    });
+    schedule = await actor.getSchedule(request);
+    expect(schedule.currentJob).toMatchObject({ status: 'failed', error: 'query_unavailable', attempts: 3 });
+    expect(schedule.latestJob).toBeNull();
+    await runInDurableObject(env.SITES.getByName(site), (_a, state) => {
+      const engine = new IncrementalLearning(state.storage.sql);
+      state.storage.transactionSync(() => engine.summaries.configure({ goalIds: ['pay'], experimentIds: [] }, from));
+    });
+    await runInDurableObject(actor, async (a, state) => {
+      state.storage.sql.exec('UPDATE report_schedules SET next_at=0'); await a.alarm();
+    });
+    schedule = await actor.getSchedule(request);
+    expect(schedule.latestJob?.status).toBe('complete');
+    const page = JSON.parse(await actor.page({ scope: 'staff', jobId: schedule.latestJob!.jobId })) as AnalyticsJobPage;
+    expect(page.request).toEqual({ kind: 'summary', query: { kind: 'goals', goalId: 'pay', from, to } });
+    expect(page.result.data.rows).toEqual([]);
+    expect(query).not.toHaveBeenCalled();
+    await actor.unschedule(request);
+  } finally { query.mockRestore(); }
+});
 it('coalesces canonical queries, isolates authorization scopes and pages frozen results after eviction', async () => {
   const site = crypto.randomUUID(), actor = env.REPORTS.getByName(site), request = input();
   const query = vi.spyOn(BasinAnalytics.prototype, 'goals').mockResolvedValue(result());

@@ -271,3 +271,55 @@ it('rejects an already-expired conflicting window without extending the pending 
     expect(engine.outputs().flatMap(o => o.output.records)[0]!.value).toBe(0);
   });
 });
+
+it('coalesces normal closes and expiry but drains backlog and outbox promptly without accepting late rewards', async () => {
+  await runInDurableObject(env.SITES.getByName(crypto.randomUUID()), (_actor, state) => {
+    const engine = new IncrementalLearning(state.storage.sql);
+    state.storage.transactionSync(() => engine.accept([exposure('sample', 10), goal('z-on-time', 10, 7)], 10));
+    expect(engine.nextWake(10)).toBe(60000);
+    // Arrival after the true deadline must neither earn reward nor accelerate the flush.
+    state.storage.transactionSync(() => engine.accept([goal('late', 100, 100)], 2000));
+    expect(engine.nextWake(2000)).toBe(60000);
+    expect(engine.nextWake(2000, true)).toBe(3000);
+    state.storage.transactionSync(() => engine.close('site', 60000));
+    expect(engine.outputs().flatMap(o => o.output.records)[0]!.value).toBe(7);
+    expect(engine.nextWake(60000)).toBe(61000);
+    engine.acknowledge(engine.outputs().map(o => o.id));
+    expect(engine.nextWake(60000)).toBe(Math.ceil((RETENTION_MS + 11) / 60000) * 60000);
+  });
+});
+
+it('preserves rewards when a compact sample read is followed by full exposure context in one transaction', async () => {
+  await runInDurableObject(env.SITES.getByName(crypto.randomUUID()), (_actor, state) => {
+    const engine = new IncrementalLearning(state.storage.sql), first = exposure('sample', 10);
+    state.storage.transactionSync(() => engine.accept([first], 10));
+    const repeat = { ...first, eventId: 'repeat', occurredAt: 30 };
+    state.storage.transactionSync(() => engine.accept([goal('before', 20, 10), repeat, goal('after', 40, 20)], 40));
+    state.storage.transactionSync(() => engine.close('site', 2000));
+    expect(engine.outputs().flatMap(o => o.output.records)[0]!.value).toBeCloseTo(30 * 2 ** (-10 / config.attributionHalfLifeMs), 10);
+  });
+});
+
+it('point-reads one exposure reference and omits large immutable metadata from reward reads', async () => {
+  await runInDurableObject(env.SITES.getByName(crypto.randomUUID()), (_actor, state) => {
+    const base = new IncrementalLearning(state.storage.sql);
+    const events = Array.from({ length: 100 }, (_, i) => exposure('e' + i, 10, 'e' + i, { cid: 'c', uid: 'u' }, { userAttributes: { large: 'x'.repeat(25000) } }));
+    state.storage.transactionSync(() => base.accept(events, 10));
+    let references = 0, sampleBytes = 0;
+    const sql: import('../../src/runtime/incremental.js').LearningSQL = { exec<T extends Record<string, string | number | null>>(query: string, ...bindings: (string | number | null)[]) {
+      const cursor = state.storage.sql.exec<T>(query, ...bindings), rows = cursor.toArray();
+      if (query.startsWith('SELECT') && query.includes('FROM learning_last')) references += rows.length;
+      if (query.startsWith('SELECT') && query.includes('FROM learning_samples')) sampleBytes += JSON.stringify(rows).length;
+      return { toArray: () => rows, [Symbol.iterator]: () => rows[Symbol.iterator]() };
+    } };
+    const engine = new IncrementalLearning(sql), first = events[0]!;
+    state.storage.transactionSync(() => engine.accept([{ ...first, eventId: 'repeat', occurredAt: 20 }], 20));
+    expect(references).toBe(1);
+    sampleBytes = 0;
+    state.storage.transactionSync(() => engine.accept([goal('g', 30, 100, first.subject)], 30));
+    // A goal needs all 100 references, but none of their large user attributes.
+    expect(sampleBytes).toBeLessThan(20000);
+    state.storage.transactionSync(() => engine.close('site', 2000));
+    expect(engine.outputs().flatMap(o => o.output.records).find(r => r.record_id === 'e0')!.value).toBeCloseTo(2 ** (-10 / config.attributionHalfLifeMs), 10);
+  });
+});

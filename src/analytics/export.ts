@@ -42,6 +42,11 @@ export async function sendExportBatches(rows: readonly { record: AnalyticsRecord
   }
 }
 
+function* expanded(record: AnalyticsRecord, include: (recordId: string) => boolean): Generator<AnalyticsRecord> {
+  yield record;
+  yield* attributeRecords(record, include);
+}
+
 /** Expand before sizing: a valid event's dictionary may span several requests.
  * Yield wire records directly so callers never expand an already-sized batch.
  */
@@ -49,12 +54,13 @@ export function* exportBatches(rows: readonly { record: AnalyticsRecord }[], cac
   let batch: AnalyticsRecord[] = [], bytes = 2;
   const keys = new Set<string>();
   for (const row of rows) {
-    validateExport(row.record);
-    const expanded = [row.record, ...attributeRecords(row.record)];
-    for (const [index, record] of expanded.entries()) {
-      if (index !== 0) validateExport(record);
-      const key = index === 0 ? null : JSON.stringify([record.site_id, record.record_id]);
-      if (key !== null && (keys.has(key) || cache?.has(key))) continue;
+    const include = (recordId: string) => {
+      const key = JSON.stringify([row.record.site_id, recordId]);
+      return !keys.has(key) && !cache?.has(key);
+    };
+    for (const record of expanded(row.record, include)) {
+      validateExport(record);
+      const key = record === row.record ? null : dictionaryKey(record);
       const size = encoder.encode(JSON.stringify(record)).byteLength;
       invariant(size + 2 <= EXPORT_BATCH_BYTES, 'invalid_input', 'Analytics record exceeds the Stream request limit');
       if (bytes + size + (batch.length ? 1 : 0) > EXPORT_BATCH_BYTES) {
@@ -71,7 +77,7 @@ export function exportRecords(rows: readonly { record: AnalyticsRecord }[]): Ana
   const result: AnalyticsRecord[] = [], keys = new Set<string>();
   for (const { record } of rows) {
     result.push(record);
-    for (const dictionary of attributeRecords(record)) {
+    for (const dictionary of attributeRecords(record, id => !keys.has(JSON.stringify([record.site_id, id])))) {
       const key = JSON.stringify([dictionary.site_id, dictionary.record_id]);
       if (!keys.has(key)) { keys.add(key); validateExport(dictionary); result.push(dictionary); }
     }

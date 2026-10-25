@@ -2,7 +2,7 @@
 
 [연동 가이드](INTEGRATION.md) · [API 시그니처](api/client.md#eyeanalyticsarms) · [응답 타입](api/types.md#armreport) · [문서 안내](README.md)
 
-`createEye(...).analytics`는 서버 Service Binding을 통해 고객 계정의 Basin SQL을 호출한다. 토큰은 Eye Worker secret에만 둔다. UI와 공개 HTTP API는 호스트가 구성한다.
+`createEye(...).analytics`의 원본 분석은 서버 Service Binding을 통해 고객 계정의 Basin SQL을 호출한다. 명시적으로 선택한 `summaries`와 `kind: 'summary'` 작업은 SiteControl의 로컬 집계만 읽는다. 토큰은 Eye Worker secret에만 둔다. UI와 공개 HTTP API는 호스트가 구성한다.
 
 ## 비동기 조회와 결과 재사용
 
@@ -26,7 +26,7 @@ if (state.status === 'complete') {
 
 `scope`는 인증 기능이 아니라 캐시 격리 키다. 호스트가 인증된 권한 집합과 정책 버전에 따라 공급하고, 실제 조회 조건도 권한에 맞게 제한해야 한다. 브라우저가 임의 scope나 다른 사용자의 job ID로 조회하도록 공개하지 않는다. 같은 job ID라도 다른 사이트·scope에서는 상태와 결과가 `not_found`다. 권한이 변경되면 scope도 바꾼다.
 
-결과의 `meta.queriedAt`/`receivedBefore`, 보상 기준, `truncated`는 원래 계산 당시 값을 유지한다. `completedAt`은 작업 완료 시각이며 데이터 수신 watermark가 아니다. 페이지 이동은 R2의 같은 결과를 읽고 원본 SQL을 다시 실행하지 않는다. 페이지 크기를 늘려도 원래 조회 limit을 넘어 복구하지 않으며, 잘린 집계는 조건을 좁혀 새 작업으로 등록한다. timeline의 `nextCursor`는 기존 원본 조회 계약이고 작업의 `nextOffset`과 다르다.
+원본 결과의 `meta.queriedAt`/`receivedBefore`, 보상 기준, `truncated`는 원래 계산 당시 값을 유지한다. summary 결과는 `basis/coverageFrom/queriedAt`을 유지하고 원본의 `receivedBefore/truncated/bytesScanned`를 제공하지 않는다. `completedAt`은 작업 완료 시각이며 데이터 수신 watermark가 아니다. 페이지 이동은 R2의 같은 결과를 읽고 원본 SQL을 다시 실행하지 않는다. 페이지 크기를 늘려도 원래 조회 limit을 넘어 복구하지 않으며, 잘린 집계는 조건을 좁혀 새 작업으로 등록한다. timeline의 `nextCursor`는 기존 원본 조회 계약이고 작업의 `nextOffset`과 다르다.
 
 사이트당 미완료 작업 8개, 보관 작업 256개, 작업 결과 16 MiB로 제한한다. 초과 등록은 `unavailable`이며 호스트가 기존 작업을 기다린 후 재시도한다. alarm은 사이트당 한 작업씩 처리하므로 동시 SQL 실행은 한 개다. 일반 오류는 1분/5분 대기 후 최대 3회 시도하고 잘못된 쿼리는 즉시 실패한다. 실패·취소 작업을 다시 등록하면 새 ID를 만든다. `cancel`은 같은 scope에서 공유하는 작업 전체에 적용되며 이미 실행된 SQL의 과금을 되돌리지는 않는다. API 오류 문자열에는 원격 SQL이나 자격 증명을 포함하지 않는다.
 
@@ -56,9 +56,9 @@ if (schedule.latestJob) {
 // 더 이상 필요 없을 때: await eye.analytics.jobs.unschedule(ref);
 ```
 
-등록은 opt-in이고 사이트당 최대 32개다. 기본 보고서는 `learning`(선택적 experimentId)과 `goals`만 허용하며 임의 속성 조합을 자동으로 생성하지 않는다. 간격은 기본 1시간, 1~24시간이고 최근 조회 구간은 1시간~59일이다. 60일 원본 범위 안에서 대기·재시도할 여유를 둔다. 일반 ad hoc API는 여전히 60일을 지원한다. 자동 보고서는 최대 1000행이며 `meta.truncated`가 참이면 실험이나 기간을 좁힌다.
+등록은 opt-in이고 사이트당 최대 32개다. 기본 보고서는 원본 `learning`(선택적 experimentId)·`goals`와 명시적 `summary` target을 허용하며 임의 속성 조합을 자동으로 생성하지 않는다. 간격은 기본 1시간, 1~24시간이고 최근 조회 구간은 1시간~59일이다. 60일 원본 범위 안에서 대기·재시도할 여유를 둔다. 일반 ad hoc API는 여전히 60일을 지원한다. 원본 자동 보고서는 최대 1000행이며 `meta.truncated`가 참이면 실험이나 기간을 좁힌다.
 
-같은 scope·ID·설정은 재등록해도 중복 실행하지 않는다. 설정을 바꾸면 이전 결과 연결을 지우고 새 조건으로 실행한다. 누락된 실행을 소급 반복하지 않고 실제 실행 시각 기준으로 구간을 정한다. `nextAt`은 다음 등록 예정 시각이며 완료·데이터 수집 보장 시각이 아니다. SQL은 기존 작업과 같은 대기열을 사용하고, 등록 용량이 부족하면 1분 후 재시도한다. 사용자 선택이나 학습 실행을 유발하지 않는다.
+같은 scope·ID·설정은 재등록해도 중복 실행하지 않는다. 설정을 바꾸면 이전 결과 연결을 지우고 새 조건으로 실행한다. 누락된 실행을 소급 반복하지 않는다. 원본은 실제 실행 시각, summary는 그 시각 이전 마지막 완료 UTC 시간 경계까지 조회한다. summary의 windowMs는 정수 시간이어야 한다. `nextAt`은 다음 등록 예정 시각이며 완료·데이터 수집 보장 시각이 아니다. SQL은 기존 작업과 같은 대기열을 사용하고, 등록 용량이 부족하면 1분 후 재시도한다. 사용자 선택이나 학습 실행을 유발하지 않는다.
 
 `currentJob`은 최신 시도, `latestJob`은 보관 중인 마지막 완료 결과다. 새 실행이 실패해도 이전 결과를 보여줄 수 있으며 `completedAt`, `page.request.query`, `error`를 함께 표시한다. 결과 보관은 생성 당시 간격 × 2 + 1시간(3~49시간)이며 연속 실패로 이전 결과가 만료되면 `latestJob`은 null이다. `freshUntil`의 15분은 동일 쿼리 등록 캐시 기한이며 자동 보고서의 실행 간격과 별개다. `unschedule`은 향후 실행만 중단하고 이미 등록된 공유 작업·결과는 자체 만료까지 유지한다.
 
@@ -66,7 +66,7 @@ ReportObject의 SQLite 테이블은 최초 사용 시 추가하며 새 binding�
 
 ## 원본 조회 없이 읽는 선택적 요약
 
-자주 조회하는 기본 합계는 `analytics.summaries`를 별도로 활성화한다. 기존 `learning/goals/jobs`는 그대로 원본 저장소를 읽는다. 호스트가 인증한 관리자만 설정하고, 조회 역시 해당 사이트·goal·실험 권한을 확인한다.
+자주 조회하는 기본 합계는 `analytics.summaries`를 별도로 활성화한다. 기존 `learning/goals`와 원본 kind의 jobs는 그대로 원본 저장소를 읽는다. 요약은 직접 조회하거나 jobs에서 명시적으로 선택한다. 호스트가 인증한 관리자만 설정하고, 조회 역시 해당 사이트·goal·실험 권한을 확인한다.
 
 ```ts
 // 관리 경로에서 한 번 설정. 같은 목록의 재호출은 집계를 지우지 않는다.
@@ -87,7 +87,27 @@ UTC 전체 시간 경계의 `[from,to)`만 허용하며 최대 59일, 끝은 현
 
 설정 ID는 goal·실험 합계 최대 32개, 저장은 사이트당 최대 50,000 버킷 행이다. 설정 목록 변경은 전체 요약을 초기화하므로 필요한 ID를 한 번에 등록한다. 한도에 도달하면 지연된 만료 정리를 최대 1,000행 먼저 수행한다. 그래도 새 버킷을 만들 수 없으면 `capacity_exceeded`로 요약 수집·조회를 중단하며 원본 수집·학습은 계속한다. 빈 목록으로 비활성화한 뒤 다시 설정하면 새 coverage로 시작한다. 원본 필터·사용자·속성별 요약이나 과거 backfill은 제공하지 않는다. 추가 SQLite 쓰기 비용이 있으므로 자주 쓰는 요약부터 선택한다.
 
-## 공통 규칙
+### 요약 기반 저장·자동 보고서
+
+```ts
+const scope = 'staff:analytics:v1'; // 호스트가 인증한 권한 집합
+// from/to는 위와 같이 coverage 안의 완료 UTC 시간으로 정한다.
+const job = await eye.analytics.jobs.create({ scope,
+  request: { kind: 'summary', query: { kind: 'goals', goalId: 'purchase', from, to } },
+});
+await eye.analytics.jobs.schedule({ scope, scheduleId: 'purchase-summary',
+  report: { kind: 'summary', target: { kind: 'goals', goalId: 'purchase' } },
+  windowMs: 24 * 3_600_000, intervalMs: 3_600_000,
+});
+// 학습 요약 target: { kind: 'learning', experimentId: 'checkout' }
+// 상태 확인·page·nextOffset 사용법은 기존 jobs와 같다.
+```
+
+설정 후 원하는 조회 구간 전체가 쌓인 다음 등록한다. 특정 goalId/experimentId가 필수이며 필터·groupBy·query limit은 지원하지 않는다. 페이지의 limit은 저장된 결과를 나누는 크기다. summary 작업도 기존 대기열·재시도·15분 캐시·R2 보관 한도를 사용한다. coverage 부족은 일반 조회 오류처럼 최대 3회 뒤 query_unavailable로 실패하며 자동으로 원본 SQL을 실행하지 않는다. 직접 요약 조회는 기존 unavailable 오류를 반환한다.
+
+직접 조회는 매번 최신 로컬 집계를 읽는다. 작업 결과는 생성 때 고정되므로 늦게 도착한 goal/후속 마감이 직접 집계를 갱신해도 기존 페이지는 바뀌지 않는다. 새 작업은 15분 캐시 이후, 자동 보고서는 다음 실행에서 새 값을 읽는다. 이 경로는 Basin 인증 없이 동작하지만 작업 저장에 REPORTS/COHORTS 바인딩은 필요하다. [타입 검사되는 대시보드 예제](../examples/summary-dashboard.ts)를 참고한다.
+
+## 원본 분석 공통 규칙
 
 `from`, `to`는 최근 60일 안의 Unix 밀리초이며 `[from, to)`다. 기본 `limit=100`, 최대 1,000행이다. 한 행을 추가로 조회해 `meta.truncated`를 표시한다. 집계가 잘리면 arm·세대·속성·기간 조건을 좁힌다. 쿼리는 30초, 응답은 16 MiB로 제한하며 초과를 빈 성공 결과로 바꾸지 않는다.
 

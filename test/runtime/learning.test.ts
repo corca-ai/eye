@@ -101,3 +101,25 @@ it('reclaims at most one summary expiry page when cleanup and closure share an a
     });
   } finally { clock.mockRestore(); send.mockRestore(); }
 });
+
+it('reads each current goal once per transaction and preserves historical status and retry decisions', async () => {
+  const siteId = crypto.randomUUID(), site = env.SITES.getByName(siteId), at = Date.now();
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(at);
+  try {
+    await runInDurableObject(site, async actor => {
+      actor.createGoal('pay');
+      clock.mockReturnValue(at + 10); actor.setGoalStatus('pay', 'paused');
+      clock.mockReturnValue(at + 20); actor.setGoalStatus('pay', 'active');
+      const current = vi.spyOn(actor, 'getGoal'), history = vi.spyOn(actor, 'goalStatusAt');
+      const goal = (eventId: string, occurredAt: number): EyeEvent => ({ kind: 'goal', eventId, occurredAt, subject: { cid: 'c' }, goalId: 'pay', value: 1 });
+      try {
+        expect(await actor.consumeLearning(siteId, Array.from({ length: 100 }, (_, i) => goal(String(i), at + 20)))).toEqual(Array(100).fill(true));
+        expect(current).toHaveBeenCalledTimes(1); expect(history).not.toHaveBeenCalled();
+        expect(await actor.consumeLearning(siteId, [goal('before-create', at - 1), goal('active', at + 1), goal('paused', at + 11)])).toEqual([false, true, false]);
+        expect(history).toHaveBeenCalledTimes(3);
+        clock.mockReturnValue(at + 30); actor.setGoalStatus('pay', 'paused');
+        expect(await actor.consumeLearning(siteId, [goal('new', at + 30), goal('0', at + 20)])).toEqual([false, true]);
+      } finally { current.mockRestore(); history.mockRestore(); }
+    });
+  } finally { clock.mockRestore(); }
+});
