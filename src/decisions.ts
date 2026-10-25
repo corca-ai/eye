@@ -58,17 +58,21 @@ export class DecisionCache {
 type DecisionService = Pick<EyeService, 'getPublishedPolicy'>;
 const caches = new WeakMap<DecisionService, DecisionCache>();
 const encoder = new TextEncoder();
-const policyLoads = new WeakMap<DecisionCache, Map<string, { work: Promise<PublishedPolicy>; expiresAt: number }>>();
-function b64(bytes: Uint8Array): string { return btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', ''); }
-function unb64(text: string): Uint8Array { return Uint8Array.from(atob(text.replaceAll('-', '+').replaceAll('_', '/')), c => c.charCodeAt(0)); }
-export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionContext, 'waitUntil'>, siteId: string, options: DecisionOptions | undefined, report: (error: unknown) => void) {
-  let shared = caches.get(service);
-  if (!shared) { shared = new DecisionCache(); caches.set(service, shared); }
-  const cache = options?.cache ?? shared;
+export function validateDecisionOptions(options: DecisionOptions | undefined): void {
   const fresh = policyFreshMs(options), maxAge = options?.maxAgeMs ?? DEFAULT_POLICY_MAX_AGE_MS;
   invariant(fresh > 0 && Number.isSafeInteger(fresh) && Number.isSafeInteger(maxAge) && maxAge >= fresh, 'invalid_input', 'Invalid policy freshness settings');
   if (options) invariant(typeof options.secret === 'string' && encoder.encode(options.secret).length >= 32,
     'invalid_input', 'Configure a decision secret of at least 32 UTF-8 bytes');
+}
+const policyLoads = new WeakMap<DecisionCache, Map<string, { work: Promise<PublishedPolicy>; expiresAt: number }>>();
+function b64(bytes: Uint8Array): string { return btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', ''); }
+function unb64(text: string): Uint8Array { return Uint8Array.from(atob(text.replaceAll('-', '+').replaceAll('_', '/')), c => c.charCodeAt(0)); }
+export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionContext, 'waitUntil'>, siteId: string, options: DecisionOptions | undefined, report: (error: unknown) => void) {
+  validateDecisionOptions(options);
+  let shared = caches.get(service);
+  if (!shared) { shared = new DecisionCache(); caches.set(service, shared); }
+  const cache = options?.cache ?? shared;
+  const fresh = policyFreshMs(options), maxAge = options?.maxAgeMs ?? DEFAULT_POLICY_MAX_AGE_MS;
   const contexts = new Map<string, LocalAssignmentContext>();
   const restored = new Map<string, Promise<void>>();
   const writes = new Map<string, Promise<string>>();

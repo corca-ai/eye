@@ -45,6 +45,7 @@
 - [BrowserView](#browserview)
 - [CidCookie](#cidcookie)
 - [CidCookieOptions](#cidcookieoptions)
+- [CollectionLimits](#collectionlimits)
 - [CreateExperiment](#createexperiment)
 - [Decision](#decision)
 - [DecisionMetric](#decisionmetric)
@@ -766,7 +767,7 @@ export interface BrowserSelection<T> {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/browser-server.ts#L13)
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser-server.ts#L14)
 
 ```ts
 /** 인증된 서버 요청마다 구성한다. prepare에는 decisions.secret도 필요하다. */
@@ -871,6 +872,30 @@ export interface CidCookieOptions {
 ```
 
 타입: [CidCookieOptions](types.md#cidcookieoptions)
+
+## CollectionLimits
+
+임포트: `@eye/workers`
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/collection-limits.ts#L4)
+
+```ts
+/** 서버 SDK 인스턴스별 수집 예산. 모든 값은 양의 안전한 정수이며 collectionLimits에서 부분 지정한다. */
+export interface CollectionLimits {
+    /** 기본 1000. 인스턴스 수명 동안 접수할 최대 사건 수. flush 후에도 복구되지 않는다. */
+    maxEvents: number;
+    /** 기본 1000000. 접수 사건의 UTF-8 JSON 크기 + 건당 여유 200바이트의 누적 상한. */
+    maxBytes: number;
+    /** 기본 480000. 전송 대기·진행 중 사건의 같은 추정 바이트 상한. 성공·실패로 전송 시도가 끝나면 복구된다. */
+    maxPendingBytes: number;
+    /** 기본 256. 사건의 attributes와 userAttributes 각각에 허용할 최상위 키 수. */
+    maxAttributeKeys: number;
+    /** 기본 100000. 각 속성 문자열의 UTF-16 길이 상한. 기존 사건당 100KB 제한도 별도로 적용한다. */
+    maxAttributeStringLength: number;
+}
+```
+
+타입: [CollectionLimits](types.md#collectionlimits)
 
 ## CreateExperiment
 
@@ -1012,7 +1037,7 @@ export interface EventEnvelope {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/client.ts#L16)
+[소스](https://github.com/corca-ai/eye/blob/main/src/client.ts#L17)
 
 ```ts
 /** eventId 기본 UUID, occurredAt 기본 현재 시각(Unix ms). 재전송은 두 값과 subject·payload를 모두 보존한다. */
@@ -1183,11 +1208,13 @@ export type EyeEvent = TrackEvent | GoalEvent | ExposureEvent | IdentityEvent;
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/client.ts#L20)
+[소스](https://github.com/corca-ai/eye/blob/main/src/client.ts#L22)
 
 ```ts
 /** 요청별 서버 SDK 설정. 사용자 신원은 각 수집·배정 호출에 전달한다. */
 export interface EyeOptions {
+    /** 요청별 수집·대기열·속성 예산. 초과는 접수 전 거절하며 자동 샘플링하지 않는다. */
+    collectionLimits?: Partial<CollectionLimits>;
     /** 빠른 배정의 서명·세션·정책 캐시 설정. 생략하면 decide는 배정을 준비하거나 재사용할 수 없다. */
     decisions?: DecisionOptions;
     /** 호스트 Wrangler의 Eye Worker Service Binding. */
@@ -1201,7 +1228,7 @@ export interface EyeOptions {
 }
 ```
 
-타입: [DecisionOptions](types.md#decisionoptions) · [EyeOptions](types.md#eyeoptions) · [EyeService](types.md#eyeservice)
+타입: [CollectionLimits](types.md#collectionlimits) · [DecisionOptions](types.md#decisionoptions) · [EyeOptions](types.md#eyeoptions) · [EyeService](types.md#eyeservice)
 
 ## EyeRequest
 
@@ -1742,7 +1769,7 @@ export type Subject = {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/client.ts#L18)
+[소스](https://github.com/corca-ai/eye/blob/main/src/client.ts#L19)
 
 ```ts
 /** accepted는 로컬 검증 성공이지 영속 저장 확인이 아니다. 실패는 error.code와 message로 반환된다. */

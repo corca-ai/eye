@@ -1,6 +1,7 @@
 import type { SummariesAPI } from './analytics/summaries.js';
 import type { AnalyticsJobsAPI, AnalyticsJobPage } from './analytics/jobs.js';
-import { decisionRuntime, type DecisionOptions } from './decisions.js';
+import { decisionRuntime, validateDecisionOptions, type DecisionOptions } from './decisions.js';
+import { collectionLimits, type CollectionLimits } from './collection-limits.js';
 import { EyeError, invariant } from './core/errors.js';
 import type { ErrorCode } from './core/errors.js';
 import { parseCreateExperiment, parseEnvelope } from './core/events.js';
@@ -16,8 +17,11 @@ const encoder = new TextEncoder();
 export type EventInput<T> = Omit<T, 'kind' | 'eventId' | 'occurredAt'> & { eventId?: string; occurredAt?: number };
 /** accepted는 로컬 검증 성공이지 영속 저장 확인이 아니다. 실패는 error.code와 message로 반환된다. */
 export type Submission = { accepted: true; eventId: string } | { accepted: false; error: { code: ErrorCode; message: string } };
+function rejection(code: ErrorCode, message: string): Submission { return { accepted: false, error: { code, message } }; }
 /** 요청별 서버 SDK 설정. 사용자 신원은 각 수집·배정 호출에 전달한다. */
 export interface EyeOptions {
+  /** 요청별 수집·대기열·속성 예산. 초과는 접수 전 거절하며 자동 샘플링하지 않는다. */
+  collectionLimits?: Partial<CollectionLimits>;
   /** 빠른 배정의 서명·세션·정책 캐시 설정. 생략하면 decide는 배정을 준비하거나 재사용할 수 없다. */
   decisions?: DecisionOptions;
   /** 호스트 Wrangler의 Eye Worker Service Binding. */
@@ -34,10 +38,13 @@ export function encodedSize(value: unknown): number { return encoder.encode(JSON
 /** 요청마다 생성한다. 관리·조회만 필요하면 decisions 설정을 생략할 수 있다. */
 export function createEye(options: EyeOptions) {
   const siteId = id(options.siteId, 'siteId'), service = options.service;
-  let pending: { envelope: EventEnvelope; bytes: number }[] = [];
+  const limits = collectionLimits(options.collectionLimits);
+  validateDecisionOptions(options.decisions);
+  const pending: { envelope: EventEnvelope; bytes: number }[] = [];
   let delivery: Promise<void> | null = null;
   let scheduled: { timer: ReturnType<typeof setTimeout>; resolve: () => void } | undefined;
   let pendingBytes = 0;
+  let acceptedEvents = 0, acceptedBytes = 0, outstandingBytes = 0;
   const report = (error: unknown) => {
     try { options.onError?.(error); } catch { /* The host's error hook cannot break event delivery. */ }
   };
@@ -49,17 +56,15 @@ export function createEye(options: EyeOptions) {
       let failed = false;
       let failure: unknown;
       while (pending.length > 0) {
-        const queued = pending;
-        pending = []; pendingBytes = 0;
         let cursor = 0;
-        while (cursor < queued.length) {
-          const batch: EventEnvelope[] = [];
-          let bytes = 0;
-          while (queued[cursor] && batch.length < 100 && bytes + queued[cursor]!.bytes <= MAX_BATCH_BYTES) {
-            const next = queued[cursor++]!; batch.push(next.envelope); bytes += next.bytes;
-          }
-          try { await service.ingest(batch); } catch (error) { failed = true; failure = error; }
+        const batch: EventEnvelope[] = [];
+        let bytes = 0;
+        while (pending[cursor] && batch.length < 100 && bytes + pending[cursor]!.bytes <= MAX_BATCH_BYTES) {
+          const next = pending[cursor++]!; batch.push(next.envelope); bytes += next.bytes;
         }
+        pending.splice(0, cursor); pendingBytes -= bytes;
+        try { await service.ingest(batch); } catch (error) { failed = true; failure = error; }
+        finally { outstandingBytes -= bytes; }
       }
       if (failed) throw failure;
     }).finally(() => { delivery = null; if (pending.length > 0) void flush(); });
@@ -77,27 +82,40 @@ export function createEye(options: EyeOptions) {
   };
   const submit = (build: () => object, onAccepted?: () => void): Submission => {
     try {
+      if (acceptedEvents >= limits.maxEvents || acceptedBytes >= limits.maxBytes)
+        return rejection('unavailable', 'Request collection budget exhausted');
+      if (outstandingBytes >= limits.maxPendingBytes) return rejection('unavailable', 'Collection queue is full');
       const event = build();
       const receivedAt = Date.now();
-      const envelope = parseEnvelope({ siteId, receivedAt, event }, receivedAt);
+      const envelope = parseEnvelope({ siteId, receivedAt, event }, receivedAt, limits);
       const bytes = encodedSize(envelope) + 200;
       invariant(bytes <= MAX_EVENT_BYTES, 'invalid_input', 'Event exceeds the 100 KB encoded envelope limit');
+      // Reading host inputs may have synchronously admitted another event.
+      if (acceptedEvents >= limits.maxEvents) return rejection('unavailable', 'Request collection budget exhausted');
+      if (bytes > limits.maxBytes - acceptedBytes) return rejection('unavailable', 'Request collection byte budget exhausted');
+      if (bytes > limits.maxPendingBytes - outstandingBytes) return rejection('unavailable', 'Collection queue is full');
       onAccepted?.();
+      acceptedEvents++; acceptedBytes += bytes; outstandingBytes += bytes;
       pending.push({ envelope, bytes }); pendingBytes += bytes;
       if (pending.length >= 100 || pendingBytes >= MAX_BATCH_BYTES) void flush();
       else schedule();
       return { accepted: true, eventId: envelope.event.eventId };
     } catch (error) {
-      return { accepted: false, error: { code: error instanceof EyeError ? error.code : 'invalid_input', message: error instanceof Error ? error.message : 'Invalid event' } };
+      return rejection(error instanceof EyeError ? error.code : 'invalid_input', error instanceof Error ? error.message : 'Invalid event');
     }
   };
   const base = <T extends { eventId?: string; occurredAt?: number }>(input: T) => ({ ...input, eventId: input.eventId ?? crypto.randomUUID(), occurredAt: input.occurredAt ?? Date.now() });
-  const decisions = decisionRuntime(service, options.ctx, siteId, options.decisions, report);
+  let runtime: ReturnType<typeof decisionRuntime> | undefined;
+  const decisions = () => runtime ??= decisionRuntime(service, options.ctx, siteId, options.decisions, report);
   return {
     /** 사용 가능한 정책 캐시로 준비하고 오래된 캐시는 백그라운드 갱신한다. 캐시가 없거나 forceRefresh=true이면 정책 조회를 기다린다. decisions.secret 필요. 반환 token은 미배정이면 null이며 호출자가 저장한다. 문맥이 바뀌면 onPrepared에도 전달한다. */
-    prepare: (input: { subject: Subject; experimentId: string; context?: import('./core/local-assignment.js').LocalAssignmentContext; forceRefresh?: boolean }) => decisions.prepare(parseSubject(input.subject), id(input.experimentId, 'experimentId'), input.context, input.forceRefresh),
+    prepare: (input: { subject: Subject; experimentId: string; context?: import('./core/local-assignment.js').LocalAssignmentContext; forceRefresh?: boolean }) => decisions().prepare(parseSubject(input.subject), id(input.experimentId, 'experimentId'), input.context, input.forceRefresh),
     /** 이 인스턴스가 복원·갱신한 실험별 토큰을 반환한다. 노출 후 호출해 응답 쿠키에 저장한다. 로컬 서명만 기다리며 onPrepared의 저장 완료는 기다리지 않는다. */
-    state: () => decisions.state(),
+    state: (): Promise<Record<string, string>> => {
+      if (runtime) return runtime.state();
+      const tokens = options.decisions?.tokens;
+      return tokens && Object.keys(tokens).length ? decisions().state() : Promise.resolve({});
+    },
     /** 일반 사건을 분석에 기록한다. name은 서비스가 정의한다. goal 학습을 직접 발생시키지 않는다. */
     track: (input: EventInput<TrackEvent>): Submission => submit(() => ({ ...base(input), kind: 'track' })),
     /** 사이트가 확정한 골을 전달한다. goalId는 먼저 등록한다. value는 모든 골에서 같은 단위의 유한한 값이며 음수·0도 허용한다. */
@@ -109,7 +127,7 @@ export function createEye(options: EyeOptions) {
         const { decision, ...rest } = input;
         const event = base(rest);
         invariant(event.subject.cid === decision.localContext?.subject.cid && event.subject.uid === decision.localContext.subject.uid, 'invalid_input', 'Exposure identity must match its original decision');
-        const staged = decisions.stageExposure(decision, event.occurredAt, event.eventId);
+        const staged = decisions().stageExposure(decision, event.occurredAt, event.eventId);
         commit = staged.commit;
         const exposed = staged.exposure;
         return { ...event, kind: 'exposure', assignment: decision.assignment, sample: { sampleId: exposed.sampleId, startAt: exposed.startAt }, attributionWindowMs: exposed.attributionWindowMs };
@@ -120,7 +138,7 @@ export function createEye(options: EyeOptions) {
     /** uid 없이 현재 cid를 기록해 새 익명 구간을 시작한다. 호스트가 이전 배정 토큰을 비우고 새 신원으로 요청 클라이언트를 만든다. */
     logout: (input: EventInput<IdentityEvent>): Submission => submit(() => ({ ...base(input), kind: 'logout' })),
     /** 유효한 로컬 정책으로 선택·재사용한다. 서명 검증은 기다리지만 원격 조회는 기다리지 않는다. assigned가 아니면 기본 화면을 사용하고 expose하지 않는다. */
-    decide: (input: { subject: Subject; experimentId: string }) => decisions.decide(parseSubject(input.subject), id(input.experimentId, 'experimentId')),
+    decide: (input: { subject: Subject; experimentId: string }) => decisions().decide(parseSubject(input.subject), id(input.experimentId, 'experimentId')),
     /** 대기 중인 사건의 Queue 접수를 기다린다. 실패하면 reject하며 SDK가 자동 재전송하지 않는다. 학습·분석 반영 완료는 보장하지 않는다. 일반 요청은 waitUntil 전송으로 충분하다. */
     flush,
     analytics: {

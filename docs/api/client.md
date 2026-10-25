@@ -90,7 +90,7 @@ eye.prepare(input: { subject: Subject; experimentId: string; context?: import(".
 이 인스턴스가 복원·갱신한 실험별 토큰을 반환한다. 노출 후 호출해 응답 쿠키에 저장한다. 로컬 서명만 기다리며 onPrepared의 저장 완료는 기다리지 않는다.
 
 ```ts
-eye.state(): Promise<{ [k: string]: string; }>
+eye.state(): Promise<Record<string, string>>
 ```
 
 ## eye.track

@@ -104,7 +104,8 @@ it.each([false, true])('exports admitted high-cardinality attributes in bounded 
   const ctx = createExecutionContext(), service = new EyeWorker(ctx, env);
   const envelopes: EventEnvelope[] = [];
   const ingest = vi.spyOn(service, 'ingest').mockImplementation(async items => { envelopes.push(...items); });
-  const eye = createEye({ siteId: crypto.randomUUID(), ctx, service });
+  // Exercise the explicit high-cardinality override; ordinary requests use a smaller key budget.
+  const eye = createEye({ siteId: crypto.randomUUID(), ctx, service, collectionLimits: { maxAttributeKeys: 10_000 } });
   const attributes = Object.fromEntries(Array.from({ length: 10000 }, (_, i) => [String(i), 0]));
   for (const [eventId, attrs] of [['before', {}], ['large', attributes], ['after', {}]] as const) {
     expect(eye.track({ eventId, subject: { cid: 'c' }, name: 'view', attributes: attrs }).accepted).toBe(true);

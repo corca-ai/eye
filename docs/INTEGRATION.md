@@ -177,6 +177,18 @@ arm을 추가하려면 `experiments.addArm(id, armId)`, 잠시 멈추려면 `pau
 
 Queue 접수도 학습 마감·정책 갱신·분석 가시성 완료를 보장하지 않는다.
 
+서버 SDK는 인스턴스별로 기본 1,000사건·누적 추정 1,000,000바이트, 전송 대기·진행 중 추정 480,000바이트까지 접수한다. 크기는 UTF-8 JSON + 건당 200바이트이며 실제 heap 사용량을 뜻하지 않는다. 예산 초과는 `unavailable`, 속성 제한 초과는 `invalid_input`으로 접수 전에 거절한다. 이미 접수한 사건은 유지하며 자동 샘플링하지 않는다.
+
+`collectionLimits`에서 필요한 한도만 조정할 수 있다. `maxEvents/maxBytes`는 flush 후에도 복구되지 않으므로 클라이언트는 요청마다 생성한다. 속성은 `attributes/userAttributes` 각각 기본 256키, 각 문자열은 100,000 UTF-16 코드 단위까지다. 기존 사건당 100KB 제한도 적용하며, 키가 많은 기존 연동은 `maxAttributeKeys`를 명시적으로 늘린다. 큰 값을 가진 사건이나 이미 수행한 사용자 계산의 비용까지 없애는 기능은 아니다. [설정 타입](api/types.md#collectionlimits)과 [측정·대기열 동작](REQUEST-PERFORMANCE.md)을 참고한다.
+
+```ts
+const eye = createEye({ service: env.EYE, ctx, siteId: 'shop',
+  collectionLimits: { maxEvents: 100, maxBytes: 240_000, maxPendingBytes: 120_000 },
+});
+```
+
+일반 `createEye`의 로컬 거절은 반환값으로 확인하고 `createEyeRequest`는 `onError`에도 보고한다. 중요한 골의 재전송은 원래 ID·시각·신원·payload를 보존한다. 대기열 예산은 전송 성공·실패로 시도가 끝나면 복구되지만, 실패한 사건을 SDK가 자동 재전송하지는 않는다.
+
 ```ts
 const result = eye.track({ subject, name: 'page_view' });
 if (!result.accepted) console.error(result.error.code, result.error.message);

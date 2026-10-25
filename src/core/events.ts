@@ -1,6 +1,7 @@
 import { EyeError, invariant } from './errors.js';
 import { attributes, id, number, record, RETENTION_MS, settings, subject, timestamp, sampleId } from './validation.js';
 import type { Assignment, CreateExperiment, EventEnvelope, EyeEvent } from './types.js';
+import type { CollectionLimits } from '../collection-limits.js';
 
 export function parseAssignment(value: unknown): Assignment {
   const v = record(value, 'assignment');
@@ -14,11 +15,11 @@ export function parseAssignment(value: unknown): Assignment {
     policyRevision: timestamp(v.policyRevision, 'policyRevision'), probability, settings: parsedSettings,
   };
 }
-export function parseEvent(value: unknown): EyeEvent {
+export function parseEvent(value: unknown, limits?: CollectionLimits): EyeEvent {
   const v = record(value, 'event');
   const base = {
     eventId: id(v.eventId, 'eventId'), occurredAt: timestamp(v.occurredAt, 'occurredAt'), subject: subject(v.subject),
-    ...(v.attributes === undefined ? {} : { attributes: attributes(v.attributes) }),
+    ...(v.attributes === undefined ? {} : { attributes: attributes(v.attributes, limits) }),
   };
   switch (v.kind) {
     case 'track': return { ...base, kind: 'track', name: id(v.name, 'name') };
@@ -37,7 +38,7 @@ export function parseEvent(value: unknown): EyeEvent {
       ...(sampleValue === undefined ? {} : { sample: sampleValue }), ...(horizon === undefined ? {} : { attributionWindowMs: horizon }),
       ...base, kind: 'exposure', assignment,
       ...(v.routingKey === undefined ? {} : { routingKey: v.routingKey }),
-      ...(v.userAttributes === undefined ? {} : { userAttributes: attributes(v.userAttributes) }),
+      ...(v.userAttributes === undefined ? {} : { userAttributes: attributes(v.userAttributes, limits) }),
     };
     }
     case 'identify':
@@ -47,9 +48,9 @@ export function parseEvent(value: unknown): EyeEvent {
     default: throw new EyeError('invalid_input', 'Unknown event kind');
   }
 }
-export function parseEnvelope(value: unknown, now: number): EventEnvelope {
+export function parseEnvelope(value: unknown, now: number, limits?: CollectionLimits): EventEnvelope {
   const v = record(value, 'envelope');
-  const event = parseEvent(v.event);
+  const event = parseEvent(v.event, limits);
   const siteId = id(v.siteId, 'siteId');
   if (event.kind === 'exposure' && event.routingKey !== undefined) {
     let route: unknown;

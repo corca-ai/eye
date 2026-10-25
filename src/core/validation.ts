@@ -1,5 +1,6 @@
 import { invariant } from './errors.js';
 import type { Attributes, ExperimentSettings, Subject } from './types.js';
+import type { CollectionLimits } from '../collection-limits.js';
 
 export const DAY_MS = 86_400_000;
 export const RETENTION_MS = 60 * DAY_MS;
@@ -46,15 +47,21 @@ export function subject(value: unknown): Subject {
   const cid = id(v.cid, 'subject.cid');
   return v.uid === undefined ? { cid } : { cid, uid: id(v.uid, 'subject.uid') };
 }
-export function attributes(value: unknown): Attributes {
+export function attributes(value: unknown, limits?: Pick<CollectionLimits, 'maxAttributeKeys' | 'maxAttributeStringLength'>): Attributes {
   const v = record(value, 'attributes');
   const entries: [string, string | number | boolean | null][] = [];
-  for (const [key, item] of Object.entries(v).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
+  // Read each value once; stop before allocating/sorting the full input or serializing it.
+  for (const key in v) {
+    if (!Object.hasOwn(v, key)) continue;
+    if (limits) invariant(entries.length < limits.maxAttributeKeys, 'invalid_input', 'Too many attribute keys');
     id(key, 'attribute key');
+    const item = v[key];
+    if (limits) invariant(typeof item !== 'string' || item.length <= limits.maxAttributeStringLength,
+      'invalid_input', 'Attribute string exceeds collection limit');
     invariant(item === null || typeof item === 'string' || typeof item === 'boolean' || (typeof item === 'number' && Number.isFinite(item)), 'invalid_input', `Attribute ${key} must be a finite scalar or null`);
     entries.push([key, item]);
   }
-  return Object.fromEntries(entries);
+  return Object.fromEntries(entries.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0));
 }
 export function settings(value: unknown): ExperimentSettings {
   const v = record(value, 'settings');
