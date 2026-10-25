@@ -78,6 +78,19 @@ it('reports asynchronous delivery failures through the same hook as local reject
   expect(f.onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'delivery offline' }));
 });
 
+it.each([false, true])('keeps rejection results and per-event diagnostics unchanged (reporter=%s)', async reporting => {
+  const f = await fixture(), onError = vi.fn();
+  const { onError: _unused, ...options } = f.options;
+  const eye = createEyeRequest({ ...options, collectionLimits: { maxEvents: 1 }, ...(reporting ? { onError } : {}) });
+  expect(eye.goal({ goalId: 'pay', value: NaN })).toMatchObject({ accepted: false, error: { code: 'invalid_input' } });
+  expect(eye.track({ name: 'view' }).accepted).toBe(true);
+  expect(eye.track({ name: 'view' })).toMatchObject({ accepted: false, error: { code: 'unavailable' } });
+  expect(onError).toHaveBeenCalledTimes(reporting ? 2 : 0);
+  if (reporting) expect(onError.mock.calls.map(([error]) => error.code)).toEqual(['invalid_input', 'unavailable']);
+  await waitOnExecutionContext(f.ctx);
+  expect(f.events).toHaveLength(1);
+});
+
 it('session token writes merge and stale authentication epochs cannot repopulate cleared tokens', async () => {
   const { env } = await import('cloudflare:workers');
   const { runInDurableObject } = await import('cloudflare:test');

@@ -59,7 +59,10 @@ export function createEyeRequest(options: EyeRequestOptions): EyeRequest {
     } catch (error) {
       result = { accepted: false, error: { code: error instanceof EyeError ? error.code : 'unavailable', message: error instanceof Error ? error.message : 'Eye request unavailable' } };
     }
-    if (!result.accepted) report(new EyeError(result.error.code, result.error.message));
+    if (!result.accepted) {
+      // Optional-call arguments are evaluated only when a reporter exists.
+      try { options.onError?.(new EyeError(result.error.code, result.error.message)); } catch { /* host hook */ }
+    }
     return result;
   };
   return {
