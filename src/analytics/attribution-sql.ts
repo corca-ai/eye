@@ -1,3 +1,4 @@
+import { anonymousExposureSQL } from './ownership-sql.js';
 import { intervalAttributionCTEs } from './interval-attribution-sql.js';
 import { identityBoundaryCTEs } from './identity-boundaries-sql.js';
 
@@ -60,7 +61,7 @@ FROM ac_exposures WHERE uid IS NOT NULL)`]),
   SELECT ${candidate} FROM ac_goals g JOIN ac_after a ON a.next_uid = g.uid
   JOIN ac_exposures e ON e.record_id = a.exposure_key AND ${before('e', 'g')}
   JOIN ac_before b ON b.exposure_key = e.record_id
-  WHERE e.uid IS NULL AND COALESCE(b.previous_kind, 'logout') = 'logout' AND a.next_kind = 'identify'
+  WHERE ${anonymousExposureSQL('e.uid', 'b.previous_kind')} AND a.next_kind = 'identify'
   AND (a.next_at < g.occurred_at OR (a.next_at = g.occurred_at AND a.next_id <= g.record_id))
   UNION
   SELECT ${candidate} FROM ac_goals g JOIN ac_exposures e ON e.cid = g.cid AND ${before('e', 'g')}

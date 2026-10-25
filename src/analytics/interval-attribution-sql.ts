@@ -1,3 +1,4 @@
+import { anonymousExposureSQL } from './ownership-sql.js';
 /** Canonical latest-touch intervals and their overlap count. Anonymous claims
  * activate at login but keep their original exposure rank: a late claim must
  * never displace a newer direct touch or revive an expired older touch. */
@@ -11,10 +12,10 @@ SELECT 'uid' AS owner_kind, e.uid AS owner_id, e.experiment_id, e.occurred_at AS
 FROM ac_exposure_ordered e WHERE e.uid IS NOT NULL
 UNION SELECT 'cid' AS owner_kind, e.cid AS owner_id, e.experiment_id, e.occurred_at AS start_at, e.record_id AS start_id, e.exposure_order
 FROM ac_exposure_ordered e JOIN ac_before b ON b.exposure_key = e.record_id
-WHERE e.uid IS NULL AND COALESCE(b.previous_kind, 'logout') = 'logout'
+WHERE ${anonymousExposureSQL('e.uid', 'b.previous_kind')}
 UNION SELECT 'uid' AS owner_kind, a.next_uid AS owner_id, e.experiment_id, a.next_at AS start_at, a.next_id AS start_id, e.exposure_order
 FROM ac_exposure_ordered e JOIN ac_before b ON b.exposure_key = e.record_id JOIN ac_after a ON a.exposure_key = e.record_id
-WHERE e.uid IS NULL AND COALESCE(b.previous_kind, 'logout') = 'logout' AND a.next_kind = 'identify')`,
+WHERE ${anonymousExposureSQL('e.uid', 'b.previous_kind')} AND a.next_kind = 'identify')`,
     `ac_activation_points AS (SELECT owner_kind, owner_id, experiment_id, start_at, start_id, MAX(exposure_order) AS exposure_order
 FROM ac_activations GROUP BY owner_kind, owner_id, experiment_id, start_at, start_id)`,
     `ac_activation_max AS (SELECT *, MAX(exposure_order) OVER (PARTITION BY owner_kind, owner_id, experiment_id

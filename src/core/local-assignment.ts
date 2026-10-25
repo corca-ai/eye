@@ -2,6 +2,7 @@ import { compareIdentifiers } from './attribution.js';
 import type { SampleExposure } from './closed-cohort.js';
 import { invariant } from './errors.js';
 import { chooseArm } from './policy.js';
+import { observationEndAt } from './sample-context.js';
 import type { Assignment, ExperimentSettings, Subject } from './types.js';
 
 /** Validated cached policy: freshUntil starts background refresh; usableUntil
@@ -63,7 +64,7 @@ export function selectLocal(input: LocalSelectionInput): LocalSelection {
     // Do not validate an old held context against an even older policy snapshot.
     if (previous.assignment.policyRevision > policy.revision) return { status: 'unavailable', refreshPolicy: true };
     const endAt = previous.sample === undefined ? 0
-      : previous.sample.startAt + previous.assignment.settings.observationWindowMs;
+      : observationEndAt(previous.sample.startAt, previous.assignment.settings.observationWindowMs);
     const heldUntil = Math.max(previous.assignment.assignedAt + previous.assignment.settings.minHoldMs, endAt);
     if (now < heldUntil && policy.arms.some(a => a.armId === previous.assignment.armId)) {
       return { status: 'assigned', refreshPolicy, reason: 'held', context: previous, applyUntil: Math.min(policy.usableUntil, heldUntil) };
@@ -94,7 +95,7 @@ export function exposeLocal(selection: Extract<LocalSelection, { status: 'assign
   invariant(Number.isSafeInteger(occurredAt) && occurredAt >= previous.assignment.assignedAt && occurredAt < selection.applyUntil,
     'invalid_input', 'Exposure outside the application interval');
   const sample = previous.sample && occurredAt >= previous.sample.startAt
-    && occurredAt < previous.sample.startAt + previous.assignment.settings.observationWindowMs
+    && occurredAt < observationEndAt(previous.sample.startAt, previous.assignment.settings.observationWindowMs)
     ? previous.sample : { sampleId: JSON.stringify([previous.assignment.assignmentId, eventId]), startAt: occurredAt };
   invariant(previous.sample === undefined || occurredAt >= previous.sample.startAt,
     'invalid_input', 'Local exposure cannot precede the current sample');

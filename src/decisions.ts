@@ -56,6 +56,15 @@ export class DecisionCache {
   }
 }
 type DecisionService = Pick<EyeService, 'getPublishedPolicy'>;
+/** One stable object per experiment; entry presence does not imply restoration.
+ * Local signing and host persistence have independent completion chains. */
+interface ExperimentSession {
+  context?: LocalAssignmentContext;
+  restoration?: Promise<void>;
+  write?: Promise<string>;
+  notification?: Promise<void>;
+  token?: string;
+}
 const caches = new WeakMap<DecisionService, DecisionCache>();
 const encoder = new TextEncoder();
 export function validateDecisionOptions(options: DecisionOptions | undefined): void {
@@ -73,11 +82,12 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
   if (!shared) { shared = new DecisionCache(); caches.set(service, shared); }
   const cache = options?.cache ?? shared;
   const fresh = policyFreshMs(options), maxAge = options?.maxAgeMs ?? DEFAULT_POLICY_MAX_AGE_MS;
-  const contexts = new Map<string, LocalAssignmentContext>();
-  const restored = new Map<string, Promise<void>>();
-  const writes = new Map<string, Promise<string>>();
-  const notifications = new Map<string, Promise<void>>();
-  const tokens = new Map<string, string>();
+  const sessions = new Map<string, ExperimentSession>();
+  const sessionFor = (experimentId: string): ExperimentSession => {
+    let session = sessions.get(experimentId);
+    if (!session) { session = {}; sessions.set(experimentId, session); }
+    return session;
+  };
   let cryptoKey: Promise<CryptoKey> | undefined;
   const signingKey = () => {
     invariant(options && encoder.encode(options.secret).length >= 32, 'invalid_input', 'Configure a decision secret of at least 32 UTF-8 bytes');
@@ -114,26 +124,27 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
     return token;
   };
   const persist = (experimentId: string, context: LocalAssignmentContext) => {
-    contexts.set(experimentId, context);
-    const work = (writes.get(experimentId) ?? Promise.resolve()).catch(() => {}).then(async () => {
-      const token = await seal(context); tokens.set(experimentId, token);
+    const session = sessionFor(experimentId);
+    session.context = context;
+    const work = (session.write ?? Promise.resolve()).catch(() => {}).then(async () => {
+      const token = await seal(context); session.token = token;
       return token;
     });
-    writes.set(experimentId, work);
+    session.write = work;
     // Remote host persistence is ordered, but never gates the next local seal or state().
-    const notification = (notifications.get(experimentId) ?? Promise.resolve()).catch(() => {}).then(async () => {
+    const notification = (session.notification ?? Promise.resolve()).catch(() => {}).then(async () => {
       const token = await work;
       await options?.onPrepared?.(experimentId, token);
     });
-    notifications.set(experimentId, notification); background(notification);
+    session.notification = notification; background(notification);
   };
   const restore = async (experimentId: string) => {
-    const pending = restored.get(experimentId);
-    if (pending) return pending;
-    if (contexts.has(experimentId)) return;
-    const work = load(experimentId); restored.set(experimentId, work); return work;
+    const session = sessionFor(experimentId);
+    if (session.restoration) return session.restoration;
+    if (session.context) return;
+    return session.restoration = load(experimentId, session);
   };
-  const load = async (experimentId: string) => {
+  const load = async (experimentId: string, session: ExperimentSession) => {
     const token = options?.tokens?.[experimentId];
     if (!token) return;
     try {
@@ -146,11 +157,11 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
       invariant(context.siteId === siteId && context.assignment.experimentId === experimentId, 'invalid_input', 'State scope mismatch');
       // Signature verification yields: a receipt may have opened a newer sample
       // while restoration was in flight. Local updates take precedence.
-      if (!contexts.has(experimentId)) { contexts.set(experimentId, context); tokens.set(experimentId, token); }
+      if (!session.context) { session.context = context; session.token = token; }
     } catch (error) { report(error); }
   };
   const choose = (subject: Subject, experimentId: string, policy: PublishedPolicy | undefined): { decision: Decision; selection: LocalSelection } => {
-    const previous = contexts.get(experimentId), now = Date.now();
+    const previous = sessions.get(experimentId)?.context, now = Date.now();
     const selection = selectLocal({ siteId, experimentId, subject, now, newId: () => crypto.randomUUID(),
       ...(previous === undefined ? {} : { previous }), ...(policy === undefined ? {} : { policy: {
         ...policy, siteId, active: policy.status === 'active', freshUntil: (cache.checkedAt(key(experimentId)) ?? policy.publishedAt) + fresh, usableUntil: policy.publishedAt + maxAge,
@@ -175,7 +186,7 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
     invariant(options, 'invalid_input', 'Configure decisions.secret');
     await restore(experimentId);
     const supplied = context === undefined ? undefined : parseLocalContext(context);
-    if (supplied) contexts.set(experimentId, supplied);
+    if (supplied) sessionFor(experimentId).context = supplied;
     const cached = cache.read(key(experimentId)), now = Date.now();
     const policy = !forceRefresh && cached && cached.publishedAt <= now && now < cached.publishedAt + maxAge
       ? cached : await fetchPolicy(experimentId, forceRefresh);
@@ -185,20 +196,20 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
     if (supplied && result.selection.status === 'assigned' && result.selection.context === supplied) {
       persist(experimentId, supplied);
     }
-    await writes.get(experimentId);
-    return { decision: result.decision, policy, token: result.decision.status === 'assigned' ? tokens.get(experimentId) ?? null : null,
+    await sessions.get(experimentId)?.write;
+    return { decision: result.decision, policy, token: result.decision.status === 'assigned' ? sessions.get(experimentId)?.token ?? null : null,
       reuseUntil: result.selection.status === 'assigned' ? result.selection.applyUntil : Date.now() };
   };
   const stageExposure = (decision: Extract<Decision, { status: 'assigned' }>, occurredAt: number, eventId: string) => {
     invariant(decision.localContext && decision.applyUntil !== undefined, 'invalid_input', 'Expected a local decision from this SDK');
-    const latest = contexts.get(decision.assignment.experimentId);
+    const latest = sessions.get(decision.assignment.experimentId)?.context;
     const context = latest?.assignment.assignmentId === decision.assignment.assignmentId
       && (latest.sample?.startAt ?? 0) <= occurredAt
       && (!decision.localContext.sample || (latest.sample !== undefined
         && latest.sample.startAt > decision.localContext.sample.startAt)) ? latest : decision.localContext;
     const result = exposeLocal({ status: 'assigned', refreshPolicy: false, reason: decision.reason === 'selected' ? 'selected' : 'held', context, applyUntil: decision.applyUntil }, occurredAt, eventId);
     return { exposure: result.exposure, commit: () => {
-      const current = contexts.get(decision.assignment.experimentId);
+      const current = sessions.get(decision.assignment.experimentId)?.context;
       // A delayed receipt still describes its original exposure. It cannot
       // rewind an assignment or sample, but a newer external decision can advance it.
       if (current) {
@@ -221,8 +232,8 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
   };
   return { decide, prepare, expose, stageExposure, async state() {
     await Promise.all(Object.keys(options?.tokens ?? {}).map(restore));
-    await Promise.all([...writes.values()]);
-    return Object.fromEntries(tokens);
+    await Promise.all([...sessions.values()].map(session => session.write));
+    return Object.fromEntries([...sessions].flatMap(([id, session]) => session.token === undefined ? [] : [[id, session.token]]));
   } };
 }
 

@@ -1,4 +1,5 @@
 import { EyeError, invariant } from './errors.js';
+import { observationEndAt } from './sample-context.js';
 import { attributes, id, number, record, RETENTION_MS, settings, subject, timestamp, sampleId } from './validation.js';
 import type { Assignment, CreateExperiment, EventEnvelope, EyeEvent } from './types.js';
 import type { CollectionLimits } from '../collection-limits.js';
@@ -30,7 +31,7 @@ export function parseEvent(value: unknown, limits?: CollectionLimits): EyeEvent 
       const sample = v.sample === undefined ? undefined : record(v.sample, 'sample');
       const sampleValue = sample === undefined ? undefined : { sampleId: sampleId(sample.sampleId), startAt: timestamp(sample.startAt, 'sample.startAt') };
       if (sampleValue) invariant(sampleValue.startAt >= assignment.assignedAt && base.occurredAt >= sampleValue.startAt
-        && base.occurredAt < sampleValue.startAt + assignment.settings.observationWindowMs, 'invalid_input', 'Invalid sample interval');
+        && base.occurredAt < observationEndAt(sampleValue.startAt, assignment.settings.observationWindowMs), 'invalid_input', 'Invalid sample interval');
       const horizon = v.attributionWindowMs === undefined ? undefined : timestamp(v.attributionWindowMs, 'attributionWindowMs');
       if (horizon !== undefined) invariant(horizon > 0 && horizon <= RETENTION_MS, 'invalid_input', 'Invalid attribution horizon');
       return {

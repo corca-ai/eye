@@ -1,3 +1,4 @@
+import { anonymousExposureSQL } from './ownership-sql.js';
 /** Existence is decided by the first matching track at/after a probe. Prefix
  * track counts turn that lookup into an equality join, not all matching pairs.
  * A probe precedes a track at the same position, preserving inclusive starts. */
@@ -21,12 +22,12 @@ UNION SELECT observation_id, 'cid' AS owner_kind, cid AS owner_id, observation_s
 CASE WHEN observation_start > exposure_at THEN observation_start ELSE exposure_at END AS start_at,
 CASE WHEN observation_start > exposure_at THEN '' ELSE exposure_id END AS start_id,
 next_at AS stop_at, next_id AS stop_id FROM he_observations
-WHERE uid IS NULL AND COALESCE(previous_kind, 'logout') = 'logout'
+WHERE ${anonymousExposureSQL('uid', 'previous_kind')}
 UNION SELECT observation_id, 'uid' AS owner_kind, next_uid AS owner_id, observation_start, end_at,
 CASE WHEN observation_start > next_at THEN observation_start ELSE next_at END AS start_at,
 CASE WHEN observation_start > next_at THEN '' ELSE next_id END AS start_id,
 NULL AS stop_at, NULL AS stop_id FROM he_observations
-WHERE uid IS NULL AND COALESCE(previous_kind, 'logout') = 'logout' AND next_kind = 'identify')`,
+WHERE ${anonymousExposureSQL('uid', 'previous_kind')} AND next_kind = 'identify')`,
     `he_stream AS (
 SELECT CASE WHEN e.uid IS NULL THEN 'cid' ELSE 'uid' END AS owner_kind, COALESCE(e.uid,e.cid) AS owner_id,
 e.occurred_at, e.record_id, 1 AS is_track, NULL AS observation_id FROM events_latest e

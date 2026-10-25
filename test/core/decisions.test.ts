@@ -55,6 +55,54 @@ it('still adopts a newer original decision supplied by another request', async (
   await Promise.all(f.pending);
 });
 afterEach(() => vi.restoreAllMocks());
+
+it('memoizes a failed restoration and exports no token for an empty experiment session', async () => {
+  const f = fixture(), errors: unknown[] = [];
+  const runtime = decisionRuntime(f.service, f.ctx, 'site', {
+    secret, cache: f.cache, tokens: { exp: 'invalid' },
+  }, error => { errors.push(error); });
+  expect(await runtime.state()).toEqual({});
+  expect(await runtime.state()).toEqual({});
+  expect(errors).toHaveLength(1);
+  const prepared = await runtime.prepare({ cid: 'c' }, 'exp');
+  expect(prepared.decision.status).toBe('assigned');
+  expect((await runtime.state()).exp).toBe(prepared.token);
+  expect(errors).toHaveLength(1);
+  await Promise.all(f.pending);
+});
+
+it('keeps each queued token tied to its own sample after a host persistence failure', async () => {
+  const f = fixture(), saved: string[] = [], errors: unknown[] = [];
+  f.policy.settings = settings({ minHoldMs: 100000, observationWindowMs: 1000 });
+  const runtime = decisionRuntime(f.service, f.ctx, 'site', {
+    secret, cache: f.cache, onPrepared: (_id, token) => {
+      saved.push(token);
+      if (saved.length === 1) throw new Error('host storage unavailable');
+    },
+  }, error => { errors.push(error); });
+  const prepared = await runtime.prepare({ cid: 'c' }, 'exp');
+  if (prepared.decision.status !== 'assigned') throw new Error('Expected assignment');
+  const first = runtime.expose(prepared.decision, now, 'first');
+  f.advance(1000);
+  const second = runtime.expose(prepared.decision, now + 1000, 'second');
+  const tokens = await runtime.state();
+  await Promise.all(f.pending);
+  expect(errors).toHaveLength(1);
+  expect(saved).toHaveLength(3);
+  expect(saved[2]).toBe(tokens.exp);
+  const contexts = await Promise.all(saved.map(async token => {
+    const restored = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache, tokens: { exp: token } }, () => {});
+    const decision = await restored.decide({ cid: 'c' }, 'exp');
+    if (decision.status !== 'assigned') throw new Error('Expected restored assignment');
+    return decision.localContext?.sample;
+  }));
+  expect(contexts).toEqual([undefined,
+    { sampleId: first.sampleId, startAt: now },
+    { sampleId: second.sampleId, startAt: now + 1000 },
+  ]);
+  await Promise.all(f.pending);
+});
+
 function fixture() {
   let clock = now;
   vi.spyOn(Date, 'now').mockImplementation(() => clock);
