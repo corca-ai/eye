@@ -9,6 +9,7 @@
     "typecheck": "node node_modules/typescript/bin/tsc --noEmit",
     "test": "vitest run",
     "test:core": "vitest run --project core",
+    "test:engine": "vitest run --project core test/core/engine-stream.test.ts",
     "test:workers": "vitest run --project workers",
     "types": "wrangler types && node scripts/generate-public-env.mjs",
     "build": "node scripts/build.mjs",

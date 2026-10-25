@@ -2,6 +2,8 @@
 
 # 지속형 MAB 설계 시뮬레이션
 
+현재 로컬 배정·증분 학습 엔진의 A/A·A/B 및 로그 스트림 검증은 [현재 엔진 검증](ENGINE-VALIDATION.md)을 따른다.
+
 2026년 10월 22일 실행한 설계 실험이다. [계산식](../TECHNICAL_DESIGN.md)과 [실행 코드](../scripts/simulate_bandit.py)를 함께 보관한다. 실제 SDK나 Cloudflare 처리 성능을 측정한 결과는 아니다.
 
 ## 재현

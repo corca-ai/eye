@@ -1,0 +1,198 @@
+{
+  "fixedAA": {
+    "seeds": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "visits": 6400,
+    "events": 52390,
+    "duplicateDeliveries": 1612,
+    "delayedEvents": 1065,
+    "zeroSamples": 4846,
+    "refunds": 167,
+    "diagnostics": {
+      "staleExposures": 173,
+      "staleIdentities": 0,
+      "futureExposures": 0,
+      "closedGoals": 0
+    },
+    "bShares": [
+      0.495,
+      0.475,
+      0.50125,
+      0.47875,
+      0.5025,
+      0.48375,
+      0.4925,
+      0.49875
+    ],
+    "counts": {
+      "a": 3258,
+      "b": 3142
+    },
+    "purchases": {
+      "a": 818,
+      "b": 740
+    },
+    "z": -1.4496277599553042,
+    "rewardMeans": {
+      "a": 6.407345429648004,
+      "b": 5.819721729013225
+    },
+    "rewardZ": -1.5433454370696642,
+    "maxAbsZ": 3.29
+  },
+  "adaptiveAA": {
+    "seeds": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "visits": 6400,
+    "events": 52390,
+    "duplicateDeliveries": 1612,
+    "delayedEvents": 1065,
+    "zeroSamples": 4846,
+    "refunds": 167,
+    "diagnostics": {
+      "staleExposures": 173,
+      "staleIdentities": 0,
+      "futureExposures": 0,
+      "closedGoals": 0
+    },
+    "bShares": [
+      0.88125,
+      0.46125,
+      0.44375,
+      0.31625,
+      0.39375,
+      0.58,
+      0.7525,
+      0.77125
+    ],
+    "averageBShare": 0.575,
+    "allowedMeanRange": [
+      0.35,
+      0.65
+    ]
+  },
+  "knownWinner": {
+    "seeds": [
+      1,
+      2
+    ],
+    "visits": 4000,
+    "events": 33770,
+    "duplicateDeliveries": 1027,
+    "delayedEvents": 659,
+    "zeroSamples": 2094,
+    "refunds": 173,
+    "diagnostics": {
+      "staleExposures": 82,
+      "staleIdentities": 0,
+      "futureExposures": 0,
+      "closedGoals": 0
+    },
+    "bShares": [
+      0.9645,
+      0.972
+    ],
+    "lateWinnerShares": [
+      0.98,
+      0.976
+    ],
+    "minimumMeanWinnerShare": 0.65
+  },
+  "winnerSwitch": {
+    "seeds": [
+      1,
+      2
+    ],
+    "visits": 6400,
+    "events": 53872,
+    "duplicateDeliveries": 1633,
+    "delayedEvents": 1055,
+    "zeroSamples": 3479,
+    "refunds": 270,
+    "diagnostics": {
+      "staleExposures": 162,
+      "staleIdentities": 0,
+      "futureExposures": 0,
+      "closedGoals": 0
+    },
+    "bShares": [
+      0.5303125,
+      0.5275
+    ],
+    "beforeWinnerShares": [
+      0.96125,
+      0.9675
+    ],
+    "afterWinnerShares": [
+      0.965,
+      0.95625
+    ],
+    "minimumMeanWinnerShare": 0.65
+  },
+  "referenceAndReplay": {
+    "seeds": [
+      17
+    ],
+    "visits": 240,
+    "events": 2002,
+    "duplicateDeliveries": 0,
+    "delayedEvents": 0,
+    "zeroSamples": 139,
+    "refunds": 11,
+    "diagnostics": {
+      "staleExposures": 0,
+      "staleIdentities": 0,
+      "futureExposures": 0,
+      "closedGoals": 0
+    },
+    "bShares": [
+      0.875
+    ],
+    "matchedSamples": 240,
+    "chunkSizes": [
+      1,
+      100
+    ]
+  },
+  "rewardUnits": {
+    "seeds": [
+      31,
+      31
+    ],
+    "visits": 1200,
+    "events": 10072,
+    "duplicateDeliveries": 0,
+    "delayedEvents": 0,
+    "zeroSamples": 640,
+    "refunds": 50,
+    "diagnostics": {
+      "staleExposures": 0,
+      "staleIdentities": 0,
+      "futureExposures": 0,
+      "closedGoals": 0
+    },
+    "bShares": [
+      0.9316666666666666,
+      0.9316666666666666
+    ],
+    "visitsPerRun": 600,
+    "multiplier": 1000,
+    "identicalAssignments": true
+  }
+}
