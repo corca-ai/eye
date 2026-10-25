@@ -20,6 +20,12 @@ function publicStatus(state: State, now: number): SummaryStatus {
     coverageFrom: state.coverageFrom === null ? null : Math.max(state.coverageFrom, ceilHour(now - RETENTION_MS)) };
 }
 
+/** At most one bounded page; also used on the uncommon full-store ingestion path. */
+function pruneBuckets(sql: LearningSQL, now: number): number {
+  return sql.exec(`DELETE FROM summary_buckets WHERE rowid IN
+    (SELECT rowid FROM summary_buckets WHERE bucket < ? LIMIT 1000) RETURNING rowid`, ceilHour(now - RETENTION_MS)).toArray().length;
+}
+
 /** Optional rollups share the learner transaction, not output retries. No cross-request cache. */
 export class IncrementalSummaries {
   constructor(private readonly sql: LearningSQL) {
@@ -77,10 +83,9 @@ export class IncrementalSummaries {
     return { rows, meta: { basis: 'durable_local', from, to, coverageFrom: status.coverageFrom, bucketMs: HOUR, queriedAt: now } };
   }
   prune(now: number): boolean {
-    const rows = this.sql.exec(`DELETE FROM summary_buckets WHERE rowid IN
-      (SELECT rowid FROM summary_buckets WHERE bucket < ? LIMIT 1000) RETURNING rowid`, ceilHour(now - RETENTION_MS)).toArray();
-    if (rows.length) { const state = readState(this.sql); state.rows -= rows.length; writeState(this.sql, state); }
-    return rows.length === 1000;
+    const removed = pruneBuckets(this.sql, now);
+    if (removed) { const state = readState(this.sql); state.rows -= removed; writeState(this.sql, state); }
+    return removed === 1000;
   }
 }
 
@@ -102,6 +107,13 @@ export class SummaryBatch {
     let value = this.pending.get(key);
     if (!value) {
       const previous = this.sql.exec<Bucket>('SELECT * FROM summary_buckets WHERE kind=? AND target=? AND bucket=? AND dimension=?', kind, target, bucket, dimension).toArray()[0];
+      if (!previous && this.state.rows >= MAX_ROWS) {
+        // Queue ingestion may resume before a delayed cleanup alarm. Expired
+        // buckets must not permanently disable otherwise in-capacity summaries.
+        const removed = pruneBuckets(this.sql, this.now);
+        this.state.rows -= removed;
+        this.changed ||= removed > 0;
+      }
       if (!previous && this.state.rows >= MAX_ROWS) {
         // Never turn optional dimension growth into a failing learning transaction.
         // Coverage is invalid from here; an explicit disable/re-enable starts fresh.

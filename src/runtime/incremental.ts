@@ -143,15 +143,17 @@ export class IncrementalLearning {
         accepted[index] = status;
         if (status) { this.goal(batch, event, now, diagnostics); summaries.goal(event); }
       } else if (event.kind === 'identify' || event.kind === 'logout') this.identity(batch, event, diagnostics);
-      else if (event.kind === 'exposure') this.exposure(batch, event, now, diagnostics);
+      else if (event.kind === 'exposure') accepted[index] = this.exposure(batch, event, now, diagnostics);
     }
     batch.flush(); summaries.flush();
     return { accepted, diagnostics };
   }
   private identity(batch: LearningBatch, event: IdentityEvent, diagnostics: LearningDiagnostics): void {
     const { cid } = event.subject, current = batch.identity(cid);
-    if (current && compareEvents({ occurredAt: current.occurred_at, eventId: current.event_id }, event) >= 0) {
-      diagnostics.staleIdentities++; return;
+    if (current) {
+      const order = compareEvents({ occurredAt: current.occurred_at, eventId: current.event_id }, event);
+      if (order > 0) diagnostics.staleIdentities++;
+      if (order >= 0) return;
     }
     const anonymous = ownerKey('cid', cid);
     if (event.kind === 'identify') {
@@ -164,20 +166,20 @@ export class IncrementalLearning {
     } else batch.clearLast(anonymous);
     batch.setIdentity(cid, { uid: event.kind === 'identify' ? event.subject.uid! : null, occurred_at: event.occurredAt, event_id: event.eventId });
   }
-  private exposure(batch: LearningBatch, event: ExposureEvent, now: number, diagnostics: LearningDiagnostics): void {
+  private exposure(batch: LearningBatch, event: ExposureEvent, now: number, diagnostics: LearningDiagnostics): boolean {
     invariant(event.sample && event.attributionWindowMs, 'invalid_input', 'Exposure needs local sample context');
     const exposure = event as SampleEvent;
     const sampleId = exposure.sample.sampleId;
     const closeAt = exposure.sample.startAt + exposure.assignment.settings.observationWindowMs + exposure.assignment.settings.allowedLatenessMs;
     const definition = JSON.stringify([exposure.assignment, exposure.sample.startAt, exposure.attributionWindowMs]);
+    const old = batch.sample(sampleId);
+    // Check existing context even if the incoming definition claims an expired
+    // window. Reject only this exposure, before changing sample or last reference.
+    if (old && old.row.definition !== definition) return false;
     if (closeAt > now) {
-      const old = batch.sample(sampleId);
       if (!old) batch.createSample({ sample_id: sampleId, close_at: closeAt, data: JSON.stringify(exposure), definition, scale: 0, sum: 0, correction: 0 }, exposure);
-      else {
-        invariant(old.row.definition === definition, 'conflict', 'Conflicting sample context');
-        if (compareEvents(exposure, old.event) < 0) {
-          old.event = exposure; old.row.data = JSON.stringify(exposure); old.dataChanged = true;
-        }
+      else if (compareEvents(exposure, old.event) < 0) {
+        old.event = exposure; old.row.data = JSON.stringify(exposure); old.dataChanged = true;
       }
     }
     const reference = lastReference(exposure), experimentId = exposure.assignment.experimentId;
@@ -189,10 +191,15 @@ export class IncrementalLearning {
       if (identity?.uid == null && (!identity || compareEvents(exposure, { occurredAt: identity.occurred_at, eventId: identity.event_id }) > 0))
         this.putLast(batch, ownerKey('cid', exposure.subject.cid), experimentId, reference, diagnostics);
     }
+    return true;
   }
   private putLast(batch: LearningBatch, owner: string, experimentId: string, event: Last, diagnostics: LearningDiagnostics): void {
     const previous = batch.last(owner).get(experimentId);
-    if (previous && compareEvents(previous, event) >= 0) { diagnostics.staleExposures++; return; }
+    if (previous) {
+      const order = compareEvents(previous, event);
+      if (order > 0) diagnostics.staleExposures++;
+      if (order >= 0) return;
+    }
     batch.setLast(owner, experimentId, event);
   }
   private goal(batch: LearningBatch, goal: GoalEvent, now: number, diagnostics: LearningDiagnostics): void {

@@ -119,6 +119,8 @@ export class SiteControl extends StoredObject {
       const { accepted, diagnostics } = this.learning.accept(events, now,
         goal => this.goalStatusAt(goal.goalId, goal.occurredAt) === 'active');
       this.kv.put('siteId', siteId);
+      const rejectedExposures = events.filter((event, i) => event.kind === 'exposure' && !accepted[i]).length;
+      if (rejectedExposures) console.warn(JSON.stringify({ component: 'eye', operation: 'learning_rejected_exposures', siteId, count: rejectedExposures, code: 'conflict' }));
       if (Object.values(diagnostics).some(value => value > 0))
         console.log(JSON.stringify({ component: 'eye', operation: 'learning_approximation', siteId, ...diagnostics }));
       return accepted;
@@ -131,7 +133,9 @@ export class SiteControl extends StoredObject {
       const siteId = this.kv.get<string>('siteId');
       if (!siteId) { await this.ctx.storage.deleteAlarm(); this.kv.delete('alarmAt'); return; }
       const now = Date.now();
-      this.atomic(() => { this.learning.close(siteId, now); this.learning.prune(now); });
+      // Reclaim before closing so a full summary store needs only one expiry
+      // page in this alarm; close contributes at most 500 new buckets.
+      this.atomic(() => { this.learning.prune(now); this.learning.close(siteId, now); });
       const pending = this.learning.outputs();
       for (const { output } of pending) {
         if (output.cohort.asOf < now - RETENTION_MS) {

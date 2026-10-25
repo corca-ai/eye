@@ -59,6 +59,8 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
     for (const { message, envelope } of work) {
       if (envelope.event.kind !== 'track' && !statuses.has(envelope)) continue;
       const accepted = envelope.event.kind === 'track' || statuses.get(envelope) === true;
+      // A conflicting exposure cannot feed raw-derived observations either.
+      if (envelope.event.kind === 'exposure' && !accepted) continue;
       items.push({ message, records: rawRecords(envelope, accepted) });
     }
     // Retry-safe learning is separate from lazy, bounded raw projection delivery.

@@ -72,3 +72,32 @@ it('does not let a cohort older than dedup retention block the site forever', as
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('learning_retention_gap'));
   } finally { warn.mockRestore(); }
 });
+
+it('reclaims at most one summary expiry page when cleanup and closure share an alarm', async () => {
+  const siteId = crypto.randomUUID(), site = env.SITES.getByName(siteId);
+  const experiment = env.EXPERIMENTS.getByName(experimentKey(siteId, 'exp'));
+  const config = await experiment.create({ experimentId: 'exp', arms: ['a'], settings: { minHoldMs: 0, observationWindowMs: 1000, allowedLatenessMs: 0 } });
+  await site.registerExperiment('exp', siteId, config.settings);
+  const now = Date.now(), at = now - 2000;
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+  const send = vi.spyOn(env.ANALYTICS, 'send').mockResolvedValue(undefined);
+  try {
+    await runInDurableObject(site, async (actor, state) => {
+      const { IncrementalLearning } = await import('../../src/runtime/incremental.js');
+      const { RETENTION_MS } = await import('../../src/core/validation.js');
+      const engine = new IncrementalLearning(state.storage.sql), old = now - RETENTION_MS - 3_600_000;
+      state.storage.transactionSync(() => engine.summaries.configure({ goalIds: [], experimentIds: ['exp'] }, old));
+      state.storage.sql.exec(`WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM seq WHERE n<50000)
+        INSERT INTO summary_buckets SELECT 'learning', 'exp', ?, json_array('a', n, 1000), 1, 1, 1, 0 FROM seq`, old);
+      const status = JSON.parse(state.storage.sql.exec<{ data: string }>('SELECT data FROM summary_config').one().data);
+      status.rows = 50000;
+      state.storage.sql.exec('UPDATE summary_config SET data=?', JSON.stringify(status));
+      state.storage.transactionSync(() => engine.accept([{ kind: 'exposure', eventId: 'shown', occurredAt: at, subject: { cid: 'c' },
+        assignment: { assignmentId: 'assignment', experimentId: 'exp', armId: 'a', generation: 1, policyRevision: 1, assignedAt: at, probability: 1, settings: config.settings },
+        sample: { sampleId: 'sample', startAt: at }, attributionWindowMs: 1000 }], at));
+      await actor.alarm();
+      expect(state.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM summary_buckets').one().n).toBe(49001);
+      expect(engine.summaries.status(now).state).toBe('collecting');
+    });
+  } finally { clock.mockRestore(); send.mockRestore(); }
+});

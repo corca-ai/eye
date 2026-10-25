@@ -174,3 +174,33 @@ it('keeps acceptance separate for sibling goals inside the same packed message',
     expect(rows.find(row => row.record_id === 'unknown')!.status).toBe('inactive');
   } finally { send.mockRestore(); await waitOnExecutionContext(ctx); }
 });
+
+it.each(['arm', 'expired window'] as const)('rejects a conflicting %s without retrying or losing valid siblings in its packed message', async conflict => {
+  const siteId = crypto.randomUUID(), ctx = createExecutionContext(), service = new EyeWorker(ctx, env);
+  const config = await service.createExperiment(siteId, { experimentId: 'exp', arms: ['a', 'b'], settings: { minHoldMs: 0, observationWindowMs: 1000, allowedLatenessMs: 0 } });
+  await service.createGoal(siteId, 'pay');
+  const at = Date.now(), events: EventEnvelope[] = [];
+  const original: import('../../src/core/types.js').ExposureEvent = { kind: 'exposure', eventId: 'a-valid', occurredAt: at, subject: { cid: 'c' },
+    assignment: { assignmentId: 'assignment', experimentId: 'exp', armId: 'a', generation: 1, policyRevision: 1, assignedAt: at, probability: .5, settings: config.settings },
+    sample: { sampleId: 'sample', startAt: at }, attributionWindowMs: 1000 };
+  const conflictingAssignment = conflict === 'arm' ? { ...original.assignment, armId: 'b' }
+    : { ...original.assignment, settings: { ...config.settings, observationWindowMs: 100 } };
+  for (const event of [original, { ...original, eventId: 'b-conflict', assignment: conflictingAssignment },
+    { kind: 'goal' as const, eventId: 'z-goal', occurredAt: at, subject: original.subject, goalId: 'pay', value: 7 }]) events.push({ siteId, receivedAt: at, event });
+  const rows: AnalyticsRecord[] = [];
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(at + 200);
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const send = vi.spyOn(env.ANALYTICS, 'send').mockImplementation(async batch => { rows.push(...batch as AnalyticsRecord[]); });
+  try {
+    const batch = createMessageBatch('eye-events', [{ id: 'packed-conflict', timestamp: at, attempts: 1, body: { version: 2, events } }]);
+    await service.queue(batch);
+    expect((await getQueueResult(batch, ctx)).retryMessages).toHaveLength(0);
+    expect(rows.filter(r => r.table_name === 'events').map(r => r.record_id)).toEqual(['a-valid', 'z-goal']);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('learning_rejected_exposures'));
+    await runInDurableObject(env.SITES.getByName(siteId), (_actor, state) => {
+      const sample = state.storage.sql.exec<{ data: string; scale: number; sum: number; correction: number }>('SELECT data,scale,sum,correction FROM learning_samples').one();
+      expect(JSON.parse(sample.data).assignment.armId).toBe('a');
+      expect(sample.scale * (sample.sum + sample.correction)).toBe(7);
+    });
+  } finally { clock.mockRestore(); warn.mockRestore(); send.mockRestore(); await waitOnExecutionContext(ctx); }
+});

@@ -2,6 +2,11 @@
 export type RewardSum = { scale: number; sum: number; correction: number };
 export function addReward(total: RewardSum, value: number): void {
   if (value === 0) return;
+  // Exact cancellation leaves no evidence requiring the old scale. Keeping it
+  // would underflow later small rewards even though the current sum is zero.
+  if (total.sum === -total.correction) {
+    total.scale = Math.abs(value); total.sum = Math.sign(value); total.correction = 0; return;
+  }
   const scale = Math.max(total.scale, Math.abs(value));
   const ratio = total.scale / scale;
   const previous = total.sum * ratio, term = value / scale;
@@ -14,6 +19,10 @@ export function addReward(total: RewardSum, value: number): void {
 
 /** Merge all compensated components at a shared scale; never materialize bucket totals. */
 export function mergeReward(total: RewardSum, other: RewardSum): void {
+  if (other.sum === -other.correction) return;
+  if (total.sum === -total.correction) {
+    total.scale = other.scale; total.sum = other.sum; total.correction = other.correction; return;
+  }
   const scale = Math.max(total.scale, other.scale);
   if (scale === 0) return;
   const a = total.scale / scale, b = other.scale / scale;

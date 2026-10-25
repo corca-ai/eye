@@ -235,3 +235,39 @@ it('combines a hundred contributions into one sample write without altering comp
     expect(engine.outputs().flatMap(o => o.output.records)[0]!.value).toBeCloseTo(98, 10);
   });
 });
+
+it('does not count identical exposure and identity retries as out-of-order approximation', async () => {
+  await runInDurableObject(env.SITES.getByName(crypto.randomUUID()), (_actor, state) => {
+    const engine = new IncrementalLearning(state.storage.sql);
+    const identity: IdentityEvent = { kind: 'identify', eventId: 'login', occurredAt: 10, subject: { cid: 'browser', uid: 'u' } };
+    const e = exposure('shown', 20, 'e', identity.subject);
+    state.storage.transactionSync(() => engine.accept([identity, e], 30));
+    const result = state.storage.transactionSync(() => engine.accept([identity, e], 40));
+    expect(result.diagnostics).toEqual({ staleExposures: 0, staleIdentities: 0, futureExposures: 0, closedGoals: 0 });
+  });
+});
+
+it('keeps a tiny finite reward after cancelling large rewards across durable batches', async () => {
+  await runInDurableObject(env.SITES.getByName(crypto.randomUUID()), (_actor, state) => {
+    const engine = new IncrementalLearning(state.storage.sql);
+    state.storage.transactionSync(() => engine.accept([exposure('a', 10), goal('g0', 10, 1e308)], 10));
+    state.storage.transactionSync(() => engine.accept([goal('g1', 10, -1e308)], 11));
+    const restarted = new IncrementalLearning(state.storage.sql);
+    state.storage.transactionSync(() => restarted.accept([goal('g2', 10, 1e-100)], 12));
+    state.storage.transactionSync(() => restarted.close('site', 2000));
+    expect(restarted.outputs().flatMap(o => o.output.records)[0]!.value).toBe(1e-100);
+  });
+});
+
+it('rejects an already-expired conflicting window without extending the pending sample attribution', async () => {
+  await runInDurableObject(env.SITES.getByName(crypto.randomUUID()), (_actor, state) => {
+    const engine = new IncrementalLearning(state.storage.sql), original = exposure('first', 10);
+    state.storage.transactionSync(() => engine.accept([original], 10));
+    const conflict = { ...original, eventId: 'conflict', occurredAt: 20,
+      assignment: { ...original.assignment, settings: { ...config, observationWindowMs: 100 } } };
+    const result = state.storage.transactionSync(() => engine.accept([conflict, goal('outside-original-horizon', 115, 10)], 200));
+    expect(result.accepted).toEqual([false, true]);
+    state.storage.transactionSync(() => engine.close('site', 2000));
+    expect(engine.outputs().flatMap(o => o.output.records)[0]!.value).toBe(0);
+  });
+});

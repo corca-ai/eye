@@ -101,7 +101,7 @@ it('exposes opt-in summaries through the SDK and service without raw analytics',
   expect((await eye.analytics.summaries.status()).state).toBe('disabled');
   const s = await eye.analytics.summaries.configure({ goalIds: ['pay'], experimentIds: [] });
   expect(s.state).toBe('collecting');
-  await expect(eye.analytics.summaries.query({ kind: 'goals', goalId: 'pay', from: 0, to: H })).rejects.toThrow('not fully covered');
+  await expect(eye.analytics.summaries.query({ kind: 'goals', goalId: 'pay', from: 0, to: H })).rejects.toMatchObject({ code: 'unavailable', message: expect.stringContaining('not fully covered') });
   await waitOnExecutionContext(ctx);
 });
 
@@ -134,5 +134,41 @@ it('keeps arm, generation and observation window dimensions distinct including z
     const rows = s.query({ kind: 'learning', experimentId: 'e', from: start, to: start + H }, start + H).rows;
     expect(rows).toHaveLength(4);
     expect(rows.every(r => r.count === 1 && r.total === 0 && r.mean === 0)).toBe(true);
+  });
+});
+
+it('reclaims expired buckets before treating a new bucket as a permanent capacity failure', async () => {
+  await runInDurableObject(env.SITES.getByName(crypto.randomUUID()), (_actor, ctx) => {
+    const engine = new IncrementalLearning(ctx.storage.sql), s = engine.summaries;
+    ctx.storage.transactionSync(() => s.configure({ goalIds: ['pay'], experimentIds: ['e'] }, start));
+    // Recreate a full store of expired learning dimensions; verify real row-count accounting.
+    ctx.storage.sql.exec(`WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM seq WHERE n<50000)
+      INSERT INTO summary_buckets SELECT 'learning', 'e', ?, json_array('a', n, 1000), 1, 1, 1, 0 FROM seq`, start);
+    const stored = JSON.parse(ctx.storage.sql.exec<{ data: string }>('SELECT data FROM summary_config').one().data);
+    stored.rows = 50000;
+    ctx.storage.sql.exec('UPDATE summary_config SET data=?', JSON.stringify(stored));
+    const now = start + RETENTION_MS + H;
+    expect(() => ctx.storage.transactionSync(() => { engine.accept([goal('fresh', now, 7)], now); throw Error('abort'); })).toThrow('abort');
+    expect(ctx.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM summary_buckets').one().n).toBe(50000);
+    ctx.storage.transactionSync(() => engine.accept([goal('fresh', now, 7)], now));
+    expect(s.status(now).state).toBe('collecting');
+    expect(s.query({ kind: 'goals', goalId: 'pay', from: now, to: now + H }, now + H).rows[0]!.total).toBe(7);
+    const count = ctx.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM summary_buckets').one().n;
+    expect(count).toBeGreaterThanOrEqual(49001); // Reclamation remains bounded.
+    expect(count).toBeLessThanOrEqual(50000);
+    const after = JSON.parse(ctx.storage.sql.exec<{ data: string }>('SELECT data FROM summary_config').one().data);
+    expect(after.rows).toBe(count);
+  });
+});
+
+it('preserves tiny goal totals after merging a cancelled large bucket with later buckets', async () => {
+  await runInDurableObject(env.SITES.getByName(crypto.randomUUID()), (_actor, ctx) => {
+    const engine = new IncrementalLearning(ctx.storage.sql), s = engine.summaries;
+    ctx.storage.transactionSync(() => s.configure({ goalIds: ['pay'], experimentIds: [] }, start));
+    ctx.storage.transactionSync(() => engine.accept([goal('large', start, 1e308), goal('cancel', start + 1, -1e308)], start + 2));
+    ctx.storage.transactionSync(() => engine.accept([goal('tiny', start + H, 1e-100)], start + H));
+    const result = s.query({ kind: 'goals', goalId: 'pay', from: start, to: start + 2 * H }, start + 2 * H);
+    expect(result.rows[0]).toMatchObject({ count: 3, total: 1e-100 });
+    expect(result.rows[0]!.mean / 1e-100).toBeCloseTo(1 / 3, 14);
   });
 });
