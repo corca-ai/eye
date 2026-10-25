@@ -5,6 +5,7 @@ import { parseLocalContext } from './decisions.js';
 import type { LocalAssignmentContext } from './core/local-assignment.js';
 import { attributes, id, record, subject as parseSubject, timestamp } from './core/validation.js';
 import { invariant } from './core/errors.js';
+import { collectionLimits } from './collection-limits.js';
 import type { Attributes, Subject } from './core/types.js';
 import type { AssignedDecision } from './transport.js';
 import type { BrowserSnapshot, BrowserEventResult } from './browser-types.js';
@@ -30,7 +31,7 @@ function decode(text: string) { return Uint8Array.from(atob(text.replaceAll('-',
 /** 요청별 브라우저 준비·노출 어댑터. 호스트가 인증·동일 Origin POST·허용 실험·본문 크기를 확인한 뒤 호출한다. */
 export function createEyeBrowserServer(options: BrowserServerOptions) {
   const eye = createEye(options), subject = parseSubject(options.subject);
-  const userAttributes = attributes(options.userAttributes ?? {});
+  const userAttributes = attributes(options.userAttributes ?? {}, collectionLimits(options.collectionLimits));
   const binding = id(options.browserBinding, 'browserBinding'), scope = id(options.scope, 'scope');
   const audience = encoder.encode(`eye/browser-exposure/v1/${options.siteId}`);
   let importedKey: Promise<CryptoKey> | undefined;

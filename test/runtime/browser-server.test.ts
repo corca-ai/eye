@@ -109,6 +109,18 @@ it('rejects non-finite user attributes before JSON can silently turn them into n
   await waitOnExecutionContext(f.options.ctx);
 });
 
+it('checks configured attribute limits before issuing receipts and honors overrides', async () => {
+  const f = await fixture(), userAttributes = { a: 1, b: 2, c: 3 };
+  expect(() => createEyeBrowserServer({ ...f.options, userAttributes, collectionLimits: { maxAttributeKeys: 2 } })).toThrow('Too many attribute keys');
+  const server = createEyeBrowserServer({ ...f.options, userAttributes, collectionLimits: { maxAttributeKeys: 3 } });
+  const snapshot = await server.prepare(['checkout']);
+  expect(snapshot.choices).toHaveLength(1);
+  expect(await server.receive([{ eventId: 'bounded-attributes', receipt: snapshot.choices[0]!.receipt, occurredAt: snapshot.serverNow }]))
+    .toEqual([{ eventId: 'bounded-attributes', accepted: true }]);
+  expect(f.events[0]!.event).toMatchObject({ userAttributes });
+  await waitOnExecutionContext(f.options.ctx);
+});
+
 it('does not publish a receipt that its own receiver rejects for size', async () => {
   const f = await fixture();
   const server = createEyeBrowserServer({ ...f.options, userAttributes: { segment: 'x'.repeat(20000) } });

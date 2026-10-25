@@ -149,3 +149,18 @@ it.each([{ bad: NaN }, { detail: 'x'.repeat(100_000) }])('rejected exposure payl
   expect(f.events[0]!.event).toMatchObject({ eventId: 'accepted', sample: { sampleId: expect.stringContaining('accepted') } });
   await waitOnExecutionContext(f.ctx);
 });
+
+it('budget rejection does not open a sample and a fresh request can expose the held decision', async () => {
+  const f = await fixture(), eye = createEye({ ...f.options, collectionLimits: { maxEvents: 1 } });
+  const decision = await eye.decide({ subject: f.subject, experimentId: 'checkout' });
+  if (decision.status !== 'assigned') throw new Error('Expected assignment');
+  expect(eye.track({ subject: f.subject, name: 'view' }).accepted).toBe(true);
+  expect(eye.expose({ subject: f.subject, decision })).toMatchObject({ accepted: false, error: { code: 'unavailable' } });
+  const next = createEye({ ...f.options, decisions: { ...f.options.decisions, tokens: await eye.state() } });
+  const held = await next.decide({ subject: f.subject, experimentId: 'checkout' });
+  if (held.status !== 'assigned') throw new Error('Expected held assignment');
+  expect(held.localContext?.sample).toBeUndefined();
+  expect(next.expose({ subject: f.subject, decision: held }).accepted).toBe(true);
+  await next.flush(); await waitOnExecutionContext(f.ctx);
+  expect(f.events.filter(row => row.event.kind === 'exposure')).toHaveLength(1);
+});

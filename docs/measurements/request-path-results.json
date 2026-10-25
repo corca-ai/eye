@@ -1,0 +1,114 @@
+{
+  "baselineCommit": "53147d8faa1fbb8adea48597fda67c76a217ec09",
+  "measuredAt": "2026-10-25",
+  "before": {
+    "node": "v24.22.1",
+    "platform": "darwin",
+    "method": "one warmup and five measured passes; median of synchronous request averages; mocked ingestion, not Workers latency",
+    "results": [
+      {
+        "name": "small event",
+        "requestsPerPass": 1000,
+        "eventsPerRequest": 1,
+        "acceptedPerRequest": 1,
+        "rejectedPerRequest": 0,
+        "medianRequestAverageMs": 0.006365375
+      },
+      {
+        "name": "five small events",
+        "requestsPerPass": 1000,
+        "eventsPerRequest": 5,
+        "acceptedPerRequest": 5,
+        "rejectedPerRequest": 0,
+        "medianRequestAverageMs": 0.009871916999999996
+      },
+      {
+        "name": "100 small events",
+        "requestsPerPass": 100,
+        "eventsPerRequest": 100,
+        "acceptedPerRequest": 100,
+        "rejectedPerRequest": 0,
+        "medianRequestAverageMs": 0.13739750000000014
+      },
+      {
+        "name": "64KB string",
+        "requestsPerPass": 300,
+        "eventsPerRequest": 1,
+        "acceptedPerRequest": 1,
+        "rejectedPerRequest": 0,
+        "medianRequestAverageMs": 0.034312776666666496
+      },
+      {
+        "name": "oversized string",
+        "requestsPerPass": 100,
+        "eventsPerRequest": 1,
+        "acceptedPerRequest": 0,
+        "rejectedPerRequest": 1,
+        "medianRequestAverageMs": 0.5244191699999999
+      },
+      {
+        "name": "exhausted request: maxEvents=20",
+        "requestsPerPass": 100,
+        "eventsPerRequest": 1000,
+        "acceptedPerRequest": 1000,
+        "rejectedPerRequest": 0,
+        "medianRequestAverageMs": 1.3574916700000017
+      }
+    ]
+  },
+  "after": {
+    "node": "v24.22.1",
+    "platform": "darwin",
+    "method": "one warmup and five measured passes; median of synchronous request averages; mocked ingestion, not Workers latency",
+    "results": [
+      {
+        "name": "small event",
+        "requestsPerPass": 1000,
+        "eventsPerRequest": 1,
+        "acceptedPerRequest": 1,
+        "rejectedPerRequest": 0,
+        "medianRequestAverageMs": 0.0027600409999999974
+      },
+      {
+        "name": "five small events",
+        "requestsPerPass": 1000,
+        "eventsPerRequest": 5,
+        "acceptedPerRequest": 5,
+        "rejectedPerRequest": 0,
+        "medianRequestAverageMs": 0.007887250000000009
+      },
+      {
+        "name": "100 small events",
+        "requestsPerPass": 100,
+        "eventsPerRequest": 100,
+        "acceptedPerRequest": 100,
+        "rejectedPerRequest": 0,
+        "medianRequestAverageMs": 0.13554958
+      },
+      {
+        "name": "64KB string",
+        "requestsPerPass": 300,
+        "eventsPerRequest": 1,
+        "acceptedPerRequest": 1,
+        "rejectedPerRequest": 0,
+        "medianRequestAverageMs": 0.03194097333333332
+      },
+      {
+        "name": "oversized string",
+        "requestsPerPass": 100,
+        "eventsPerRequest": 1,
+        "acceptedPerRequest": 0,
+        "rejectedPerRequest": 1,
+        "medianRequestAverageMs": 0.004883749999999623
+      },
+      {
+        "name": "exhausted request: maxEvents=20",
+        "requestsPerPass": 100,
+        "eventsPerRequest": 1000,
+        "acceptedPerRequest": 20,
+        "rejectedPerRequest": 980,
+        "medianRequestAverageMs": 0.04074792000000002
+      }
+    ]
+  }
+}

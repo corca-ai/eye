@@ -10,6 +10,7 @@ export type { CidCookieOptions, CidCookie } from './cookie.js';
 
 export { createEye } from './client.js';
 export type { EyeOptions, EyeClient, Submission, EventInput } from './client.js';
+export type { CollectionLimits } from './collection-limits.js';
 export type { EyeService, PolicySnapshot, AssignedDecision, GoalDefinition } from './transport.js';
 export type {
   Scalar, AttributeField, Filter, QueryRange, ArmQuery, TimelineQuery, GoalQuery, SeriesQuery, AttributeValuesQuery,
