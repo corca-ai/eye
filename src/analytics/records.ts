@@ -25,19 +25,24 @@ export function analyticsRecord(
 }
 
 /** Stable daily dictionary rows deduplicate retries and preserve mixed attribute types. */
-export function attributeRecords(record: AnalyticsRecord): AnalyticsRecord[] {
+export function* attributeRecords(record: AnalyticsRecord, include: (recordId: string) => boolean = () => true): Generator<AnalyticsRecord> {
+  if (record.table_name !== 'events' && record.table_name !== 'observations') return;
   const sources: [string, Record<string, unknown>][] = [['event', JSON.parse(record.attributes_json) as Record<string, unknown>]];
   if (record.table_name === 'observations') sources[0]![0] = 'user';
   if (record.table_name === 'events') {
     const payload = JSON.parse(record.payload_json) as { userAttributes?: Record<string, unknown> };
     if (payload.userAttributes) sources.push(['user', payload.userAttributes]);
   }
-  if (record.table_name !== 'events' && record.table_name !== 'observations') return [];
-  return sources.flatMap(([source, attrs]) => Object.entries(attrs).map(([key, value]) => ({
-    ...record, table_name: 'attribute_keys' as const,
-    record_id: JSON.stringify([Math.floor(record.occurred_at / 86_400_000), source, key, value === null ? 'null' : typeof value]),
-    revision: 1, occurred_at: Math.floor(record.occurred_at / 86_400_000) * 86_400_000, cid: null, uid: null, subject_key: '', state_key: '', experiment_id: null, arm_id: null,
-    goal_id: null, assignment_id: null, observation_id: null, status: null, value: null, attributes_json: '{}',
-    payload_json: JSON.stringify({ key, type: value === null ? 'null' : typeof value, source }),
-  })));
+  for (const [source, attrs] of sources) for (const [key, value] of Object.entries(attrs)) {
+    const type = value === null ? 'null' : typeof value;
+    const recordId = JSON.stringify([Math.floor(record.occurred_at / 86_400_000), source, key, type]);
+    if (!include(recordId)) continue;
+    yield {
+      ...record, table_name: 'attribute_keys' as const,
+      record_id: recordId,
+      revision: 1, occurred_at: Math.floor(record.occurred_at / 86_400_000) * 86_400_000, cid: null, uid: null, subject_key: '', state_key: '', experiment_id: null, arm_id: null,
+      goal_id: null, assignment_id: null, observation_id: null, status: null, value: null, attributes_json: '{}',
+      payload_json: JSON.stringify({ key, type, source }),
+    };
+  }
 }

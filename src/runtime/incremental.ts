@@ -11,8 +11,12 @@ import { analyticsRecord, type AnalyticsRecord } from '../analytics/records.js';
 type SampleEvent = ExposureEvent & { sample: NonNullable<ExposureEvent['sample']>; attributionWindowMs: number };
 type IdentityRow = { uid: string | null; occurred_at: number; event_id: string };
 type Last = { occurredAt: number; eventId: string; sampleId: string; attributionWindowMs: number };
-type SampleState = { row: SampleRow; event: SampleEvent; inserted: boolean; dataChanged: boolean; rewardChanged: boolean };
 type SampleRow = RewardSum & { sample_id: string; data: string; definition: string; close_at: number };
+type RewardRow = RewardSum & { sample_id: string; close_at: number; start_at: number; end_at: number; half_life: number };
+type SampleDetail = { event: SampleEvent; data: string; definition: string; changed: boolean };
+type SampleState = { row: RewardRow; detail: SampleDetail | null; inserted: boolean; rewardChanged: boolean };
+type FullSampleState = SampleState & { detail: SampleDetail };
+type OwnerState = { values: Map<string, Last>; loaded: Set<string>; all: boolean; dirty: Set<string> };
 export interface LearningOutput {
   cohort: Pick<ClosedCohort, 'cohortId' | 'asOf' | 'arms'>;
   records: AnalyticsRecord[];
@@ -24,6 +28,7 @@ const ownerKey = (kind: 'cid' | 'uid', key: string) => JSON.stringify([kind, key
 const decode = <T>(value: string): T => JSON.parse(value) as T;
 const CLOSE_LIMIT = 500;
 const CLOSE_BYTES = 512_000;
+const FLUSH_INTERVAL_MS = 60_000;
 type Value = string | number | null;
 /** The synchronous SQL operations shared by workerd and the local SQLite experiment. */
 export interface LearningSQL {
@@ -45,7 +50,7 @@ function readLast(data: string): Last {
 class LearningBatch {
   private readonly identities = new Map<string, IdentityRow | null>();
   private readonly dirtyIdentities = new Set<string>();
-  private readonly owners = new Map<string, { values: Map<string, Last>; dirty: Set<string> }>();
+  private readonly owners = new Map<string, OwnerState>();
   private readonly samples = new Map<string, SampleState | null>();
   constructor(private readonly sql: LearningSQL) {}
   identity(cid: string): IdentityRow | null {
@@ -54,33 +59,77 @@ class LearningBatch {
     return this.identities.get(cid)!;
   }
   setIdentity(cid: string, value: IdentityRow): void { this.identities.set(cid, value); this.dirtyIdentities.add(cid); }
-  last(owner: string): Map<string, Last> {
+  private owner(owner: string): OwnerState {
     let state = this.owners.get(owner);
     if (!state) {
-      state = { values: new Map(this.sql.exec<{ experiment_id: string; data: string }>(
-        'SELECT experiment_id, data FROM learning_last WHERE owner = ?', owner).toArray()
-        .map(row => [row.experiment_id, readLast(row.data)])), dirty: new Set() };
+      state = { values: new Map(), loaded: new Set(), all: false, dirty: new Set() };
       this.owners.set(owner, state);
+    }
+    return state;
+  }
+  last(owner: string): Map<string, Last> {
+    const state = this.owner(owner);
+    if (!state.all) {
+      for (const row of this.sql.exec<{ experiment_id: string; data: string }>(
+        'SELECT experiment_id, data FROM learning_last WHERE owner = ?', owner)) {
+        // Preserve point reads, local updates and tombstones when upgrading to a full read.
+        if (!state.loaded.has(row.experiment_id)) state.values.set(row.experiment_id, readLast(row.data));
+      }
+      state.all = true;
     }
     return state.values;
   }
+  getLast(owner: string, experimentId: string): Last | undefined {
+    const state = this.owner(owner);
+    if (!state.all && !state.loaded.has(experimentId)) {
+      const row = this.sql.exec<{ data: string }>('SELECT data FROM learning_last WHERE owner = ? AND experiment_id = ?', owner, experimentId).toArray()[0];
+      if (row) state.values.set(experimentId, readLast(row.data));
+      state.loaded.add(experimentId);
+    }
+    return state.values.get(experimentId);
+  }
   setLast(owner: string, experimentId: string, value: Last): void {
-    this.last(owner).set(experimentId, value); this.owners.get(owner)!.dirty.add(experimentId);
+    const state = this.owner(owner);
+    state.values.set(experimentId, value); state.loaded.add(experimentId); state.dirty.add(experimentId);
   }
   clearLast(owner: string): void {
     const values = this.last(owner), dirty = this.owners.get(owner)!.dirty;
     for (const key of values.keys()) dirty.add(key);
     values.clear();
   }
-  sample(id: string): SampleState | null {
+  sample(id: string, full: true): FullSampleState | null;
+  sample(id: string, full?: false): SampleState | null;
+  sample(id: string, full = false): SampleState | null {
     if (!this.samples.has(id)) {
-      const row = this.sql.exec<SampleRow>('SELECT * FROM learning_samples WHERE sample_id = ?', id).toArray()[0];
-      this.samples.set(id, row ? { row, event: decode<SampleEvent>(row.data), inserted: false, dataChanged: false, rewardChanged: false } : null);
+      if (full) {
+        const row = this.sql.exec<SampleRow>('SELECT * FROM learning_samples WHERE sample_id = ?', id).toArray()[0];
+        this.samples.set(id, row ? this.fullSample(row, decode<SampleEvent>(row.data), false) : null);
+      } else {
+        // definition is small and immutable. Do not fetch/parse the potentially
+        // large exposure attributes on every reward update; no schema migration.
+        const row = this.sql.exec<RewardRow>(`SELECT sample_id, close_at, scale, sum, correction,
+          json_extract(definition, '$[1]') AS start_at,
+          json_extract(definition, '$[1]') + json_extract(definition, '$[0].settings.observationWindowMs') AS end_at,
+          json_extract(definition, '$[0].settings.attributionHalfLifeMs') AS half_life
+          FROM learning_samples WHERE sample_id = ?`, id).toArray()[0];
+        this.samples.set(id, row ? { row, detail: null, inserted: false, rewardChanged: false } : null);
+      }
     }
-    return this.samples.get(id)!;
+    const state = this.samples.get(id)!;
+    if (full && state && !state.detail) {
+      const row = this.sql.exec<{ data: string; definition: string }>('SELECT data, definition FROM learning_samples WHERE sample_id = ?', id).toArray()[0]!;
+      state.detail = { ...row, event: decode<SampleEvent>(row.data), changed: false };
+    }
+    return state;
+  }
+  private fullSample(row: SampleRow, event: SampleEvent, inserted: boolean): FullSampleState {
+    return { row: { sample_id: row.sample_id, close_at: row.close_at, scale: row.scale, sum: row.sum, correction: row.correction,
+      start_at: event.sample.startAt, end_at: event.sample.startAt + event.assignment.settings.observationWindowMs,
+      half_life: event.assignment.settings.attributionHalfLifeMs },
+    detail: { event, data: row.data, definition: row.definition, changed: false }, inserted, rewardChanged: false };
   }
   createSample(row: SampleRow, event: SampleEvent): void {
-    this.samples.set(row.sample_id, { row, event, inserted: true, dataChanged: false, rewardChanged: false });
+    this.samples.set(row.sample_id, this.fullSample(row, event, true));
   }
   flush(): void {
     for (const cid of this.dirtyIdentities) {
@@ -96,11 +145,13 @@ class LearningBatch {
     }
     for (const state of this.samples.values()) {
       if (!state) continue;
-      const r = state.row;
-      if (state.inserted) this.sql.exec('INSERT INTO learning_samples VALUES (?, ?, ?, ?, ?, ?, ?)',
-        r.sample_id, r.close_at, r.data, r.definition, r.scale, r.sum, r.correction);
-      else if (state.dataChanged) this.sql.exec('UPDATE learning_samples SET data = ?, scale = ?, sum = ?, correction = ? WHERE sample_id = ?',
-        r.data, r.scale, r.sum, r.correction, r.sample_id);
+      const r = state.row, detail = state.detail;
+      if (state.inserted) {
+        invariant(detail, 'unavailable', 'New sample metadata missing');
+        this.sql.exec('INSERT INTO learning_samples VALUES (?, ?, ?, ?, ?, ?, ?)',
+          r.sample_id, r.close_at, detail.data, detail.definition, r.scale, r.sum, r.correction);
+      } else if (detail?.changed) this.sql.exec('UPDATE learning_samples SET data = ?, scale = ?, sum = ?, correction = ? WHERE sample_id = ?',
+        detail.data, r.scale, r.sum, r.correction, r.sample_id);
       else if (state.rewardChanged) this.sql.exec('UPDATE learning_samples SET scale = ?, sum = ?, correction = ? WHERE sample_id = ?',
         r.scale, r.sum, r.correction, r.sample_id);
     }
@@ -172,14 +223,14 @@ export class IncrementalLearning {
     const sampleId = exposure.sample.sampleId;
     const closeAt = exposure.sample.startAt + exposure.assignment.settings.observationWindowMs + exposure.assignment.settings.allowedLatenessMs;
     const definition = JSON.stringify([exposure.assignment, exposure.sample.startAt, exposure.attributionWindowMs]);
-    const old = batch.sample(sampleId);
+    const old = batch.sample(sampleId, true);
     // Check existing context even if the incoming definition claims an expired
     // window. Reject only this exposure, before changing sample or last reference.
-    if (old && old.row.definition !== definition) return false;
+    if (old && old.detail.definition !== definition) return false;
     if (closeAt > now) {
       if (!old) batch.createSample({ sample_id: sampleId, close_at: closeAt, data: JSON.stringify(exposure), definition, scale: 0, sum: 0, correction: 0 }, exposure);
-      else if (compareEvents(exposure, old.event) < 0) {
-        old.event = exposure; old.row.data = JSON.stringify(exposure); old.dataChanged = true;
+      else if (compareEvents(exposure, old.detail.event) < 0) {
+        old.detail.event = exposure; old.detail.data = JSON.stringify(exposure); old.detail.changed = true;
       }
     }
     const reference = lastReference(exposure), experimentId = exposure.assignment.experimentId;
@@ -194,7 +245,7 @@ export class IncrementalLearning {
     return true;
   }
   private putLast(batch: LearningBatch, owner: string, experimentId: string, event: Last, diagnostics: LearningDiagnostics): void {
-    const previous = batch.last(owner).get(experimentId);
+    const previous = batch.getLast(owner, experimentId);
     if (previous) {
       const order = compareEvents(previous, event);
       if (order > 0) diagnostics.staleExposures++;
@@ -212,10 +263,9 @@ export class IncrementalLearning {
     for (const event of eligible) {
       const sample = batch.sample(event.sampleId);
       if (!sample || sample.row.close_at <= now) { diagnostics.closedGoals++; continue; }
-      const exposure = sample.event, endAt = exposure.sample.startAt + exposure.assignment.settings.observationWindowMs;
-      if (goal.occurredAt < exposure.sample.startAt || goal.occurredAt >= endAt) continue;
+      if (goal.occurredAt < sample.row.start_at || goal.occurredAt >= sample.row.end_at) continue;
       const baseValue = goal.value / eligible.length;
-      const factor = decayFactor(goal.occurredAt - event.occurredAt, exposure.assignment.settings.attributionHalfLifeMs);
+      const factor = decayFactor(goal.occurredAt - event.occurredAt, sample.row.half_life);
       addReward(sample.row, baseValue * factor);
       sample.rewardChanged = true;
     }
@@ -259,7 +309,7 @@ export class IncrementalLearning {
   acknowledge(ids: number[]): void {
     if (ids.length) this.sql.exec(`DELETE FROM learning_outbox WHERE id IN (${ids.map(() => '?').join(',')})`, ...ids);
   }
-  nextWake(now: number): number | null {
+  nextWake(now: number, drain = false): number | null {
     if (this.sql.exec('SELECT id FROM learning_outbox LIMIT 1').toArray().length) return now + 1000;
     const close = this.sql.exec<{ at: number | null }>('SELECT MIN(close_at) AS at FROM learning_samples').toArray()[0]!.at;
     const first = this.sql.exec<{ at: number | null }>(`SELECT MIN(at) AS at FROM (
@@ -268,7 +318,12 @@ export class IncrementalLearning {
       SELECT MIN(occurred_at) AS at FROM learning_last UNION ALL
       SELECT MIN(bucket) AS at FROM summary_buckets)`).toArray()[0]!.at;
     const dates = [close, first === null ? null : first + RETENTION_MS + 1].filter((at): at is number => at !== null);
-    return dates.length ? Math.max(now + 1000, Math.min(...dates)) : null;
+    if (!dates.length) return null;
+    const earliest = Math.min(...dates);
+    // Only successful alarm work requests fast draining. New ingestion must not
+    // pull an already coalesced deadline back toward each individual sample.
+    const at = drain && earliest <= now ? now + 1000 : Math.ceil(earliest / FLUSH_INTERVAL_MS) * FLUSH_INTERVAL_MS;
+    return Math.max(now + 1000, at);
   }
   /** At most a bounded number of expired rows per table per alarm. */
   prune(now: number): boolean {

@@ -1,7 +1,8 @@
 import type { SummaryConfig, SummaryQuery, SummaryReport, SummaryRow, SummaryStatus } from '../analytics/summaries.js';
+import { validateSummaryQuery } from '../analytics/summary-query.js';
 import { finite, invariant } from '../core/errors.js';
 import { addReward, mergeReward, type RewardSum } from '../core/reward-sum.js';
-import { id, record, RETENTION_MS, timestamp } from '../core/validation.js';
+import { id, record, RETENTION_MS } from '../core/validation.js';
 import type { Assignment, GoalEvent } from '../core/types.js';
 import type { LearningSQL } from './incremental.js';
 
@@ -53,13 +54,8 @@ export class IncrementalSummaries {
   status(now: number): SummaryStatus { return publicStatus(readState(this.sql), now); }
   batch(now: number): SummaryBatch { return new SummaryBatch(this.sql, readState(this.sql), now); }
   query(input: SummaryQuery, now: number): SummaryReport {
-    const obj = record(input, 'summary query');
-    invariant(obj.kind === 'goals' || obj.kind === 'learning', 'invalid_input', 'Invalid summary kind');
-    invariant(Object.keys(obj).every(key => ['kind', 'from', 'to', obj.kind === 'goals' ? 'goalId' : 'experimentId'].includes(key)), 'invalid_input', 'Unsupported summary option');
-    const target = id(obj.kind === 'goals' ? obj.goalId : obj.experimentId, 'summary target');
-    const from = timestamp(obj.from, 'from'), to = timestamp(obj.to, 'to');
-    invariant(from < to && from % HOUR === 0 && to % HOUR === 0 && to <= Math.floor(now / HOUR) * HOUR && to - from <= 59 * 24 * HOUR,
-      'invalid_input', 'Summary ranges require whole completed UTC hours, at most 59 days');
+    const obj = validateSummaryQuery(input, now), { from, to } = obj;
+    const target = obj.kind === 'goals' ? obj.goalId : obj.experimentId;
     const state = readState(this.sql), status = publicStatus(state, now);
     invariant(status.state === 'collecting' && status.coverageFrom !== null && from >= status.coverageFrom,
       'unavailable', 'Summary range is not fully covered; use raw analytics');

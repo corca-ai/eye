@@ -1,0 +1,570 @@
+{
+  "baselineCommit": "4f68dcc0b3825a97e6e5ef7125b88dfa4f7e188d",
+  "execution": "Sequential before then after; same script and fixtures. No concurrent benchmarks.",
+  "before": {
+    "runtime": "v24.22.1",
+    "platform": "darwin/arm64",
+    "repeats": 5,
+    "sourceHashes": {
+      "runtime/incremental.js": "20bfbe7dddc0c7bb529c1c7db6167c906d9c515636c183fc7bd461c2223181e9",
+      "analytics/export.js": "056f1aad9cdc9fd13e6e8b3c807c6cbebe77ce9e9a2ef77c5aa411de4c7200ac",
+      "analytics/records.js": "6c38b335c85ebd21289ce632783d7d1c7b887bccf78eb756413cc62eec4ee96e"
+    },
+    "scriptSha256": "e541b07ddf6058e32689d59b99108af1b41363293aaf322261223b0e6367442d",
+    "limitations": "Synthetic memory SQLite, no durable storage/network/platform scheduling/billing. JSON result bytes are not SQLite page reads. Dictionary timing includes counting instrumentation, stable daily keys, one isolate, no eviction. Alarms omit export delay, failures and backlog.",
+    "pointReads": [
+      {
+        "experiments": 1,
+        "lastReferenceRows": 1
+      },
+      {
+        "experiments": 10,
+        "lastReferenceRows": 10
+      },
+      {
+        "experiments": 100,
+        "lastReferenceRows": 100
+      },
+      {
+        "experiments": 1000,
+        "lastReferenceRows": 1000
+      }
+    ],
+    "rewardReads": [
+      {
+        "attributeBytes": 0,
+        "batchSize": 1,
+        "sampleResultBytes": 127609,
+        "reward": 1816.1584264552562
+      },
+      {
+        "attributeBytes": 0,
+        "batchSize": 100,
+        "sampleResultBytes": 1222,
+        "reward": 1816.1584264552562
+      },
+      {
+        "attributeBytes": 25000,
+        "batchSize": 1,
+        "sampleResultBytes": 2627609,
+        "reward": 1816.1584264552562
+      },
+      {
+        "attributeBytes": 25000,
+        "batchSize": 100,
+        "sampleResultBytes": 26222,
+        "reward": 1816.1584264552562
+      }
+    ],
+    "alarms": {
+      "exposures": 10000,
+      "spacingMs": 8640,
+      "wakes": 10000,
+      "cohorts": 10000,
+      "samples": 10000
+    },
+    "dictionary": {
+      "constructed": 200000,
+      "raw": 10000,
+      "emitted": 20,
+      "outputDigest": "af10ce8882f62ea1c17a8d335ea4754af591590500f1d80a2c1403b0a7fc90d3",
+      "elapsedMs": 153.404,
+      "runs": [
+        {
+          "constructed": 200000,
+          "raw": 10000,
+          "emitted": 20,
+          "outputDigest": "af10ce8882f62ea1c17a8d335ea4754af591590500f1d80a2c1403b0a7fc90d3",
+          "elapsedMs": 168.90083299999998
+        },
+        {
+          "constructed": 200000,
+          "raw": 10000,
+          "emitted": 20,
+          "outputDigest": "af10ce8882f62ea1c17a8d335ea4754af591590500f1d80a2c1403b0a7fc90d3",
+          "elapsedMs": 152.71104100000002
+        },
+        {
+          "constructed": 200000,
+          "raw": 10000,
+          "emitted": 20,
+          "outputDigest": "af10ce8882f62ea1c17a8d335ea4754af591590500f1d80a2c1403b0a7fc90d3",
+          "elapsedMs": 151.777833
+        },
+        {
+          "constructed": 200000,
+          "raw": 10000,
+          "emitted": 20,
+          "outputDigest": "af10ce8882f62ea1c17a8d335ea4754af591590500f1d80a2c1403b0a7fc90d3",
+          "elapsedMs": 153.404
+        },
+        {
+          "constructed": 200000,
+          "raw": 10000,
+          "emitted": 20,
+          "outputDigest": "af10ce8882f62ea1c17a8d335ea4754af591590500f1d80a2c1403b0a7fc90d3",
+          "elapsedMs": 153.4917079999999
+        }
+      ]
+    }
+  },
+  "after": {
+    "runtime": "v24.22.1",
+    "platform": "darwin/arm64",
+    "repeats": 5,
+    "sourceHashes": {
+      "runtime/incremental.js": "327b8dea27255fcbc0d7b2449e31afdb4131c6d63f19a462bd8b1f9b3d1fbe3b",
+      "analytics/export.js": "b6cf02291de31fbe978d296444f7e08975607ff763672b8c6987ad8d0738a8ed",
+      "analytics/records.js": "49431d0a7fc454e4b11fe31061732c927a1fca329db0d12b08e0cca4b6f9e98c"
+    },
+    "scriptSha256": "e541b07ddf6058e32689d59b99108af1b41363293aaf322261223b0e6367442d",
+    "limitations": "Synthetic memory SQLite, no durable storage/network/platform scheduling/billing. JSON result bytes are not SQLite page reads. Dictionary timing includes counting instrumentation, stable daily keys, one isolate, no eviction. Alarms omit export delay, failures and backlog.",
+    "pointReads": [
+      {
+        "experiments": 1,
+        "lastReferenceRows": 1
+      },
+      {
+        "experiments": 10,
+        "lastReferenceRows": 1
+      },
+      {
+        "experiments": 100,
+        "lastReferenceRows": 1
+      },
+      {
+        "experiments": 1000,
+        "lastReferenceRows": 1
+      }
+    ],
+    "rewardReads": [
+      {
+        "attributeBytes": 0,
+        "batchSize": 1,
+        "sampleResultBytes": 17209,
+        "reward": 1816.1584264552562
+      },
+      {
+        "attributeBytes": 0,
+        "batchSize": 100,
+        "sampleResultBytes": 118,
+        "reward": 1816.1584264552562
+      },
+      {
+        "attributeBytes": 25000,
+        "batchSize": 1,
+        "sampleResultBytes": 17209,
+        "reward": 1816.1584264552562
+      },
+      {
+        "attributeBytes": 25000,
+        "batchSize": 100,
+        "sampleResultBytes": 118,
+        "reward": 1816.1584264552562
+      }
+    ],
+    "alarms": {
+      "exposures": 10000,
+      "spacingMs": 8640,
+      "wakes": 1440,
+      "cohorts": 1440,
+      "samples": 10000
+    },
+    "dictionary": {
+      "constructed": 20,
+      "raw": 10000,
+      "emitted": 20,
+      "outputDigest": "af10ce8882f62ea1c17a8d335ea4754af591590500f1d80a2c1403b0a7fc90d3",
+      "elapsedMs": 97.07987499999996,
+      "runs": [
+        {
+          "constructed": 20,
+          "raw": 10000,
+          "emitted": 20,
+          "outputDigest": "af10ce8882f62ea1c17a8d335ea4754af591590500f1d80a2c1403b0a7fc90d3",
+          "elapsedMs": 100.787125
+        },
+        {
+          "constructed": 20,
+          "raw": 10000,
+          "emitted": 20,
+          "outputDigest": "af10ce8882f62ea1c17a8d335ea4754af591590500f1d80a2c1403b0a7fc90d3",
+          "elapsedMs": 99.49729200000002
+        },
+        {
+          "constructed": 20,
+          "raw": 10000,
+          "emitted": 20,
+          "outputDigest": "af10ce8882f62ea1c17a8d335ea4754af591590500f1d80a2c1403b0a7fc90d3",
+          "elapsedMs": 97.07987499999996
+        },
+        {
+          "constructed": 20,
+          "raw": 10000,
+          "emitted": 20,
+          "outputDigest": "af10ce8882f62ea1c17a8d335ea4754af591590500f1d80a2c1403b0a7fc90d3",
+          "elapsedMs": 97.02262499999995
+        },
+        {
+          "constructed": 20,
+          "raw": 10000,
+          "emitted": 20,
+          "outputDigest": "af10ce8882f62ea1c17a8d335ea4754af591590500f1d80a2c1403b0a7fc90d3",
+          "elapsedMs": 96.47724999999991
+        }
+      ]
+    }
+  },
+  "compactState": {
+    "before": {
+      "runtime": "v24.22.1",
+      "platform": "darwin/arm64",
+      "sourceSha256": "20bfbe7dddc0c7bb529c1c7db6167c906d9c515636c183fc7bd461c2223181e9",
+      "scriptSha256": "c53dc5a6542095199bc185b8ddd5b6059d940df4ba660106fb910875df5cbce5",
+      "dictionarySourceSha256": "26cec6730d07ff3a86525f06f60e6b105677f0d3986186b570b2733f1bea5aa2",
+      "fixture": {
+        "events": 10000,
+        "relevantEvents": 5500,
+        "deliveredIncludingRetries": 5555,
+        "batchSize": 100,
+        "repeats": 5
+      },
+      "limitations": "Synthetic local SQLite in memory; no network, index-write billing, durable fsync, export delivery, or sustained traffic. Optional summaries add writes; report query time is a local snapshot. Dictionary uses 20 stable daily keys and no eviction, not general workload savings.",
+      "variants": {
+        "default": {
+          "elapsedMs": 108.59529100000003,
+          "sqlCalls": 20598,
+          "rowChangesExcludingIndexWrites": 9503,
+          "lastJsonBytes": 83560,
+          "seenRows": 1000,
+          "samples": 1000,
+          "rewardDigest": "ab43c41f22f6657332352d210f978372e2b6cde8a63bde44db285cc9498bafe5",
+          "summary": null,
+          "runs": [
+            {
+              "elapsedMs": 115.078833,
+              "sqlCalls": 20598,
+              "rowChangesExcludingIndexWrites": 9503,
+              "lastJsonBytes": 83560,
+              "seenRows": 1000,
+              "samples": 1000,
+              "rewardDigest": "ab43c41f22f6657332352d210f978372e2b6cde8a63bde44db285cc9498bafe5",
+              "summary": null
+            },
+            {
+              "elapsedMs": 109.10887499999995,
+              "sqlCalls": 20598,
+              "rowChangesExcludingIndexWrites": 9503,
+              "lastJsonBytes": 83560,
+              "seenRows": 1000,
+              "samples": 1000,
+              "rewardDigest": "ab43c41f22f6657332352d210f978372e2b6cde8a63bde44db285cc9498bafe5",
+              "summary": null
+            },
+            {
+              "elapsedMs": 108.19879099999997,
+              "sqlCalls": 20598,
+              "rowChangesExcludingIndexWrites": 9503,
+              "lastJsonBytes": 83560,
+              "seenRows": 1000,
+              "samples": 1000,
+              "rewardDigest": "ab43c41f22f6657332352d210f978372e2b6cde8a63bde44db285cc9498bafe5",
+              "summary": null
+            },
+            {
+              "elapsedMs": 108.59529100000003,
+              "sqlCalls": 20598,
+              "rowChangesExcludingIndexWrites": 9503,
+              "lastJsonBytes": 83560,
+              "seenRows": 1000,
+              "samples": 1000,
+              "rewardDigest": "ab43c41f22f6657332352d210f978372e2b6cde8a63bde44db285cc9498bafe5",
+              "summary": null
+            },
+            {
+              "elapsedMs": 107.815291,
+              "sqlCalls": 20598,
+              "rowChangesExcludingIndexWrites": 9503,
+              "lastJsonBytes": 83560,
+              "seenRows": 1000,
+              "samples": 1000,
+              "rewardDigest": "ab43c41f22f6657332352d210f978372e2b6cde8a63bde44db285cc9498bafe5",
+              "summary": null
+            }
+          ]
+        }
+      },
+      "dictionary": [
+        {
+          "batchSize": 1,
+          "cached": false,
+          "raw": 10000,
+          "dictionary": 200000,
+          "jsonBytes": 99332250,
+          "elapsedMs": 493.4116660000001
+        },
+        {
+          "batchSize": 1,
+          "cached": true,
+          "raw": 10000,
+          "dictionary": 20,
+          "jsonBytes": 11763150,
+          "elapsedMs": 147.6836659999999
+        },
+        {
+          "batchSize": 10,
+          "cached": false,
+          "raw": 10000,
+          "dictionary": 20000,
+          "jsonBytes": 20512230,
+          "elapsedMs": 163.39162499999998
+        },
+        {
+          "batchSize": 10,
+          "cached": true,
+          "raw": 10000,
+          "dictionary": 20,
+          "jsonBytes": 11763150,
+          "elapsedMs": 128.83162500000003
+        },
+        {
+          "batchSize": 100,
+          "cached": false,
+          "raw": 10000,
+          "dictionary": 2000,
+          "jsonBytes": 12630210,
+          "elapsedMs": 129.96179200000006
+        },
+        {
+          "batchSize": 100,
+          "cached": true,
+          "raw": 10000,
+          "dictionary": 20,
+          "jsonBytes": 11763150,
+          "elapsedMs": 125.54979100000014
+        }
+      ]
+    },
+    "after": {
+      "runtime": "v24.22.1",
+      "platform": "darwin/arm64",
+      "sourceSha256": "327b8dea27255fcbc0d7b2449e31afdb4131c6d63f19a462bd8b1f9b3d1fbe3b",
+      "scriptSha256": "c53dc5a6542095199bc185b8ddd5b6059d940df4ba660106fb910875df5cbce5",
+      "dictionarySourceSha256": "26cec6730d07ff3a86525f06f60e6b105677f0d3986186b570b2733f1bea5aa2",
+      "fixture": {
+        "events": 10000,
+        "relevantEvents": 5500,
+        "deliveredIncludingRetries": 5555,
+        "batchSize": 100,
+        "repeats": 5
+      },
+      "limitations": "Synthetic local SQLite in memory; no network, index-write billing, durable fsync, export delivery, or sustained traffic. Optional summaries add writes; report query time is a local snapshot. Dictionary uses 20 stable daily keys and no eviction, not general workload savings.",
+      "variants": {
+        "default": {
+          "elapsedMs": 113.86462499999999,
+          "sqlCalls": 20598,
+          "rowChangesExcludingIndexWrites": 9503,
+          "lastJsonBytes": 83560,
+          "seenRows": 1000,
+          "samples": 1000,
+          "rewardDigest": "ab43c41f22f6657332352d210f978372e2b6cde8a63bde44db285cc9498bafe5",
+          "summary": null,
+          "runs": [
+            {
+              "elapsedMs": 117.56924999999998,
+              "sqlCalls": 20598,
+              "rowChangesExcludingIndexWrites": 9503,
+              "lastJsonBytes": 83560,
+              "seenRows": 1000,
+              "samples": 1000,
+              "rewardDigest": "ab43c41f22f6657332352d210f978372e2b6cde8a63bde44db285cc9498bafe5",
+              "summary": null
+            },
+            {
+              "elapsedMs": 113.86462499999999,
+              "sqlCalls": 20598,
+              "rowChangesExcludingIndexWrites": 9503,
+              "lastJsonBytes": 83560,
+              "seenRows": 1000,
+              "samples": 1000,
+              "rewardDigest": "ab43c41f22f6657332352d210f978372e2b6cde8a63bde44db285cc9498bafe5",
+              "summary": null
+            },
+            {
+              "elapsedMs": 114.674417,
+              "sqlCalls": 20598,
+              "rowChangesExcludingIndexWrites": 9503,
+              "lastJsonBytes": 83560,
+              "seenRows": 1000,
+              "samples": 1000,
+              "rewardDigest": "ab43c41f22f6657332352d210f978372e2b6cde8a63bde44db285cc9498bafe5",
+              "summary": null
+            },
+            {
+              "elapsedMs": 108.5601660000001,
+              "sqlCalls": 20598,
+              "rowChangesExcludingIndexWrites": 9503,
+              "lastJsonBytes": 83560,
+              "seenRows": 1000,
+              "samples": 1000,
+              "rewardDigest": "ab43c41f22f6657332352d210f978372e2b6cde8a63bde44db285cc9498bafe5",
+              "summary": null
+            },
+            {
+              "elapsedMs": 111.72129200000006,
+              "sqlCalls": 20598,
+              "rowChangesExcludingIndexWrites": 9503,
+              "lastJsonBytes": 83560,
+              "seenRows": 1000,
+              "samples": 1000,
+              "rewardDigest": "ab43c41f22f6657332352d210f978372e2b6cde8a63bde44db285cc9498bafe5",
+              "summary": null
+            }
+          ]
+        },
+        "summaries": {
+          "elapsedMs": 108.99758299999985,
+          "sqlCalls": 20639,
+          "rowChangesExcludingIndexWrites": 9525,
+          "lastJsonBytes": 83560,
+          "seenRows": 1000,
+          "samples": 1000,
+          "rewardDigest": "ab43c41f22f6657332352d210f978372e2b6cde8a63bde44db285cc9498bafe5",
+          "summary": {
+            "storedBuckets": 5,
+            "learningSourceObservations": 500,
+            "learningReadBuckets": 2,
+            "hundredQueriesMs": 2.4575829999999996
+          },
+          "runs": [
+            {
+              "elapsedMs": 114.17733300000009,
+              "sqlCalls": 20639,
+              "rowChangesExcludingIndexWrites": 9525,
+              "lastJsonBytes": 83560,
+              "seenRows": 1000,
+              "samples": 1000,
+              "rewardDigest": "ab43c41f22f6657332352d210f978372e2b6cde8a63bde44db285cc9498bafe5",
+              "summary": {
+                "storedBuckets": 5,
+                "learningSourceObservations": 500,
+                "learningReadBuckets": 2,
+                "hundredQueriesMs": 2.4575829999999996
+              }
+            },
+            {
+              "elapsedMs": 106.5356250000001,
+              "sqlCalls": 20639,
+              "rowChangesExcludingIndexWrites": 9525,
+              "lastJsonBytes": 83560,
+              "seenRows": 1000,
+              "samples": 1000,
+              "rewardDigest": "ab43c41f22f6657332352d210f978372e2b6cde8a63bde44db285cc9498bafe5",
+              "summary": {
+                "storedBuckets": 5,
+                "learningSourceObservations": 500,
+                "learningReadBuckets": 2,
+                "hundredQueriesMs": 6.1098329999999805
+              }
+            },
+            {
+              "elapsedMs": 125.33224999999993,
+              "sqlCalls": 20639,
+              "rowChangesExcludingIndexWrites": 9525,
+              "lastJsonBytes": 83560,
+              "seenRows": 1000,
+              "samples": 1000,
+              "rewardDigest": "ab43c41f22f6657332352d210f978372e2b6cde8a63bde44db285cc9498bafe5",
+              "summary": {
+                "storedBuckets": 5,
+                "learningSourceObservations": 500,
+                "learningReadBuckets": 2,
+                "hundredQueriesMs": 2.2654159999999592
+              }
+            },
+            {
+              "elapsedMs": 108.99758299999985,
+              "sqlCalls": 20639,
+              "rowChangesExcludingIndexWrites": 9525,
+              "lastJsonBytes": 83560,
+              "seenRows": 1000,
+              "samples": 1000,
+              "rewardDigest": "ab43c41f22f6657332352d210f978372e2b6cde8a63bde44db285cc9498bafe5",
+              "summary": {
+                "storedBuckets": 5,
+                "learningSourceObservations": 500,
+                "learningReadBuckets": 2,
+                "hundredQueriesMs": 2.24029100000007
+              }
+            },
+            {
+              "elapsedMs": 105.95775000000003,
+              "sqlCalls": 20639,
+              "rowChangesExcludingIndexWrites": 9525,
+              "lastJsonBytes": 83560,
+              "seenRows": 1000,
+              "samples": 1000,
+              "rewardDigest": "ab43c41f22f6657332352d210f978372e2b6cde8a63bde44db285cc9498bafe5",
+              "summary": {
+                "storedBuckets": 5,
+                "learningSourceObservations": 500,
+                "learningReadBuckets": 2,
+                "hundredQueriesMs": 2.258790999999974
+              }
+            }
+          ]
+        }
+      },
+      "dictionary": [
+        {
+          "batchSize": 1,
+          "cached": false,
+          "raw": 10000,
+          "dictionary": 200000,
+          "jsonBytes": 99332250,
+          "elapsedMs": 488.532792
+        },
+        {
+          "batchSize": 1,
+          "cached": true,
+          "raw": 10000,
+          "dictionary": 20,
+          "jsonBytes": 11763150,
+          "elapsedMs": 136.22137500000008
+        },
+        {
+          "batchSize": 10,
+          "cached": false,
+          "raw": 10000,
+          "dictionary": 20000,
+          "jsonBytes": 20512230,
+          "elapsedMs": 171.81508299999996
+        },
+        {
+          "batchSize": 10,
+          "cached": true,
+          "raw": 10000,
+          "dictionary": 20,
+          "jsonBytes": 11763150,
+          "elapsedMs": 130.27608400000008
+        },
+        {
+          "batchSize": 100,
+          "cached": false,
+          "raw": 10000,
+          "dictionary": 2000,
+          "jsonBytes": 12630210,
+          "elapsedMs": 132.42520799999966
+        },
+        {
+          "batchSize": 100,
+          "cached": true,
+          "raw": 10000,
+          "dictionary": 20,
+          "jsonBytes": 11763150,
+          "elapsedMs": 130.6848329999998
+        }
+      ]
+    }
+  }
+}

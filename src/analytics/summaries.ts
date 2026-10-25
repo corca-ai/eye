@@ -11,9 +11,8 @@ export interface SummaryStatus {
   coverageFrom: number | null;
   bucketMs: number;
 }
-export type SummaryQuery = { from: number; to: number } & (
-  { kind: 'goals'; goalId: string } | { kind: 'learning'; experimentId: string }
-);
+export type SummaryTarget = { kind: 'goals'; goalId: string } | { kind: 'learning'; experimentId: string };
+export type SummaryQuery = { from: number; to: number } & SummaryTarget;
 export type SummaryRow = { count: number; total: number; mean: number } & (
   { kind: 'goals'; goalId: string } |
   { kind: 'learning'; experimentId: string; armId: string; generation: number; observationWindowMs: number }
