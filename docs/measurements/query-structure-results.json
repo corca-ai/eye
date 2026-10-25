@@ -1,0 +1,24 @@
+{
+  "baseline": "af6f7a8",
+  "environment": {
+    "node": "v24.22.1",
+    "platform": "darwin"
+  },
+  "method": "SQLite, warmup + median of three runs; exact credit comparison; not Basin scan billing",
+  "workloads": [
+    {
+      "users": 25,
+      "rows": 775,
+      "credits": 77,
+      "beforeMs": 46.697292000000004,
+      "afterMs": 54.50195800000006
+    },
+    {
+      "users": 75,
+      "rows": 2331,
+      "credits": 232,
+      "beforeMs": 1634.0972080000001,
+      "afterMs": 471.6736669999991
+    }
+  ]
+}

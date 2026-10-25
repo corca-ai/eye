@@ -29,8 +29,10 @@ export function exposureProjection(table: 'observations' | 'decisions', alias: s
   };
   // subject_key is JSON-encoded at ingestion because Basin has no portable
   // scalar-to-JSON quoting function. Legacy rows supply their original payload.
+  // Relevant samples/assignments start >= from; their receipts cannot predate
+  // that start. Keep receipts after to: first actual exposure can arrive later.
   return `${alias}_receipts AS (SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY ${key} ORDER BY occurred_at, record_id, received_at) AS receipt_rank
-FROM ${namespace}.events WHERE site_id = ${site} AND occurred_at >= ${retained} AND occurred_at < ${receivedBefore + 1}
+FROM ${namespace}.events WHERE site_id = ${site} AND occurred_at >= ${Math.max(retained, from)} AND occurred_at < ${receivedBefore + 1}
 AND received_at <= ${receivedBefore} AND status = 'accepted' AND json_get_str(payload_json, 'kind') = 'exposure'
 AND json_get_json(payload_json, 'projectionSubjectKey') IS NOT NULL) r WHERE receipt_rank = 1),
 ${alias}_derived AS (SELECT ${columns.map(column => `${overrides[column] ?? column} AS ${column}`).join(', ')} FROM ${alias}_receipts),
