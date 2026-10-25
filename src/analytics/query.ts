@@ -2,7 +2,7 @@ import { EyeError, invariant } from '../core/errors.js';
 import { AnalyticsSQL, TABLES } from './sql.js';
 import type { Cursor, QueryPlan } from './sql.js';
 import type { AnalyticsTable } from './records.js';
-import type { AnalyticsAPI, AnalyticsMeta, AnalyticsPage, ArmQuery, ArmReport, AttributeValuesQuery, AttributeValueRow, GoalQuery, GoalRow, Scalar, SeriesQuery, SeriesRow, TimelinePage, TimelineQuery, TimelineRow } from './types.js';
+import type { AnalyticsAPI, AnalyticsMeta, AnalyticsPage, ArmQuery, ArmReport, AttributeValuesQuery, AttributeValueRow, GoalQuery, GoalRow, Scalar, SeriesQuery, SeriesRow, EventsQuery, TimelinePage, TimelineQuery, TimelineRow } from './types.js';
 
 /** Internal signal for retrying a smaller result partition, not a transient outage. */
 export class AnalyticsCapacityError extends EyeError {
@@ -164,7 +164,11 @@ export class BasinAnalytics implements AnalyticsAPI {
     }) };
   }
   async timeline(query: TimelineQuery): Promise<TimelinePage> {
-    const plan = this.sql().timeline(query), result = await this.execute(plan), rows = result.rows.map(timelineRow), last = rows.at(-1);
+    return this.eventPage(this.sql().timeline(query));
+  }
+  async events(query: EventsQuery): Promise<TimelinePage> { return this.eventPage(this.sql().events(query)); }
+  private async eventPage(plan: QueryPlan): Promise<TimelinePage> {
+    const result = await this.execute(plan), rows = result.rows.map(timelineRow), last = rows.at(-1);
     const cursor: Cursor | null = result.meta.truncated && last ? { fingerprint: plan.fingerprint, receivedBefore: plan.receivedBefore, at: last.occurredAt, table: last.table, id: last.recordId } : null;
     return { rows, meta: result.meta, nextCursor: cursor ? JSON.stringify(cursor) : null };
   }

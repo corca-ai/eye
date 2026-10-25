@@ -180,6 +180,8 @@ export function createEye(options: EyeOptions) {
       arms: query => service.analyticsArms(siteId, query),
       /** 한 cid 또는 uid의 사건·배정·관측·귀속·신원 연결 이력. nextCursor로 다음 페이지를 조회한다. */
       timeline: query => service.analyticsTimeline(siteId, query),
+      /** 사이트 전체 원본 사건만 필터·커서로 조회한다. uid는 직접 기록된 계정만 찾는다. */
+      events: query => service.analyticsEvents(siteId, query),
       /** 발생 시각 기준 accepted 원본 goal의 수와 가치 합. filter는 사건 attributes에 적용한다. */
       goals: query => service.analyticsGoals(siteId, query),
       /** goal 합계를 UTC bucket별로 반환한다. 사건 없는 bucket은 행을 만들지 않는다. */

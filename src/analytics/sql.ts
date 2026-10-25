@@ -1,10 +1,11 @@
+import { createHash } from 'node:crypto';
 import { hasEventCTEs } from './has-event-sql.js';
 import { exposureProjection } from './projections-sql.js';
 import { attributionCTEs, anonymousLink, identitySegments } from './attribution-sql.js';
 import { invariant } from '../core/errors.js';
 import { id, record, timestamp, RETENTION_MS } from '../core/validation.js';
 import { analyticsRecord, type AnalyticsTable } from './records.js';
-import type { ArmQuery, AttributeValuesQuery, GoalQuery, QueryRange, SeriesQuery, TimelineQuery } from './types.js';
+import type { ArmQuery, AttributeValuesQuery, GoalQuery, QueryRange, SeriesQuery, TimelineQuery, EventsQuery } from './types.js';
 
 export interface QueryPlan { sql: string; limit: number; receivedBefore: number; fingerprint: string }
 export interface Cursor { fingerprint: string; receivedBefore: number; at: number; table: string; id: string }
@@ -173,6 +174,24 @@ MAX(received_at) AS latest_received_at FROM scaled GROUP BY ${dimensions} ORDER 
 AND (r.${key} = ${value}${linked ? ` OR ${anonymousLink('r', value, 'link_segments', String(q.to))}` : ''})${after}
 ORDER BY r.occurred_at, r.table_name, r.record_id LIMIT ${limit + 1}`;
     return { sql, limit, receivedBefore, fingerprint: fp };
+  }
+  events(q: EventsQuery): QueryPlan {
+    const limit = range(q, this.now);
+    const conditions = ['name', 'goalId', 'uid', 'cid'].map(key => {
+      const value = q[key as 'name' | 'goalId' | 'uid' | 'cid'];
+      if (value === undefined) return '';
+      const column = key === 'name' ? "json_get_str(e.payload_json, 'name')" : key === 'goalId' ? 'e.goal_id' : `e.${key}`;
+      return ` AND ${column} = ${literal(id(value, key))}`;
+    }).join('') + (q.filter === undefined ? '' : ` AND ${compileFilter(q.filter, 'e')}`);
+    const fp = createHash('sha256').update(fingerprint(this.siteId, 'events', { from: q.from, to: q.to, conditions })).digest('hex');
+    const cursor = q.cursor === undefined ? null : decodeCursor(q.cursor);
+    invariant(!cursor || (cursor.fingerprint === fp && cursor.table === 'events' && cursor.receivedBefore <= this.now
+      && cursor.at >= q.from && cursor.at < q.to), 'invalid_input', 'Cursor does not belong to this query');
+    const receivedBefore = cursor?.receivedBefore ?? this.now;
+    const after = cursor ? ` AND (e.occurred_at > ${cursor.at} OR (e.occurred_at = ${cursor.at} AND e.record_id > ${literal(cursor.id)}))` : '';
+    return { sql: `WITH ${this.latest('events', 'events_latest', q.from, q.to, receivedBefore)}
+SELECT e.* FROM events_latest e WHERE TRUE${conditions}${after}
+ORDER BY e.occurred_at, e.record_id LIMIT ${limit + 1}`, limit, receivedBefore, fingerprint: fp };
   }
   goals(q: GoalQuery): QueryPlan { return this.goalAggregate(q); }
   series(q: SeriesQuery): QueryPlan {

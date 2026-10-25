@@ -43,6 +43,7 @@ createEye(options: EyeOptions): EyeClient
 - [eye.analytics.armSeries](#eyeanalyticsarmseries)
 - [eye.analytics.arms](#eyeanalyticsarms)
 - [eye.analytics.timeline](#eyeanalyticstimeline)
+- [eye.analytics.events](#eyeanalyticsevents)
 - [eye.analytics.goals](#eyeanalyticsgoals)
 - [eye.analytics.series](#eyeanalyticsseries)
 - [eye.analytics.attributeValues](#eyeanalyticsattributevalues)
@@ -330,6 +331,16 @@ eye.analytics.timeline(query: TimelineQuery): Promise<TimelinePage>
 ```
 
 타입: [TimelinePage](types.md#timelinepage) · [TimelineQuery](types.md#timelinequery)
+
+## eye.analytics.events
+
+사이트 전체 원본 사건만 필터·커서로 조회한다. uid는 직접 기록된 계정만 찾는다.
+
+```ts
+eye.analytics.events(query: EventsQuery): Promise<TimelinePage>
+```
+
+타입: [EventsQuery](types.md#eventsquery) · [TimelinePage](types.md#timelinepage)
 
 ## eye.analytics.goals
 

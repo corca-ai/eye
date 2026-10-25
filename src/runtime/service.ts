@@ -99,6 +99,7 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
   async analyticsLearning(siteId: string, query: Parameters<AnalyticsAPI['learning']>[0]) { return new BasinAnalytics(this.env, siteId).learning(query); }
   async analyticsArms(siteId: string, query: Parameters<AnalyticsAPI['arms']>[0]) { return new BasinAnalytics(this.env, siteId).arms(query); }
   async analyticsTimeline(siteId: string, query: Parameters<AnalyticsAPI['timeline']>[0]) { return new BasinAnalytics(this.env, siteId).timeline(query); }
+  async analyticsEvents(siteId: string, query: Parameters<AnalyticsAPI['events']>[0]) { return new BasinAnalytics(this.env, siteId).events(query); }
   async analyticsGoals(siteId: string, query: Parameters<AnalyticsAPI['goals']>[0]) { return new BasinAnalytics(this.env, siteId).goals(query); }
   async analyticsSeries(siteId: string, query: Parameters<AnalyticsAPI['series']>[0]) { return new BasinAnalytics(this.env, siteId).series(query); }
   async analyticsAttributeValues(siteId: string, query: Parameters<AnalyticsAPI['attributeValues']>[0]) { return new BasinAnalytics(this.env, siteId).attributeValues(query); }
