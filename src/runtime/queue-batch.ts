@@ -38,11 +38,8 @@ function pack(events: readonly EventEnvelope[], ingestion: boolean): EventBatch[
   return output;
 }
 export function unpackEvents(body: unknown): unknown[] {
-  if (typeof body === 'object' && body !== null && 'version' in body && body.version === 2) {
-    invariant('events' in body && Array.isArray(body.events) && body.events.length <= 100,
-      'invalid_input', 'Invalid Queue event batch');
-    return body.events;
-  }
-  // Individual envelopes remain a supported wire format, including external producers.
-  return [body];
+  invariant(typeof body === 'object' && body !== null && 'version' in body && body.version === 2
+    && 'events' in body && Array.isArray(body.events) && body.events.length <= 100,
+    'invalid_input', 'Invalid Queue event batch');
+  return body.events;
 }

@@ -1,8 +1,8 @@
-// npm run build; node benchmarks/sdk/performance.mjs [absolute dist directory]
+// npm run build; node benchmarks/sdk/performance.mjs
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
-const base = pathToFileURL(resolve(process.argv[2] ?? 'dist') + '/');
+const base = pathToFileURL(resolve('dist') + '/');
 const { decisionRuntime, DecisionCache } = await import(new URL('decisions.js', base));
 const { createEye } = await import(new URL('client.js', base));
 const { packEvents } = await import(new URL('runtime/queue-batch.js', base));

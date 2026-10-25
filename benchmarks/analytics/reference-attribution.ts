@@ -1,4 +1,4 @@
-// Frozen query reference from af6f7a8; correctness oracle and local benchmark only.
+// Reference join shape from af6f7a8, using the current wire columns; correctness oracle and local benchmark only.
 /** SQL counterpart of IdentityHistory + last-touch attribution. Input identifiers
  * and bounds are already validated/quoted by AnalyticsSQL. CTEs keep latest-touch
  * selection before the finite-horizon filter, and split before learning eligibility.
@@ -19,7 +19,7 @@ ROW_NUMBER() OVER (PARTITION BY e.record_id ORDER BY CASE WHEN l.record_id IS NU
 FROM ac_exposures e LEFT JOIN ac_links l ON l.cid = e.cid AND NOT ${before('l', 'e')}) a WHERE position = 1)`,
     `ac_candidates AS (SELECT g.record_id AS goal_event_id, g.goal_id, g.value AS goal_value, g.payload_json AS goal_payload,
 g.occurred_at, CASE WHEN g.received_at > e.received_at THEN g.received_at ELSE e.received_at END AS received_at,
-e.record_id AS exposure_id, e.payload_json AS exposure_payload, e.subject_key, e.state_key, e.cid, g.uid,
+e.record_id AS exposure_id, e.payload_json AS exposure_payload, e.subject_key, e.cid, g.uid,
 e.experiment_id, e.arm_id, e.assignment_id, e.observation_id, g.occurred_at - e.occurred_at AS gap,
 ROW_NUMBER() OVER (PARTITION BY g.record_id, e.experiment_id ORDER BY e.occurred_at DESC, e.record_id DESC) AS last_touch
 FROM ac_events g JOIN ac_exposures e ON ${before('e', 'g')}
@@ -35,7 +35,7 @@ POWER(2.0, -1.0 * gap / json_get_int(json_get_json(json_get_json(exposure_payloa
 FROM ac_eligible)`,
     `credits_latest AS (SELECT 1 AS schema_version, 'credits' AS table_name, ${site} AS site_id,
 json_get_json(goal_payload, 'eventId') || ':' || json_get_json(json_get_json(exposure_payload, 'assignment'), 'experimentId') AS record_id,
-1 AS revision, occurred_at, received_at, subject_key, state_key, cid, uid, experiment_id, arm_id, goal_id, assignment_id, observation_id,
+1 AS revision, occurred_at, received_at, subject_key, cid, uid, experiment_id, arm_id, goal_id, assignment_id, observation_id,
 CASE WHEN occurred_at >= json_get_int(exposure_payload, 'startAt') AND occurred_at < json_get_int(exposure_payload, 'endAt') THEN 'eligible' ELSE 'outside_observation' END AS status,
 base_value * decay_factor AS value, '{}' AS attributes_json,
 '{"goalEventId":' || json_get_json(goal_payload, 'eventId') || ',"experimentCount":' || CAST(experiment_count AS VARCHAR)

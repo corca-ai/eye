@@ -3,7 +3,6 @@ import { createExecutionContext, createMessageBatch, getQueueResult, waitOnExecu
 import { expect, it, vi } from 'vitest';
 import { createEye } from '../../src/client.js';
 import { EyeWorker } from '../../src/runtime/service.js';
-import { experimentKey } from '../../src/core/validation.js';
 import type { EventEnvelope } from '../../src/core/types.js';
 import type { AnalyticsRecord } from '../../src/analytics/records.js';
 
@@ -22,7 +21,7 @@ it('runs SDK selection, actual exposure, signed goal, raw export, closed learnin
   await eye.flush(); await eye.state();
   const rows: AnalyticsRecord[] = [];
   const send = vi.spyOn(env.ANALYTICS, 'send').mockImplementation(async records => { rows.push(...records as AnalyticsRecord[]); });
-  const batch = createMessageBatch('eye-events', envelopes.map(body => ({ id: crypto.randomUUID(), timestamp: Date.now(), attempts: 1, body })));
+  const batch = createMessageBatch('eye-events', envelopes.map(body => ({ id: crypto.randomUUID(), timestamp: Date.now(), attempts: 1, body: { version: 2, events: [body] } })));
   await new EyeWorker(ctx, env).queue(batch);
   expect((await getQueueResult(batch, ctx)).retryMessages).toHaveLength(0);
   expect(rows.filter(r => r.table_name === 'events')).toHaveLength(2);
@@ -57,7 +56,7 @@ it('track bypasses learning while identity events update the site learner', asyn
     { siteId: 'site', receivedAt: at, event: { kind: 'track', eventId: 't', occurredAt: at, subject: { cid: 'c' }, name: 'view' } },
     { siteId: 'site', receivedAt: at, event: { kind: 'identify', eventId: 'i', occurredAt: at, subject: { cid: 'c', uid: 'u' } } },
   ];
-  const batch = createMessageBatch('eye-events', input.map(body => ({ id: body.event.eventId, timestamp: at, attempts: 1, body })));
+  const batch = createMessageBatch('eye-events', input.map(body => ({ id: body.event.eventId, timestamp: at, attempts: 1, body: { version: 2, events: [body] } })));
   await new EyeWorker(ctx, env).queue(batch);
   expect(site).toHaveBeenCalledTimes(1); expect(records.filter(r => r.table_name === 'events')).toHaveLength(2);
   expect(records.some(r => r.table_name === 'identity_links')).toBe(true);
@@ -132,7 +131,7 @@ it.each([false, true])('exports admitted high-cardinality attributes in bounded 
     if (++attempts === 2 && failOnce) throw new Error('temporary chunk failure');
     sent.push(records as AnalyticsRecord[]);
   });
-  const batch = () => createMessageBatch('eye-events', envelopes.map((body, i) => ({ id: `message-${i}`, timestamp: Date.now(), attempts: 1, body })));
+  const batch = () => createMessageBatch('eye-events', envelopes.map((body, i) => ({ id: `message-${i}`, timestamp: Date.now(), attempts: 1, body: { version: 2, events: [body] } })));
   try {
     if (failOnce) {
       const first = batch();
@@ -239,7 +238,7 @@ it('rejects malformed Unicode sample IDs while preserving valid packed exposures
     await runInDurableObject(env.SITES.getByName(siteId), async (_actor, state) => {
       const { IncrementalLearning } = await import('../../src/runtime/incremental.js');
       const engine = new IncrementalLearning(state.storage.sql);
-      state.storage.transactionSync(() => engine.close(siteId, at + config.settings.observationWindowMs + config.settings.allowedLatenessMs));
+      state.storage.transactionSync(() => engine.close(siteId, at + config.settings.observationWindowMs + config.settings.allowedLatenessMs, () => {}));
       expect(state.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM learning_samples').one().n).toBe(0);
       expect(engine.outputs().flatMap(output => output.output.records).map(row => row.record_id)).toEqual(['valid-😀']);
     });

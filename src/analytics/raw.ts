@@ -5,7 +5,7 @@ import { analyticsRecord, type AnalyticsRecord } from './records.js';
 
 export function validateRawEnvelope(envelope: EventEnvelope): void {
   if (envelope.event.kind === 'exposure') invariant(envelope.event.sample && envelope.event.attributionWindowMs,
-    'invalid_input', 'Exposure requires local sample context; upgrade the host SDK');
+    'invalid_input', 'Exposure requires sample and attribution context');
 }
 /** Derived projections share the same Stream ingestion, not independent writes.
  * Stable IDs allow analytic deduplication across Queue retries/batches.

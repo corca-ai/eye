@@ -1,16 +1,14 @@
 import { env } from 'cloudflare:workers';
 import { evictDurableObject, runInDurableObject } from 'cloudflare:test';
 import { expect, it, vi } from 'vitest';
-import { experimentKey } from '../../src/core/validation.js';
 import type { EyeEvent, ExposureEvent } from '../../src/core/types.js';
 import type { AnalyticsRecord } from '../../src/analytics/records.js';
 
 it('closes durable rewards, retries delivery after eviction and applies arm moments only once without Basin', async () => {
   const siteId = crypto.randomUUID(), site = env.SITES.getByName(siteId);
-  const experiment = env.EXPERIMENTS.getByName(experimentKey(siteId, 'exp'));
-  const config = await experiment.create({ experimentId: 'exp', arms: ['a', 'b'], settings: {
+  const config = await site.createExperiment(siteId, { experimentId: 'exp', arms: ['a', 'b'], settings: {
     minHoldMs: 0, observationWindowMs: 1000, allowedLatenessMs: 100 } });
-  await site.createGoal('pay'); await site.registerExperiment('exp', siteId, config.settings);
+  await site.createGoal('pay');
   const at = Date.now();
   const exposure: ExposureEvent = { kind: 'exposure', eventId: 'a-exposure', occurredAt: at,
     subject: { cid: 'c' }, assignment: { assignmentId: 'assignment', experimentId: 'exp', armId: 'a',
@@ -50,34 +48,13 @@ it('closes durable rewards, retries delivery after eviction and applies arm mome
 
 it('does not poll or query an idle site just because an experiment exists', async () => {
   const siteId = crypto.randomUUID(), site = env.SITES.getByName(siteId);
-  const { settings } = await import('../../src/core/validation.js');
-  await site.registerExperiment('exp', siteId, settings({ minHoldMs: 0 }));
+  await site.createExperiment(siteId, { experimentId: 'exp', arms: ['a'], settings: { minHoldMs: 0 } });
   await runInDurableObject(site, async (_actor, state) => { expect(await state.storage.getAlarm()).toBeNull(); });
-});
-
-it('does not let a cohort older than dedup retention block the site forever', async () => {
-  const siteId = crypto.randomUUID(), site = env.SITES.getByName(siteId);
-  const { settings, RETENTION_MS } = await import('../../src/core/validation.js');
-  await site.registerExperiment('exp', siteId, settings({ minHoldMs: 0 }));
-  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-  try {
-    await runInDurableObject(site, async (actor, state) => {
-      state.storage.sql.exec('INSERT INTO learning_outbox(data) VALUES (?)', JSON.stringify({
-        cohort: { cohortId: 'expired', asOf: Date.now() - RETENTION_MS - 1, arms: [] }, records: [],
-      }));
-      await actor.alarm();
-      expect(state.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM learning_outbox').one().n).toBe(0);
-      expect(await state.storage.getAlarm()).toBeNull();
-    });
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('learning_retention_gap'));
-  } finally { warn.mockRestore(); }
 });
 
 it('reclaims at most one summary expiry page when cleanup and closure share an alarm', async () => {
   const siteId = crypto.randomUUID(), site = env.SITES.getByName(siteId);
-  const experiment = env.EXPERIMENTS.getByName(experimentKey(siteId, 'exp'));
-  const config = await experiment.create({ experimentId: 'exp', arms: ['a'], settings: { minHoldMs: 0, observationWindowMs: 1000, allowedLatenessMs: 0 } });
-  await site.registerExperiment('exp', siteId, config.settings);
+  const config = await site.createExperiment(siteId, { experimentId: 'exp', arms: ['a'], settings: { minHoldMs: 0, observationWindowMs: 1000, allowedLatenessMs: 0 } });
   const now = Date.now(), at = now - 2000;
   const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
   const send = vi.spyOn(env.ANALYTICS, 'send').mockResolvedValue(undefined);

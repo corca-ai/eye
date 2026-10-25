@@ -1,10 +1,11 @@
 import type { Attributes } from '../core/types.js';
 
-export type AnalyticsTable = 'events' | 'observations' | 'credits' | 'decisions' | 'identity_links' | 'policies' | 'attribute_keys';
+export const STORED_TABLES = ['events', 'observations', 'identity_links', 'policies', 'attribute_keys'] as const;
+export type AnalyticsTable = typeof STORED_TABLES[number] | 'credits' | 'decisions';
 /** Flat indexed fields plus immutable JSON details, shared by the Stream fan-out schema. */
 export type AnalyticsRecord = {
   schema_version: number; table_name: AnalyticsTable; site_id: string; record_id: string; revision: number;
-  occurred_at: number; received_at: number; subject_key: string; state_key: string; cid: string | null; uid: string | null;
+  occurred_at: number; received_at: number; subject_key: string; cid: string | null; uid: string | null;
   experiment_id: string | null; arm_id: string | null; goal_id: string | null; assignment_id: string | null;
   observation_id: string | null; status: string | null; value: number | null; attributes_json: string; payload_json: string;
 };
@@ -17,7 +18,7 @@ export function analyticsRecord(
 ): AnalyticsRecord {
   return {
     schema_version: 1, table_name: table, site_id: context.siteId, record_id: recordId, revision,
-    occurred_at: occurredAt, received_at: receivedAt, subject_key: context.subjectKey, state_key: context.subjectKey,
+    occurred_at: occurredAt, received_at: receivedAt, subject_key: context.subjectKey,
     cid: context.cid ?? null, uid: context.uid ?? null, experiment_id: null, arm_id: null, goal_id: null,
     assignment_id: null, observation_id: null, status: null, value: null, ...fields,
     attributes_json: JSON.stringify(attributes), payload_json: JSON.stringify(payload),
@@ -40,7 +41,7 @@ export function* attributeRecords(record: AnalyticsRecord, include: (recordId: s
     yield {
       ...record, table_name: 'attribute_keys' as const,
       record_id: recordId,
-      revision: 1, occurred_at: Math.floor(record.occurred_at / 86_400_000) * 86_400_000, cid: null, uid: null, subject_key: '', state_key: '', experiment_id: null, arm_id: null,
+      revision: 1, occurred_at: Math.floor(record.occurred_at / 86_400_000) * 86_400_000, cid: null, uid: null, subject_key: '', experiment_id: null, arm_id: null,
       goal_id: null, assignment_id: null, observation_id: null, status: null, value: null, attributes_json: '{}',
       payload_json: JSON.stringify({ key, type, source }),
     };

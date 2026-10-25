@@ -11,8 +11,7 @@ const wrangler = join(dirname(require.resolve('wrangler/package.json')), 'bin/wr
 const configPath = join(directory, 'wrangler.jsonc'), statePath = join(directory, '.provision-state.json');
 const config = JSON.parse(await readFile(configPath, 'utf8'));
 const resources = JSON.parse(await readFile(join(directory, 'resources.json'), 'utf8'));
-// Existing generated installations retain their former 60-second setting.
-const rollSeconds = resources.sinkRollIntervalSeconds ?? 60;
+const rollSeconds = resources.sinkRollIntervalSeconds;
 if (!Number.isSafeInteger(rollSeconds) || rollSeconds < 60 || rollSeconds > 300) throw new Error('sinkRollIntervalSeconds must be an integer from 60 to 300');
 const catalogToken = process.env.EYE_CATALOG_TOKEN, queryToken = process.env.EYE_ANALYTICS_TOKEN;
 if (!catalogToken || !queryToken) throw new Error('Set EYE_CATALOG_TOKEN and EYE_ANALYTICS_TOKEN before provisioning; values are never written to project files.');

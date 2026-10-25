@@ -29,7 +29,6 @@ describe('analytics query semantics', () => {
     const db = database([goal, goal,
       row('events', 'refund', { goal_id: 'refund', value: -8, status: 'accepted', payload_json: '{"kind":"goal"}' }),
       row('events', 'ignored', { goal_id: 'purchase', value: 500, status: 'ignored', payload_json: '{"kind":"goal"}' }),
-      row('credits', 'derived', { goal_id: 'purchase', value: 20, status: 'eligible' }),
     ]);
     try {
       const client = new BasinAnalytics(config, 'site', db.request, () => now);
@@ -84,7 +83,7 @@ describe('Basin boundary', () => {
     const batches = [...exportBatches(records)];
     expect(batches.length).toBeGreaterThan(1); expect(batches.flat()).toEqual(records.map(r => r.record));
     for (const batch of batches) expect(new TextEncoder().encode(JSON.stringify(batch)).byteLength).toBeLessThanOrEqual(EXPORT_BATCH_BYTES);
-    expect(() => validateExport(row('credits', 'bad', { value: Infinity }))).toThrow('analytics value');
+    expect(() => validateExport(row('events', 'bad', { value: Infinity }))).toThrow('analytics value');
   });
 });
 

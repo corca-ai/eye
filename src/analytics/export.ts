@@ -1,13 +1,12 @@
 import { invariant } from '../core/errors.js';
-import { attributeRecords, type AnalyticsRecord } from './records.js';
-import { TABLES } from './sql.js';
+import { attributeRecords, STORED_TABLES, type AnalyticsRecord } from './records.js';
 
 /** Below the Stream's 5 MB request ceiling, including the enclosing JSON array. */
 export const EXPORT_BATCH_BYTES = 4_500_000;
 const encoder = new TextEncoder();
 export function validateExport(record: AnalyticsRecord): void {
-  invariant(record.schema_version === 1 && TABLES.includes(record.table_name), 'invalid_input', 'Unknown analytics schema');
-  for (const key of ['site_id', 'record_id', 'subject_key', 'state_key', 'attributes_json', 'payload_json'] as const) {
+  invariant(record.schema_version === 1 && STORED_TABLES.some(table => table === record.table_name), 'invalid_input', 'Unknown analytics schema');
+  for (const key of ['site_id', 'record_id', 'subject_key', 'attributes_json', 'payload_json'] as const) {
     invariant(typeof record[key] === 'string', 'invalid_input', `Invalid analytics field: ${key}`);
   }
   for (const key of ['cid', 'uid', 'experiment_id', 'arm_id', 'goal_id', 'assignment_id', 'observation_id', 'status'] as const) {

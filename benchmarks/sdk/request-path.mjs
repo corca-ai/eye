@@ -1,8 +1,8 @@
-// npm run build; node benchmarks/sdk/request-path.mjs [absolute dist directory]
+// npm run build; node benchmarks/sdk/request-path.mjs
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
-const { createEye } = await import(new URL('client.js', pathToFileURL(resolve(process.argv[2] ?? 'dist') + '/')));
+const { createEye } = await import(new URL('client.js', pathToFileURL(resolve('dist') + '/')));
 const subject = { cid: 'browser' }, small = { path: '/checkout', device: 'mobile' };
 const results = [];
 async function measure(name, requests, events, attributes, collectionLimits) {

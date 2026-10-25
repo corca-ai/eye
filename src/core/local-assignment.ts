@@ -84,7 +84,7 @@ export function selectLocal(input: LocalSelectionInput): LocalSelection {
 }
 
 /** Called only for a real application/visible exposure. Opening a sample updates
- * the caller's local context; it does not require a server reservation or write.
+ * the caller's local context without remote I/O.
  * An exposure handle must reuse eventId on retry and de-duplicate repeated calls.
  */
 export function exposeLocal(selection: Extract<LocalSelection, { status: 'assigned' }>, occurredAt: number, eventId: string): {

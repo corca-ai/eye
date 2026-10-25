@@ -1,43 +1,21 @@
-# 원자적 학습과 기존 설치 이관
+# 원자적 학습
 
-[구현 구조](../TECHNICAL_DESIGN.md) · [검증 범위](IMPLEMENTATION.md) · [원본 조회 개선](QUERY-STRUCTURE.md)
+[구현 구조](../TECHNICAL_DESIGN.md) · [검증 범위](IMPLEMENTATION.md)
 
-SiteControl 한 곳에서 표본 마감, 세대·arm별 감쇠 통계 갱신, 선택적 요약, 분석 출력 outbox 생성을 같은 SQLite 트랜잭션으로 처리한다. 실험 정의·정책도 이 저장소에 둔다. 공개 SDK와 보상·감쇠·정책 수식은 그대로다.
+SiteControl 한 곳에서 표본 마감, 세대·arm별 감쇠 통계 갱신, 선택적 요약, 분석 출력 outbox 생성을 같은 SQLite 트랜잭션으로 처리한다. 실험 정의·정책도 이 저장소에 둔다. 동기 ExperimentState가 실험 상태를 읽고 갱신하며 외부 I/O는 트랜잭션 밖에서 수행한다.
 
-## 줄어드는 작업과 정확성
+## 통계와 실패 처리
 
-기존 구조는 SiteControl이 마감 통계를 저장한 뒤 실험마다 ExperimentObject RPC를 보내고, 수신 객체가 cohort ID 원장으로 중복 적용을 막았다. 지금은 동기 ExperimentState가 같은 트랜잭션에서 통계를 병합한다. 정상 학습의 실험별 전달 RPC와 cohort 원장 쓰기가 없어지고, 출력 outbox에는 통계 arm 배열을 중복 보관하지 않는다. Stream의 원본·완료 관측·정책 이력은 계속 전달한다.
+통계는 관측 종료부터 마감 기준 시각까지 감쇠한다. 동일 세대의 두 모멘트를 같은 시각으로 감쇠한 뒤 병합해 평균·분산·가중치를 구한다. 설정 변경은 새 generation으로 분리하고, arm 중지·재개·추가는 같은 세대의 증거를 유지한다.
 
-통계는 기존과 같이 관측 종료부터 마감 기준 시각까지 감쇠한다. 동일 세대의 두 모멘트를 같은 시각으로 감쇠한 뒤 병합하므로 평균·분산·가중치 수식은 달라지지 않는다. generation 변경, arm 중지·재개·추가와 정책 sequence/dirty/cache 의미도 유지한다.
+SQLite 오류가 나면 표본 제거와 통계·요약·outbox가 함께 되돌아간다. 커밋 후 Stream 전송에 실패하면 outbox만 재전송한다. 통계를 재적용하지 않으므로 통계 전달 RPC나 cohort 중복 원장이 필요하지 않다. outbox에는 분석 출력만 보관한다. Stream 전송 자체는 최소 한 번이며 분석에서 ID 기반 중복 제거를 수행한다. 정책 발행도 같은 저장소에 outbox를 남기고 alarm이 전달한다.
 
-SQLite 오류가 나면 표본 제거와 통계·요약·outbox가 함께 되돌아간다. 커밋 후 Stream 전송에 실패하면 outbox만 재전송한다. 통계를 다시 적용하지 않으므로 새 cohort 원장이 필요하지 않다. Stream 전송 자체는 여전히 최소 한 번이며 분석의 ID 기반 중복 제거를 유지한다. 정책 발행도 같은 저장소에 outbox를 남기고 alarm이 전달한다.
+정책은 설정 revision과 학습 dirty 상태로 무효화하고 감쇠·탐색을 위해 주기적으로 재평가한다. statsAsOf는 실제 적용한 마감 통계 시각이며 정책 재발행으로 덮어쓰지 않는다.
 
-사이트별 직렬화는 기존에도 수집·귀속에 필요했다. 이제 실험 상태·정책 계산도 같은 객체를 쓰므로 매우 많은 실험/arm의 관리·정책 요청이 몰리면 수집과 경합할 수 있다. 실제 사이트에서 CPU·alarm 지연·대기 시간을 확인해야 한다. 사이트 간에는 별도 객체이며 요청의 캐시된 decide 경로는 그대로다.
+사이트별로 수집·귀속·정책 계산을 직렬화하므로 실험/arm과 관리·정책 요청이 많으면 수집과 경합할 수 있다. 실제 사이트에서 CPU·alarm 지연·대기 시간을 확인한다. 사이트 간에는 별도 객체이며 요청의 캐시된 decide는 원격 I/O를 기다리지 않는다.
 
-## 로컬 검증
+## 검증
 
-`npx vitest run --project workers test/runtime/atomic-learning.test.ts`로 다음을 재현한다. 테스트의 비교 기준은 이전 ExperimentObject 구현이다.
+`test/runtime/atomic-learning.test.ts`와 `test/runtime/learning.test.ts`는 SQL 오류의 전체 롤백, Stream 실패 후 outbox 재시도, eviction 뒤 중복 학습 방지와 20개 동시 배치의 500개 무보상 표본 마감을 검사한다. 여러 실험의 보상 분할과 세대별 증거 분리도 설정·arm 변경 및 eviction을 거쳐 확인한다. `test/runtime/actors.test.ts`는 arm 상태 변경의 증거 보존과 정책 캐시·dirty·감쇠 재평가를 검사한다. A/A·A/B·우세 전환과 기준 보상 대조는 [로그 스트림 검증](ENGINE-VALIDATION.md)을 따른다.
 
-| 검사 | 결과/조건 |
-| --- | --- |
-| 기존 엔진과 정책 대조 | 4개 실험 × 5회 마감 × 10명, 200개 표본. 양수·음수·무보상, 설정 세대 변경, arm 중지·재개·추가 후 매번 전체 정책·발행 결과 일치 |
-| 통계 전달 호출 | 같은 비교에서 이전 applyCohort RPC 20회, 새 정상 경로 EXPERIMENTS 조회 0회. 새 SiteControl에 applied_cohorts 테이블 없음 |
-| 저장 실패 | 모멘트 INSERT 트리거로 실패 유발. 표본 유지, 통계·outbox 미생성. 재시도·eviction 뒤 한 번만 적용 |
-| 이전 outbox | 이미 적용한 cohort는 이관 통계에 재가산하지 않고 미적용 cohort만 한 번 적용. 기존 정책 이력도 전송 |
-| 재시작 가능한 이관 | 105개 세대와 250개 모멘트 행. 두 번째 모멘트 페이지 실패·eviction 후 이어 복사하고 정책 일치 |
-| 동시 수집 | 20개 동시 배치의 500개 무보상 표본. 완료 행 수와 감쇠 가중치 일치 |
-
-호출 수는 테스트에서 관측·검증한 작업 수이며 CPU 시간·가격 절감률이 아니다. 동시 수집 검사는 처리량 벤치마크가 아니다. 실제 Cloudflare의 영속화 지연·비용은 별도 측정해야 한다. 전체 검사는 `npm run check`, 패키지 소비자·설치 번들은 `npm run check:package`를 사용한다.
-
-## 기존 증분 v2 설치 전환
-
-이 절차는 이미 Queue→SiteControl 증분 학습을 쓰는 v2 설치 대상이다. v1에서 바로 namespace/migration 이력을 덮어쓰는 방법이 아니며, 조회 기반 v2의 진행 관측 재생도 하지 않는다.
-
-1. 기존 EXPERIMENTS/SITES/REPORTS 바인딩, Durable Object namespace와 migration 이력을 보존한다. ExperimentObject export도 유지한다. 새 namespace나 원격 데이터 삭제는 필요하지 않다. 신규 설치용 v2-fresh 이력으로 기존 이력을 교체하지 않는다.
-2. 별도 테스트 설치에서 코드 업데이트를 검증한다. 실험 첫 접근 또는 기존 사이트의 첫 수집/alarm에서 이전 객체를 동결한다. 그 뒤 실험별 설정·발행 정책·dirty·statsAsOf, 세대별 설정과 모멘트를 복사한다. 세대와 모멘트는 각각 최대 100행씩 복사하고 진행 커서를 같은 트랜잭션에 저장한다. 중단되면 다음 접근에서 이어간다. 이관 완료 전에 해당 실험의 조회·변경·마감을 진행하지 않는다.
-3. 이전 객체는 동결 후 변경과 통계 적용을 거절한다. 이전 policy_outbox는 원래 객체의 alarm이 계속 전달한다. 이전 learning_outbox는 동결된 적용 기록을 확인해 이미 적용한 cohort를 건너뛰고 나머지만 로컬 통계에 반영한다. 완료 여부와 새 출력 상태는 함께 커밋한다. 원본 상태는 자동 삭제하지 않는다.
-4. experiment_migrated, alarm_retry, learning_retention_gap 로그와 정책·수집 결과를 확인한다. 오래된 학습 outbox의 60일 보존 예외는 기존과 같다. 첫 이관 요청은 여러 RPC를 기다릴 수 있으며 대규모 사이트의 최초 수집도 실험 목록 이관을 기다린다. 후속 정상 경로에는 이 RPC가 없다.
-
-전환 후 이전 바이너리로 단순 롤백하지 않는다. 새 통계는 SiteControl에 있고 이전 객체의 통계는 동결된 스냅샷이다. 복구는 현 구조에서의 수정 배포를 우선하며, 이전 구조로 돌아가야 한다면 수집 중지·일관된 백업/재생을 포함한 별도 복구 계획이 필요하다. 이 저장소는 역이관 도구를 제공하지 않는다. 이 변경의 로컬 검사·코드 병합은 원격 배포를 수행하지 않는다.
-
-호환 코드의 소유자는 저장소 유지보수자이며 [temporary-code #13](https://github.com/corca-ai/eye/issues/13)으로 추적한다. 매 릴리스에 점검하고, 이전 구조에서의 업그레이드 지원 종료를 명시적으로 결정하고 유지 설치의 이관 및 기존 outbox 배출을 확인한 뒤 최소 지원 스키마를 공지해야 제거할 수 있다. 그 전에는 바인딩·클래스·이관 커서·기존 outbox 경로를 유지한다.
+전체 검사는 `npm run check`, 패키지 소비자·설치 번들은 `npm run check:package`다. 동시 수집 검사는 처리량 벤치마크가 아니며 실제 Cloudflare 지연·비용은 별도 측정해야 한다.

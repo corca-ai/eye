@@ -67,7 +67,7 @@ it('adapts after the formerly worse arm becomes the winner', () => {
 function replay(batches: StreamBatch[], end: number, chunkSize: number, duplicate: boolean) {
   const { db, engine, atomic } = store(), observations = new Map<string, number>();
   const close = (now: number) => {
-    atomic(() => { engine.prune(now); engine.close('site', now); });
+    atomic(() => { engine.prune(now); engine.close('site', now, () => {}); });
     for (const { id, output } of engine.outputs()) {
       for (const row of output.records) { expect(observations.has(row.record_id)).toBe(false); observations.set(row.record_id, row.value!); }
       atomic(() => engine.acknowledge([id]));

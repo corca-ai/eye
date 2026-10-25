@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { settings, subjectKey } from '../../src/core/validation.js';
 import { parseEnvelope, parseEvent } from '../../src/core/events.js';
-import type { Assignment, Exposure } from '../../src/core/types.js';
+import type { Assignment } from '../../src/core/types.js';
 
 const config = settings({ minHoldMs: 100, observationWindowMs: 1000, attributionHalfLifeMs: 100, allowedLatenessMs: 10 });
 const assignment = (experimentId: string, armId = 'a'): Assignment => ({ assignmentId: `assign:${experimentId}:${armId}`, experimentId, armId, generation: 1, assignedAt: 0, policyRevision: 1, probability: 0.5, settings: config });
@@ -41,7 +41,6 @@ describe('public input boundaries', () => {
 });
 
 
-it('uses a finite attribution horizon and rejects removed ledger settings', () => {
+it('defaults to a finite seven-day attribution horizon', () => {
   expect(settings({ minHoldMs: 0 }).attributionWindowMs).toBe(7 * 86400000);
-  for (const key of ['correctionWindowMs', 'pendingPenalty', 'reservationTtlMs']) expect(() => settings({ minHoldMs: 0, [key]: 1 })).toThrow();
 });

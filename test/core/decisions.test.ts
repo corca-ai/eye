@@ -146,7 +146,7 @@ it('rechecking an unchanged policy avoids repeated RPCs but never extends its ha
   await Promise.all(f.pending);
   expect((await runtime.decide({ cid: 'c' }, 'exp')).status).toBe('unavailable');
 });
-it('accepts a legacy maxAge-only configuration and refreshes before its explicit hard deadline', async () => {
+it('accepts a maxAge-only configuration and refreshes before its explicit hard deadline', async () => {
   const f = fixture(), runtime = decisionRuntime(f.service, f.ctx, 'site', { secret, cache: f.cache, maxAgeMs: 300_000 }, () => {});
   await runtime.prepare({ cid: 'c' }, 'exp');
   f.advance(150_001);

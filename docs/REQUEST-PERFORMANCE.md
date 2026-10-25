@@ -30,13 +30,12 @@
 
 ## 재현
 
-저장소 체크아웃에서 실행한다. [측정 코드](https://github.com/corca-ai/eye/blob/main/benchmarks/sdk/request-path.mjs)는 제품 패키지에 포함하지 않는다. 이전 버전의 dist는 별도 체크아웃에서 빌드해 제공한다.
+저장소 체크아웃에서 실행한다. [측정 코드](https://github.com/corca-ai/eye/blob/main/benchmarks/sdk/request-path.mjs)는 제품 패키지에 포함하지 않는다.
 
 ```sh
 npm ci
 npm run build
 node benchmarks/sdk/request-path.mjs
-node benchmarks/sdk/request-path.mjs /absolute/path/to/baseline/dist
 npm run check
 npm run check:package
 ```
@@ -63,12 +62,11 @@ npm run check:package
 
 직접 SDK와 훅 있는 경로는 대조군이며, 이들의 작은 시간 차이를 개선·회귀율로 해석하지 않는다. 훅 없는 거절 경로에서 불필요한 객체 생성을 생략한 효과와, 같은 Queue 패킷을 만드는 반복 직렬화 감소를 확인했다. 수집 Worker의 절감은 백그라운드 CPU 작업 감소이며 실제 페이지 지연·Worker 과금 절감률을 뜻하지 않는다.
 
-측정 코드의 이전 버전 경로는 기존 수집 Worker의 크기 검사 후 포장을 재현하고, 현재 버전은 실제 packIngestion 함수를 호출한다. 모든 접수·거절·훅 통지 건수를 검사하며, 생성된 Queue 패킷을 기존 packEvents 결과와 비교한다. 회귀 검사는 UTF-8 경계·단독 대형 사건·배치 총량·한 번의 직렬화·잘못된 크기 정보 무시·거절 시 배치 전체 미전송을 포함한다.
+현재 측정 코드는 실제 packIngestion 함수를 호출한다. 모든 접수·거절·훅 통지 건수를 검사하며, 생성된 Queue 패킷을 기존 packEvents 결과와 비교한다. 회귀 검사는 UTF-8 경계·단독 대형 사건·배치 총량·한 번의 직렬화·잘못된 크기 정보 무시·거절 시 배치 전체 미전송을 포함한다.
 
 [측정 코드](https://github.com/corca-ai/eye/blob/main/benchmarks/sdk/error-and-size.mjs)는 저장소 체크아웃에서 다음과 같이 실행한다.
 
 ```sh
 npm run build
 node benchmarks/sdk/error-and-size.mjs
-node benchmarks/sdk/error-and-size.mjs /absolute/path/to/baseline/dist
 ```

@@ -30,7 +30,7 @@ if (state.status === 'complete') {
 
 사이트당 미완료 작업 8개, 보관 작업 256개, 작업 결과 16 MiB로 제한한다. 초과 등록은 `unavailable`이며 호스트가 기존 작업을 기다린 후 재시도한다. alarm은 사이트당 한 작업씩 처리하므로 동시 SQL 실행은 한 개다. 일반 오류는 1분/5분 대기 후 최대 3회 시도하고 잘못된 쿼리는 즉시 실패한다. 실패·취소 작업을 다시 등록하면 새 ID를 만든다. `cancel`은 같은 scope에서 공유하는 작업 전체에 적용되며 이미 실행된 SQL의 과금을 되돌리지는 않는다. API 오류 문자열에는 원격 SQL이나 자격 증명을 포함하지 않는다.
 
-`queued → running → complete/failed` 상태가 저장되며 객체가 재시작되어도 복구한다. R2에 결과를 쓴 뒤 상태 게시 전에 중단되면 같은 결과를 재사용한다. 취소·완료 결과의 물리 삭제는 만료 후 alarm이 처리하므로 장애 중 지연될 수 있다. 논리 만료 후에는 조회할 수 없다. `eye/reports/` prefix에 최소 3일의 lifecycle을 추가하면 비정상 종료로 남은 객체도 정리할 수 있다. 학습의 `eye/cohorts/`와는 별도로 설정한다.
+`queued → running → complete/failed` 상태가 저장되며 객체가 재시작되어도 복구한다. R2에 결과를 쓴 뒤 상태 게시 전에 중단되면 같은 결과를 재사용한다. 취소·완료 결과의 물리 삭제는 만료 후 alarm이 처리하므로 장애 중 지연될 수 있다. 논리 만료 후에는 조회할 수 없다. `eye/reports/` prefix에 최소 3일의 lifecycle을 추가하면 비정상 종료로 남은 객체도 정리할 수 있다.
 
 자동 보고서를 활성화하기 전에 기존 `eye/reports/` 만료 규칙도 최소 3일로 늘린다. 최대 49시간의 논리 보관 기한보다 먼저 R2 객체를 삭제하면 상태가 complete여도 결과를 읽지 못한다.
 
@@ -62,7 +62,7 @@ if (schedule.latestJob) {
 
 `currentJob`은 최신 시도, `latestJob`은 보관 중인 마지막 완료 결과다. 새 실행이 실패해도 이전 결과를 보여줄 수 있으며 `completedAt`, `page.request.query`, `error`를 함께 표시한다. 결과 보관은 생성 당시 간격 × 2 + 1시간(3~49시간)이며 연속 실패로 이전 결과가 만료되면 `latestJob`은 null이다. `freshUntil`의 15분은 동일 쿼리 등록 캐시 기한이며 자동 보고서의 실행 간격과 별개다. `unschedule`은 향후 실행만 중단하고 이미 등록된 공유 작업·결과는 자체 만료까지 유지한다.
 
-ReportObject의 SQLite 테이블은 최초 사용 시 추가하며 새 binding이나 DO migration은 필요 없다. scope별 격리는 일반 작업과 동일하다. 자동 보고서가 읽는 전체 사이트 또는 선택한 실험에 대한 권한을 호스트가 확인해야 한다.
+scope별 격리는 일반 작업과 동일하다. 자동 보고서가 읽는 전체 사이트 또는 선택한 실험에 대한 권한을 호스트가 확인해야 한다.
 
 ## 원본 조회 없이 읽는 선택적 요약
 
@@ -105,7 +105,7 @@ await eye.analytics.jobs.schedule({ scope, scheduleId: 'purchase-summary',
 
 설정 후 원하는 조회 구간 전체가 쌓인 다음 등록한다. 특정 goalId/experimentId가 필수이며 필터·groupBy·query limit은 지원하지 않는다. 페이지의 limit은 저장된 결과를 나누는 크기다. summary 작업도 기존 대기열·재시도·15분 캐시·R2 보관 한도를 사용한다. coverage 부족은 일반 조회 오류처럼 최대 3회 뒤 query_unavailable로 실패하며 자동으로 원본 SQL을 실행하지 않는다. 직접 요약 조회는 기존 unavailable 오류를 반환한다.
 
-직접 조회는 매번 최신 로컬 집계를 읽는다. 작업 결과는 생성 때 고정되므로 늦게 도착한 goal/후속 마감이 직접 집계를 갱신해도 기존 페이지는 바뀌지 않는다. 새 작업은 15분 캐시 이후, 자동 보고서는 다음 실행에서 새 값을 읽는다. 이 경로는 Basin 인증 없이 동작하지만 작업 저장에 REPORTS/COHORTS 바인딩은 필요하다. [타입 검사되는 대시보드 예제](../examples/summary-dashboard.ts)를 참고한다.
+직접 조회는 매번 최신 로컬 집계를 읽는다. 작업 결과는 생성 때 고정되므로 늦게 도착한 goal/후속 마감이 직접 집계를 갱신해도 기존 페이지는 바뀌지 않는다. 새 작업은 15분 캐시 이후, 자동 보고서는 다음 실행에서 새 값을 읽는다. 이 경로는 Basin 인증 없이 동작하지만 작업 저장에 REPORTS/REPORT_RESULTS 바인딩은 필요하다. [타입 검사되는 대시보드 예제](../examples/summary-dashboard.ts)를 참고한다.
 
 ## 원본 분석 공통 규칙
 
@@ -121,11 +121,11 @@ await eye.analytics.jobs.schedule({ scope, scheduleId: 'purchase-summary',
 
 `arms({ experimentId, from, to, armId?, generation?, goalId?, groupBy?, filter?, hasEvent?, limit? })`
 
-cohort 기간은 관측 시작 시각이며 속성은 최초 실제 노출에서 고정한다. arm·학습 세대·관측 기간은 항상 분리하고, 속성 그룹을 최대 3개 추가한다. `rows`는 `armId`, `generation`, `observationWindowMs`, `groups`, `completed`, `pending`, `interrupted`, `subjects`, `totalValue`, `learningValue`, `meanValue`, `latestReceivedAt`를 반환한다. `cohortBasis`는 `observation_start`다.
+cohort 기간은 관측 시작 시각이며 속성은 최초 실제 노출에서 고정한다. arm·학습 세대·관측 기간은 항상 분리하고, 속성 그룹을 최대 3개 추가한다. `rows`는 `armId`, `generation`, `observationWindowMs`, `groups`, `completed`, `pending`, `subjects`, `totalValue`, `learningValue`, `meanValue`, `latestReceivedAt`를 반환한다. `cohortBasis`는 `observation_start`다.
 
 `subjects`는 관측에 기록된 고유 신원 키 수다. 같은 사람의 cid/uid 전환이나 다른 쿠키를 하나로 합친 인원수가 아니며 관측 수와도 다르다.
 
-평균의 분모는 모든 완료 관측이다. `goalId`를 지정해도 분자만 선택할 뿐 달성하지 않은 완료 관측을 분모에서 빼지 않는다. pending·interrupted를 0 보상 완료로 바꾸지 않으며 완료가 없으면 평균은 null이다. 관측 밖의 credit은 평균에 포함하지 않고 타임라인의 `outside_observation`으로 확인한다.
+평균의 분모는 모든 완료 관측이다. `goalId`를 지정해도 분자만 선택할 뿐 달성하지 않은 완료 관측을 분모에서 빼지 않는다. pending을 0 보상 완료로 바꾸지 않으며 완료가 없으면 평균은 null이다. 관측 밖의 credit은 평균에 포함하지 않고 타임라인의 `outside_observation`으로 확인한다.
 
 `hasEvent: { name, filter? }`는 같은 uid 또는 첫 로그인으로 연결되는 익명 구간의 관측 구간 안에 발생한 track 이벤트 존재 조건이다. 여러 이벤트가 있어도 관측 수는 늘어나지 않으며 첫 로그인 전후에도 연결된다. 이 사후 분류는 배정이나 학습 목표를 바꾸지 않는다.
 
@@ -173,7 +173,7 @@ cid 조회는 해당 브라우저 이력이다. uid 조회는 해당 uid 행을 
 - `traffic({ experimentId, from, to, bucketMs, limit? })`: bucket·arm·generation별 `assignments`, `exposures`, `assignmentShare`, `exposureShare`다. assignments는 실제 노출된 assignment ID만 한 번 센다. 선택만 하고 노출하지 않은 배정은 저장하지 않는다. 노출은 실제 exposure 이벤트다. 비율의 분모는 같은 bucket·generation 전체 arm이며 0이면 null이다. 확률과 실제 노출 비율은 다르다.
 - `policies({ experimentId, from, to, armId?, limit? })`: 발행 시점별 arm 선택 확률·감쇠 평균·score·scoreScale·status·generation을 반환한다. 비활성 arm은 확률 0, 평균·점수 null이다. 이것은 최대 분당 한 번 생성하는 발행본 이력이며 모든 로컬 선택 순간의 통계 변화 이력은 아니다. 실제 신규 배정의 선택 확률은 decision payload에 보존한다. 정책 요청이 없던 기간을 보간하지 않는다. 결과가 잘리면 기간·arm 조건을 좁힌다.
 
-신규 설치는 일곱 sink를 만든다. 기존 v1 설치의 전환은 [배포 호환성](../TECHNICAL_DESIGN.md#배포-호환성)을 따른다.
+설치는 events, observations, identity_links, policies, attribute_keys 다섯 sink를 만든다. decisions·pending observations·credits는 원본에서 계산하는 논리적 조회 결과다.
 
 ## 사용자군 비교와 페이지 처리 예제
 
@@ -203,8 +203,6 @@ if (first.nextCursor) {
 
 위 `filter/groupBy`는 첫 expose의 userAttributes, `hasEvent.filter`는 track의 attributes를 검사한다. `attributeValues`는 원본 사건 속성 빈도이므로 같은 키라도 관측 사용자군의 빈도와 일치할 필요가 없다. 상세 필드 타입은 [생성 레퍼런스](api/types.md#filter)를 따른다.
 
-### projection 전송 축소 버전으로 전환
+### 노출 기반 조회
 
-추가 테이블이나 DO migration은 없다. 새 조회 코드는 기존 pending·selected 행과 새 원본을 함께 읽으며 complete 학습 결과가 pending보다 우선한다. 새 원본만 있는 표본은 발생 시각·event ID 순으로 최초 노출의 속성을 고른다. 기존 projection과 겹치면 기존 조회처럼 먼저 수신한 행을 우선해 전환 중 속성을 보존한다.
-
-조회 코드와 Queue consumer를 함께 업데이트한다. 이전 조회 코드로 되돌리면 새로 수집한 표본의 pending·배정 내역을 읽지 못한다. 롤백 시 이 조회 호환 코드는 유지해야 한다. 기존 observations·decisions 테이블은 삭제하지 않는다. 운영자 조회는 원본을 추가로 읽으므로 비동기 작업·결과 캐시 사용을 권장한다. 사용자 선택 경로는 바뀌지 않는다.
+pending 관측과 배정은 실제 노출에서 재구성한다. 같은 표본의 반복 노출은 발생 시각·event ID 순으로 최초 노출의 속성을 선택하며, complete 학습 결과가 pending보다 우선한다. 운영자 조회는 원본을 읽으므로 비동기 작업·결과 캐시 사용을 권장한다.

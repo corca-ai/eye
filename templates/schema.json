@@ -41,11 +41,6 @@
       "required": true
     },
     {
-      "name": "state_key",
-      "type": "string",
-      "required": true
-    },
-    {
       "name": "cid",
       "type": "string",
       "required": false

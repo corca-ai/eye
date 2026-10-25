@@ -8,8 +8,8 @@ export type GoalStatus = 'active' | 'paused' | 'deleted';
 export type ArmStatus = 'active' | 'paused' | 'deleted';
 /** 실험 전체의 선택 허용 상태. 개별 arm 상태와 함께 적용한다. */
 export type ExperimentStatus = ArmStatus;
-/** 관측의 완료 여부. 평균 분모에는 complete만 포함하며 interrupted는 0 보상 완료가 아니다. */
-export type ObservationStatus = 'pending' | 'complete' | 'interrupted';
+/** 관측의 완료 여부. 평균 분모에는 complete만 포함한다. */
+export type ObservationStatus = 'pending' | 'complete';
 
 /** 배정 당시 고정되는 학습 설정. 기간은 ms이며 기본값은 CreateExperiment의 settings 생략 필드에 적용한다.
  * 사이트의 과거 최대 관측·유예·귀속 기간 합은 60일에서 1시간을 뺀 값보다 작아야 한다. */
@@ -45,8 +45,8 @@ export interface CreateExperiment {
 }
 /** 현재 실험 정의. 상태 변경은 이력을 보존하며 설정 변경은 새 generation으로 학습한다. */
 export interface Experiment {
-  /** Missing on legacy records means active. */
-  readonly status?: ExperimentStatus;
+  /** 실험 전체의 선택 허용 상태. */
+  readonly status: ExperimentStatus;
   readonly experimentId: string;
   /** 설정 변경으로 구분되는 학습 세대. */
   readonly generation: number;
@@ -70,7 +70,7 @@ export interface Assignment {
 /** assigned만 실제 적용 후 expose한다. unavailable은 정책 미준비/만료 등, no_active_arm은 비활성 상태다.
  * localContext·applyUntil은 SDK 노출 검증용이므로 결정 객체를 직접 만들거나 변경하지 않는다. */
 export type Decision =
-  | { readonly status: 'assigned'; readonly assignment: Assignment; readonly reason: 'selected' | 'held' | 'adopted'; readonly routingKey?: string; readonly localContext?: import('./local-assignment.js').LocalAssignmentContext; readonly applyUntil?: number }
+  | { readonly status: 'assigned'; readonly assignment: Assignment; readonly reason: 'selected' | 'held'; readonly localContext?: import('./local-assignment.js').LocalAssignmentContext; readonly applyUntil?: number }
   | { readonly status: 'no_active_arm' | 'unavailable'; readonly experimentId: string };
 
 interface EventBase {
@@ -87,7 +87,7 @@ export type TrackEvent = EventBase & { readonly kind: 'track'; readonly name: st
 export type GoalEvent = EventBase & { readonly kind: 'goal'; readonly goalId: string; readonly value: number };
 /** 실제 적용한 배정의 노출 원본. SDK expose가 표본 문맥을 구성하므로 직접 생성하지 않는다. */
 export type ExposureEvent = EventBase & {
-  readonly kind: 'exposure'; readonly assignment: Assignment; readonly userAttributes?: Attributes; readonly routingKey?: string;
+  readonly kind: 'exposure'; readonly assignment: Assignment; readonly userAttributes?: Attributes;
   readonly sample?: { readonly sampleId: string; readonly startAt: number }; readonly attributionWindowMs?: number;
 };
 /** identify는 인증된 cid+uid, logout은 cid만 전달한다. 호스트의 로그인·세션 상태를 변경하지 않는다. */
@@ -98,28 +98,6 @@ export interface EventEnvelope {
   readonly siteId: string;
   readonly receivedAt: number;
   readonly event: EyeEvent;
-}
-export interface Observation {
-  readonly observationId: string;
-  readonly assignmentId: string;
-  readonly subjectKey: string;
-  readonly experimentId: string;
-  readonly armId: string;
-  readonly generation: number;
-  readonly revision: number;
-  readonly startAt: number;
-  readonly endAt: number;
-  readonly status: ObservationStatus;
-  readonly reward: number;
-  readonly attributes: Attributes;
-  readonly subject?: Subject;
-  readonly interruptReason?: 'identity' | 'arm_stopped' | 'configuration' | 'correction_expired';
-}
-export interface Exposure {
-  readonly eventId: string;
-  readonly occurredAt: number;
-  readonly assignment: Assignment;
-  readonly observationId: string | null;
 }
 export interface Credit {
   readonly goalEventId: string;

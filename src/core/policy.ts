@@ -52,7 +52,7 @@ function scoreArms(arms: readonly PolicyArm[], settings: ScoreSettings, now: num
   return { scored, scoreScale };
 }
 
-/** Settings for the replacement learner; no per-user reservation or pending ledger. */
+/** Settings for scoring completed evidence and allocating exploration. */
 export type UnreservedPolicySettings = Pick<ExperimentSettings,
   'learningHalfLifeMs' | 'rewardScale' | 'bonusMultiplier' | 'explorationFloor' | 'bootstrapQuota'> & {
     /** Maximum total initial allocation to arms without enough recent completed evidence.

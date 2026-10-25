@@ -1,5 +1,4 @@
 // npm run build && node benchmarks/compact-state/run.mjs
-// --module=/absolute/path/to/old/dist/runtime/incremental.js measures an earlier learner.
 // Local SQLite and JSON byte counts only, not Cloudflare billing or sustained throughput.
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
@@ -13,7 +12,7 @@ import { compareEvents } from '../../dist/core/attribution.js';
 import { rawRecords } from '../../dist/analytics/raw.js';
 import { DictionaryCache, exportBatches, sendExportBatches } from '../../dist/analytics/export.js';
 const options = Object.fromEntries(process.argv.slice(2).map(arg => arg.replace(/^--/, '').split('=')));
-const modulePath = resolve(options.module ?? 'dist/runtime/incremental.js');
+const modulePath = resolve('dist/runtime/incremental.js');
 const { IncrementalLearning } = await import(pathToFileURL(modulePath).href);
 const count = Number(options.events ?? 10000), repeats = Number(options.repeats ?? 5), H = 3_600_000;
 assert.ok(Number.isSafeInteger(count) && count >= 20 && count % 20 === 0 && Number.isSafeInteger(repeats) && repeats > 0);
@@ -52,7 +51,7 @@ function run(enabled) {
   }
   const lastJsonBytes = db.prepare('SELECT COALESCE(SUM(length(CAST(data AS BLOB))),0) AS n FROM learning_last').get().n;
   const seenRows = db.prepare('SELECT COUNT(*) AS n FROM learning_seen').get().n;
-  for (;;) { db.exec('BEGIN'); const n = engine.close('site', H); db.exec('COMMIT'); if (!n) break; }
+  for (;;) { db.exec('BEGIN'); const n = engine.close('site', H, () => {}); db.exec('COMMIT'); if (!n) break; }
   const elapsedMs = performance.now() - start, sqlCalls = calls;
   const rowChanges = db.prepare('SELECT total_changes() AS n').get().n - priorChanges;
   const observations = [];
@@ -80,7 +79,6 @@ function run(enabled) {
 }
 const variants = {};
 for (const enabled of [false, true]) {
-  if (enabled && !IncrementalLearning.prototype.summaries && options.module) continue;
   run(enabled); // Warm-up.
   const runs = Array.from({ length: repeats }, () => run(enabled));
   for (const r of runs) assert.equal(r.rewardDigest, runs[0].rewardDigest);

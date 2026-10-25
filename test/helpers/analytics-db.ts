@@ -1,11 +1,10 @@
 import { DatabaseSync } from 'node:sqlite';
-import { analyticsRecord, type AnalyticsRecord } from '../../src/analytics/records.js';
-import { TABLES } from '../../src/analytics/sql.js';
+import { analyticsRecord, STORED_TABLES, type AnalyticsRecord } from '../../src/analytics/records.js';
 export function database(records: AnalyticsRecord[]) {
   const db = new DatabaseSync(':memory:');
   db.exec("ATTACH DATABASE ':memory:' AS eye");
   const example = analyticsRecord({ siteId: 'site', subjectKey: 'subject', cid: 'browser' }, 'events', 'example', 1, 0, 0, {});
-  for (const table of TABLES) {
+  for (const table of STORED_TABLES) {
     db.exec(`CREATE TABLE eye.${table} (__ingest_ts TEXT, ${Object.keys(example).map(key => `"${key}" ${['schema_version', 'revision', 'occurred_at', 'received_at', 'value'].includes(key) ? 'REAL' : 'TEXT'}`).join(',')})`);
   }
   for (const record of records) db.prepare(`INSERT INTO eye.${record.table_name} (${Object.keys(example).join(',')}) VALUES (${Object.keys(example).map(() => '?').join(',')})`).run(...Object.values(record));

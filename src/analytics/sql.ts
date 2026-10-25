@@ -124,15 +124,15 @@ AND e.occurred_at >= o.occurred_at AND e.occurred_at < json_get_int(o.payload_js
       hasEvent = ' AND o.observation_id IN (SELECT observation_id FROM matching_event_observations)';
     }
     ctes.push(`cohort AS (SELECT ${bucketMs === undefined ? '' : `CAST(FLOOR(o.occurred_at / ${bucketMs}.0) * ${bucketMs} AS BIGINT) AS bucket_start, `}o.arm_id, json_get_int(o.payload_json, 'generation') AS generation,
-json_get_int(o.payload_json, 'endAt') - o.occurred_at AS window_ms, o.status, o.state_key AS state_key, o.received_at, o.value AS learning_reward,
+json_get_int(o.payload_json, 'endAt') - o.occurred_at AS window_ms, o.status, o.subject_key AS subject_key, o.received_at, o.value AS learning_reward,
 CASE WHEN o.status = 'complete' THEN ${reward} ELSE 0 END AS reward${fields.length ? `, ${fields.join(', ')}` : ''}
 FROM observations_latest o${join} WHERE TRUE${q.filter === undefined ? '' : ` AND ${compileFilter(q.filter, 'o')}`}${hasEvent})`);
     ctes.push(`cohort_scaled AS (SELECT *, MAX(ABS(reward)) OVER (PARTITION BY ${dimensions.join(', ')}) AS reward_scale,
 MAX(ABS(learning_reward)) OVER (PARTITION BY ${dimensions.join(', ')}) AS learning_scale FROM cohort)`);
     const sql = `WITH ${ctes.join(',\n')}
 SELECT ${dimensions.join(', ')}, SUM(CASE WHEN status = 'complete' THEN 1 ELSE 0 END) AS completed,
-SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending, SUM(CASE WHEN status = 'interrupted' THEN 1 ELSE 0 END) AS interrupted,
-COUNT(DISTINCT state_key) AS subjects, COALESCE(SUM(reward / NULLIF(reward_scale, 0)) * MAX(reward_scale), 0) AS total_value,
+SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
+COUNT(DISTINCT subject_key) AS subjects, COALESCE(SUM(reward / NULLIF(reward_scale, 0)) * MAX(reward_scale), 0) AS total_value,
 COALESCE(SUM(CASE WHEN status = 'complete' THEN learning_reward / NULLIF(learning_scale, 0) ELSE 0 END) * MAX(learning_scale), 0) AS learning_value,
 CASE WHEN SUM(CASE WHEN status = 'complete' THEN 1 ELSE 0 END) = 0 THEN NULL
 ELSE COALESCE(AVG(CASE WHEN status = 'complete' THEN reward / NULLIF(reward_scale, 0) ELSE NULL END) * MAX(reward_scale), 0) END AS mean_value,

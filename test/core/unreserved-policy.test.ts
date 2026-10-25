@@ -7,7 +7,7 @@ const dayMs = 86_400_000;
 const config = { ...settings({ minHoldMs: 0 }), bootstrapShare: 0.2 };
 const observed = (n: number, reward: number, at = 0) => addSample(emptyMoments(at), reward, n);
 
-describe('reservation-free optimistic policy', () => {
+describe('optimistic policy for completed evidence', () => {
   it('caps all new arms together while rewards are delayed, without per-user counters', () => {
     const arms = [{ armId: 'established', moments: observed(100, 1) },
       ...Array.from({ length: 20 }, (_, i) => ({ armId: `new-${i}`, moments: emptyMoments(0) }))];

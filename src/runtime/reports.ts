@@ -144,7 +144,7 @@ next_at=excluded.next_at,current_job=NULL,latest_job=NULL,version=excluded.versi
     const row = this.row(input), offset = input.offset ?? 0, limit = input.limit ?? 100;
     invariant(Number.isSafeInteger(offset) && offset >= 0 && Number.isSafeInteger(limit) && limit >= 1 && limit <= 1000, 'invalid_input', 'Invalid result page');
     invariant(row.status === 'complete', 'conflict', 'Analytics job is not complete');
-    const object = await this.env.COHORTS.get(this.key(row.job_id));
+    const object = await this.env.REPORT_RESULTS.get(this.key(row.job_id));
     invariant(object && object.size <= 16 * 1024 * 1024, 'unavailable', 'Analytics result missing or oversized');
     const result = await object.json<AnalyticsResult>();
     // Recheck expiry/authorization after I/O. Pagination keeps the same result kind
@@ -161,7 +161,7 @@ next_at=excluded.next_at,current_job=NULL,latest_job=NULL,version=excluded.versi
     const now = Date.now();
     // Delete objects before their index rows, so an interrupted cleanup is retried.
     for (const row of this.sql.exec<JobRow>('SELECT * FROM report_jobs WHERE expires_at <= ? LIMIT 32', now).toArray()) {
-      await this.env.COHORTS.delete(this.key(row.job_id));
+      await this.env.REPORT_RESULTS.delete(this.key(row.job_id));
       this.sql.exec('DELETE FROM report_jobs WHERE job_id = ?', row.job_id);
     }
     await this.scheduleDue(now);
@@ -172,7 +172,7 @@ next_at=excluded.next_at,current_job=NULL,latest_job=NULL,version=excluded.versi
       await this.wakeAt(now + LEASE_MS);
       try {
         // A crash after R2 put but before SQL publication reuses the frozen result.
-        const frozen = await this.env.COHORTS.head(this.key(job.job_id));
+        const frozen = await this.env.REPORT_RESULTS.head(this.key(job.job_id));
         const current = this.sql.exec<{ status: string }>('SELECT status FROM report_jobs WHERE job_id=?', job.job_id).toArray()[0];
         if (!frozen && current?.status === 'running') {
           invariant(job.attempts < 3, 'unavailable', 'Report retry limit reached');
@@ -184,7 +184,7 @@ next_at=excluded.next_at,current_job=NULL,latest_job=NULL,version=excluded.versi
             : await runJobQuery(new BasinAnalytics(this.env as Env & AnalyticsEnv, siteId), request);
           const json = JSON.stringify(result);
           invariant(new TextEncoder().encode(json).length <= 16 * 1024 * 1024, 'invalid_input', 'Report result exceeds 16 MiB; narrow the query');
-          await this.env.COHORTS.put(this.key(job.job_id), json, { onlyIf: { etagDoesNotMatch: '*' } });
+          await this.env.REPORT_RESULTS.put(this.key(job.job_id), json, { onlyIf: { etagDoesNotMatch: '*' } });
         }
         this.sql.exec("UPDATE report_jobs SET status='complete', completed_at=?, error=NULL WHERE job_id=? AND status='running'", Date.now(), job.job_id);
       } catch (error) {
