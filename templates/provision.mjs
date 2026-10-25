@@ -52,6 +52,7 @@ async function step(key, args) {
 try {
   await step('bucket', ['r2', 'bucket', 'create', resources.bucket]);
   await step('catalog', ['basin', 'catalog', 'enable', resources.bucket]);
+  await step('snapshot expiration', ['basin', 'catalog', 'snapshot-expiration', 'enable', resources.bucket, '--older-than-days', '1', '--retain-last', '1', '--token', catalogToken]);
   await step('queue', ['queues', 'create', config.queues.producers[0].queue]);
   await step('dead-letter queue', ['queues', 'create', config.queues.consumers[0].dead_letter_queue]);
   if (!state.streamId) {

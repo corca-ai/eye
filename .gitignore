@@ -21,3 +21,6 @@ __pycache__/
 .vscode/
 *.swp
 *.swo
+
+# Catalog maintenance Python environment
+.venv/

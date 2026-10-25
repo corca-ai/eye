@@ -18,3 +18,8 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run check:package
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python -m pip install uv==0.12.14
+      - run: uv run --locked --project maintenance python -m unittest discover -s maintenance

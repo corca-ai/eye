@@ -1,10 +1,13 @@
 import { env } from 'cloudflare:workers';
-import { evictDurableObject, runInDurableObject } from 'cloudflare:test';
-import { expect, it, vi } from 'vitest';
+import { evictDurableObject, reset, runInDurableObject } from 'cloudflare:test';
+import { afterEach, expect, it, vi } from 'vitest';
 import { BasinAnalytics } from '../../src/analytics/query.js';
 import type { AnalyticsJobInput, AnalyticsJobPage } from '../../src/analytics/jobs.js';
 import { IncrementalLearning } from '../../src/runtime/incremental.js';
 import type { GoalEvent } from '../../src/core/types.js';
+// Real alarms from a previous case must not run under the next case's spies.
+afterEach(async () => { await reset(); });
+
 const input = (): AnalyticsJobInput => ({ scope: 'admins', request: { kind: 'goals', query: { from: Date.now() - 60000, to: Date.now() - 1 } } });
 const result = () => ({ meta: { queriedAt: Date.now(), receivedBefore: Date.now(), consistency: 'eventual' as const, truncated: false, bytesScanned: 100 },
   rows: [1, 2, 3].map(i => ({ goalId: `g${i}`, events: i, totalValue: i * 10, latestReceivedAt: Date.now() })) });
