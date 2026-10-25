@@ -2,4 +2,4 @@
 name = "eye-catalog-maintenance"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["pyiceberg[pyarrow,sql-sqlite]==0.12.0"]
+dependencies = ["pyiceberg[pyarrow,pyiceberg-core,sql-sqlite]==0.12.0"]
