@@ -9,6 +9,24 @@ const input = (): AnalyticsJobInput => ({ scope: 'admins', request: { kind: 'goa
 const result = () => ({ meta: { queriedAt: Date.now(), receivedBefore: Date.now(), consistency: 'eventual' as const, truncated: false, bytesScanned: 100 },
   rows: [1, 2, 3].map(i => ({ goalId: `g${i}`, events: i, totalValue: i * 10, latestReceivedAt: Date.now() })) });
 
+it('shares equivalent filters while executing and returning the first stored request', async () => {
+  const site = crypto.randomUUID(), actor = env.REPORTS.getByName(site), base = input();
+  const a = { field: { key: 'x', type: 'number' as const }, op: 'eq' as const, value: 1 };
+  const b = { field: { key: 'y', type: 'string' as const }, op: 'missing' as const };
+  const original = { ...base.request.query, filter: { and: [b, a, a] } };
+  const query = vi.spyOn(BasinAnalytics.prototype, 'goals').mockResolvedValue(result());
+  try {
+    const first = await actor.create(site, { scope: base.scope, request: { kind: 'goals', query: original } });
+    const equivalent = { kind: 'goals' as const, query: { ...base.request.query, filter: { and: [a, b] } } };
+    expect((await actor.create(site, { scope: base.scope, request: equivalent })).jobId).toBe(first.jobId);
+    expect((await actor.create(site, { scope: 'other', request: equivalent })).jobId).not.toBe(first.jobId);
+    await runInDurableObject(actor, a => a.alarm());
+    expect(query.mock.calls[0]![0]).toEqual({ ...original, limit: 100 });
+    const page = JSON.parse(await actor.page({ scope: base.scope, jobId: first.jobId })) as AnalyticsJobPage;
+    expect(page.request).toEqual({ kind: 'goals', query: { ...original, limit: 100 } });
+  } finally { query.mockRestore(); }
+});
+
 it('freezes explicitly selected summaries through the SDK without raw queries, including late revisions', async () => {
   const { createExecutionContext, waitOnExecutionContext } = await import('cloudflare:test');
   const { EyeWorker } = await import('../../src/runtime/service.js');

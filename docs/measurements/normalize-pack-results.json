@@ -1,0 +1,143 @@
+{
+  "baseline": "8f3b611",
+  "runtime": "v24.22.1",
+  "platform": "darwin",
+  "method": "Same immutable inputs, exact decoded envelopes and projection rows; one warmup + five measured runs, median. Queue timings are per batch.",
+  "limitations": "Synthetic local memory SQLite and encoding/decoding only; no remote Basin plan, durable I/O, network, retry amplification or measured billing. Cache identity count is not a workload hit rate.",
+  "queue": [
+    {
+      "name": "100 tracks",
+      "events": 100,
+      "beforeMessages": 1,
+      "afterMessages": 1,
+      "beforeBytes": 15304,
+      "afterBytes": 15304,
+      "beforeEstimatedUnitsPerOperation": 1,
+      "afterEstimatedUnitsPerOperation": 1,
+      "beforePackMs": 0.04556165999999991,
+      "afterPackMs": 0.04634125000000012,
+      "beforeDecodeMs": 0.0007083299999999326,
+      "afterDecodeMs": 0.0007579099999998107
+    },
+    {
+      "name": "one exposure",
+      "events": 1,
+      "beforeMessages": 1,
+      "afterMessages": 1,
+      "beforeBytes": 689,
+      "afterBytes": 689,
+      "beforeEstimatedUnitsPerOperation": 1,
+      "afterEstimatedUnitsPerOperation": 1,
+      "beforePackMs": 0.0012087500000001227,
+      "afterPackMs": 0.0011899999999999977,
+      "beforeDecodeMs": 0.00009582999999992126,
+      "afterDecodeMs": 0.00016000000000019555
+    },
+    {
+      "name": "20 shared settings",
+      "events": 20,
+      "beforeMessages": 1,
+      "afterMessages": 1,
+      "beforeBytes": 13364,
+      "afterBytes": 13364,
+      "beforeEstimatedUnitsPerOperation": 1,
+      "afterEstimatedUnitsPerOperation": 1,
+      "beforePackMs": 0.023675000000000068,
+      "afterPackMs": 0.023258749999999963,
+      "beforeDecodeMs": 0.00018582999999978256,
+      "afterDecodeMs": 0.0001983300000000554
+    },
+    {
+      "name": "100 shared settings",
+      "events": 100,
+      "beforeMessages": 2,
+      "afterMessages": 1,
+      "beforeBytes": 66908,
+      "afterBytes": 41159,
+      "beforeEstimatedUnitsPerOperation": 2,
+      "afterEstimatedUnitsPerOperation": 1,
+      "beforePackMs": 0.11703458000000012,
+      "afterPackMs": 0.21156790999999997,
+      "beforeDecodeMs": 0.0006987500000002456,
+      "afterDecodeMs": 0.09868541999999991
+    },
+    {
+      "name": "100 unique settings",
+      "events": 100,
+      "beforeMessages": 2,
+      "afterMessages": 2,
+      "beforeBytes": 66998,
+      "afterBytes": 66998,
+      "beforeEstimatedUnitsPerOperation": 2,
+      "afterEstimatedUnitsPerOperation": 2,
+      "beforePackMs": 0.11546875,
+      "afterPackMs": 0.21246375000000056,
+      "beforeDecodeMs": 0.0007004200000005767,
+      "afterDecodeMs": 0.0008158400000002075
+    },
+    {
+      "name": "40 Unicode exposures",
+      "events": 40,
+      "beforeMessages": 1,
+      "afterMessages": 1,
+      "beforeBytes": 38744,
+      "afterBytes": 38744,
+      "beforeEstimatedUnitsPerOperation": 1,
+      "afterEstimatedUnitsPerOperation": 1,
+      "beforePackMs": 0.10128041000000053,
+      "afterPackMs": 0.1016937500000006,
+      "beforeDecodeMs": 0.00028124999999931785,
+      "afterDecodeMs": 0.0002975000000003547
+    },
+    {
+      "name": "large valid singleton",
+      "events": 1,
+      "beforeMessages": 1,
+      "afterMessages": 1,
+      "beforeBytes": 70689,
+      "afterBytes": 70689,
+      "beforeEstimatedUnitsPerOperation": 2,
+      "afterEstimatedUnitsPerOperation": 2,
+      "beforePackMs": 0.032157920000000784,
+      "afterPackMs": 0.032396250000000466,
+      "beforeDecodeMs": 0.00007916000000022905,
+      "afterDecodeMs": 0.00008790999999973792
+    },
+    {
+      "name": "mixed kinds",
+      "events": 100,
+      "beforeMessages": 1,
+      "afterMessages": 1,
+      "beforeBytes": 33252,
+      "afterBytes": 33252,
+      "beforeEstimatedUnitsPerOperation": 1,
+      "afterEstimatedUnitsPerOperation": 1,
+      "beforePackMs": 0.0712312499999996,
+      "afterPackMs": 0.07151207999999996,
+      "beforeDecodeMs": 0.0006387500000005275,
+      "afterDecodeMs": 0.0006416600000000017
+    }
+  ],
+  "projection": [
+    {
+      "samples": 1000,
+      "completed": 0,
+      "beforeRankInputs": 5000,
+      "afterRankInputs": 5000,
+      "beforeMs": 74.97179200000005,
+      "afterMs": 71.54541599999993
+    },
+    {
+      "samples": 1000,
+      "completed": 950,
+      "beforeRankInputs": 5000,
+      "afterRankInputs": 250,
+      "beforeMs": 71.84304199999997,
+      "afterMs": 25.54383400000006
+    }
+  ],
+  "cache": {
+    "beforeIdentities": 3,
+    "afterIdentities": 1
+  }
+}

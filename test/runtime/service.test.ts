@@ -5,6 +5,39 @@ import { createEye } from '../../src/client.js';
 import { EyeWorker } from '../../src/runtime/service.js';
 import type { EventEnvelope } from '../../src/core/types.js';
 import type { AnalyticsRecord } from '../../src/analytics/records.js';
+import { packIngestion } from '../../src/runtime/queue-batch.js';
+
+it('decodes compressed settings before learning and keeps valid siblings across retries', async () => {
+  const siteId = crypto.randomUUID(), ctx = createExecutionContext(), service = new EyeWorker(ctx, env);
+  const config = await service.createExperiment(siteId, { experimentId: 'exp', arms: ['a'], settings: { minHoldMs: 0 } });
+  const at = Date.now();
+  const envelopes: EventEnvelope[] = Array.from({ length: 99 }, (_, i) => ({ siteId, receivedAt: at,
+    event: { kind: 'exposure', eventId: `e-${i}`, occurredAt: at, subject: { cid: `c-${i}` },
+      assignment: { assignmentId: `a-${i}`, experimentId: 'exp', armId: 'a', generation: 1, assignedAt: at,
+        policyRevision: 1, probability: 1, settings: config.settings },
+      sample: { sampleId: `s-${i}`, startAt: at }, attributionWindowMs: 1000 },
+  }));
+  const packet = packIngestion(envelopes)[0]!;
+  expect(packet.settings).toHaveLength(1);
+  const first = packet.events[0]!;
+  if (first.event.kind !== 'exposure') throw new Error('Expected exposure');
+  packet.events.splice(1, 0, { ...first, event: { ...first.event, eventId: 'broken', assignment: { ...first.event.assignment, settings: 99 } } });
+  const rows: AnalyticsRecord[] = [];
+  const send = vi.spyOn(env.ANALYTICS, 'send').mockImplementation(async batch => { rows.push(...batch as AnalyticsRecord[]); });
+  try {
+    for (let i = 0; i < 2; i++) {
+      const batch = createMessageBatch('eye-events', [{ id: `dictionary-${i}`, timestamp: at, attempts: i + 1, body: packet }]);
+      await service.queue(batch);
+      expect((await getQueueResult(batch, ctx)).retryMessages).toHaveLength(0);
+    }
+    expect(rows.filter(row => row.table_name === 'events').map(row => row.record_id)).toEqual([
+      ...envelopes.map(e => e.event.eventId), ...envelopes.map(e => e.event.eventId),
+    ]);
+    await runInDurableObject(env.SITES.getByName(siteId), (_actor, state) => {
+      expect(state.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM learning_samples').one().n).toBe(99);
+    });
+  } finally { send.mockRestore(); await waitOnExecutionContext(ctx); }
+});
 
 it('runs SDK selection, actual exposure, signed goal, raw export, closed learning and next policy end to end', async () => {
   const siteId = crypto.randomUUID(), ctx = createExecutionContext();

@@ -27,16 +27,23 @@ export function exposureProjection(table: 'observations' | 'decisions', alias: s
     attributes_json: observation ? "COALESCE(json_get_json(payload_json, 'userAttributes'), '{}')" : "'{}'",
     payload_json: payload,
   };
+  const completed = observation ? `${alias}_complete AS (SELECT ${columns.join(', ')} FROM ${namespace}.observations
+WHERE site_id = ${site} AND occurred_at >= ${from} AND occurred_at < ${to} AND received_at <= ${receivedBefore} AND status = 'complete'${extra}),
+${alias}_closed_keys AS (SELECT DISTINCT record_id AS closed_observation_id FROM ${alias}_complete WHERE revision > 1),
+` : '';
   // subject_key is JSON-encoded at ingestion because Basin has no portable
   // scalar-to-JSON quoting function.
   // Relevant samples/assignments start >= from; their receipts cannot predate
   // that start. Keep receipts after to: first actual exposure can arrive later.
-  return `${alias}_receipts AS (SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY ${key} ORDER BY occurred_at, record_id, received_at) AS receipt_rank
-FROM ${namespace}.events WHERE site_id = ${site} AND occurred_at >= ${Math.max(retained, from)} AND occurred_at < ${receivedBefore + 1}
+  // A visible completion dominates pending revision 1, so do not reconstruct it.
+  // Keep final ranking: retries can duplicate physical completed records.
+  return `${completed}${alias}_receipts AS (SELECT * FROM (SELECT e.*, ROW_NUMBER() OVER (PARTITION BY ${key} ORDER BY occurred_at, record_id, received_at) AS receipt_rank
+FROM ${namespace}.events e${observation ? ` LEFT JOIN ${alias}_closed_keys c ON c.closed_observation_id = e.observation_id` : ''}
+WHERE site_id = ${site} AND occurred_at >= ${Math.max(retained, from)} AND occurred_at < ${receivedBefore + 1}
 AND received_at <= ${receivedBefore} AND status = 'accepted' AND json_get_str(payload_json, 'kind') = 'exposure'
-AND json_get_json(payload_json, 'projectionSubjectKey') IS NOT NULL) r WHERE receipt_rank = 1),
+AND json_get_json(payload_json, 'projectionSubjectKey') IS NOT NULL${observation ? ' AND c.closed_observation_id IS NULL' : ''}) r WHERE receipt_rank = 1),
 ${alias}_derived AS (SELECT ${columns.map(column => `${overrides[column] ?? column} AS ${column}`).join(', ')} FROM ${alias}_receipts),
 ${alias}_sources AS (SELECT ${columns.join(', ')} FROM ${alias}_derived WHERE occurred_at >= ${from} AND occurred_at < ${to}${extra}${observation ? `
-UNION ALL SELECT ${columns.join(', ')} FROM ${namespace}.observations WHERE site_id = ${site} AND occurred_at >= ${from} AND occurred_at < ${to} AND received_at <= ${receivedBefore} AND status = 'complete'${extra}` : ''}),
+UNION ALL SELECT ${columns.join(', ')} FROM ${alias}_complete` : ''}),
 ${alias} AS (SELECT ${columns.join(', ')}, _revision_rank FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY record_id ORDER BY revision DESC, received_at ASC) AS _revision_rank FROM ${alias}_sources) r WHERE _revision_rank = 1)`;
 }

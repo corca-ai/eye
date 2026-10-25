@@ -7,6 +7,8 @@ import { learningDatabase } from '../helpers/learning-db.js';
 import { compareEvents } from '../../src/core/attribution.js';
 import { settings } from '../../src/core/validation.js';
 import type { EyeEvent, ExposureEvent, GoalEvent } from '../../src/core/types.js';
+import { analyticsRecord } from '../../src/analytics/records.js';
+import { exposureProjection } from '../../src/analytics/projections-sql.js';
 const now = 1_800_000_000_000, start = now - 10000;
 const env = { EYE_ANALYTICS_WAREHOUSE: `${'a'.repeat(32)}_eye-data`, EYE_ANALYTICS_TOKEN: 'test' };
 const setting = settings({ minHoldMs: 0, observationWindowMs: 1000, allowedLatenessMs: 0, attributionHalfLifeMs: 100 });
@@ -17,6 +19,39 @@ function exposure(eventId: string, cid: string, experimentId = 'exp', at = start
 }
 const goal = (eventId: string, at: number, value: number, cid = 'paid', uid?: string): GoalEvent => ({ kind: 'goal', eventId,
   goalId: 'purchase', occurredAt: at, subject: { cid, ...(uid === undefined ? {} : { uid }) }, value });
+
+it('skips only dominating visible completions and still deduplicates their physical retries', () => {
+  const first = exposure('shown', 'c'), repeated = { ...first, eventId: 'repeat', occurredAt: start + 10 };
+  const complete = analyticsRecord({ siteId: 'site', subjectKey: 'c', cid: 'c' }, 'observations', 'shown', 2, start, now - 5,
+    { endAt: start + 1000, generation: 1 }, { experiment_id: 'exp', arm_id: 'a', observation_id: 'shown', status: 'complete', value: 7 });
+  const db = database([...[first, repeated].flatMap(event => rawRecords({ siteId: 'site', receivedAt: now - 10, event })),
+    complete, { ...complete, received_at: now - 4 }]);
+  try {
+    const query = (cutoff: number, extra = '') => exposureProjection('observations', 'o', 'eye', "'site'", start, start, now, cutoff, extra);
+    const rows = db.run(`WITH ${query(now)} SELECT * FROM o`);
+    expect(rows).toHaveLength(1); expect(rows[0]).toMatchObject({ status: 'complete', value: 7, received_at: now - 5 });
+    expect(db.run(`WITH ${query(now)} SELECT * FROM o_receipts`)).toEqual([]);
+    // A completion outside the frozen receipt snapshot cannot suppress pending.
+    expect(db.run(`WITH ${query(now - 7)} SELECT * FROM o`)).toMatchObject([{ status: 'pending' }]);
+    // Query filters are part of dominance, not a filter on completed IDs afterward.
+    expect(db.run(`WITH ${query(now, " AND arm_id = 'other'")} SELECT * FROM o`)).toEqual([]);
+  } finally { db.close(); }
+});
+
+it('does not let a filtered completion or a tied revision suppress pending receipts', () => {
+  const shown = exposure('shown', 'c');
+  const closed = analyticsRecord({ siteId: 'site', subjectKey: 'c', cid: 'c' }, 'observations', 'shown', 2, start, now - 5,
+    { endAt: start + 1000, generation: 2 }, { experiment_id: 'exp', arm_id: 'a', observation_id: 'shown', status: 'complete', value: 7 });
+  const raw = rawRecords({ siteId: 'site', receivedAt: now - 10, event: shown });
+  for (const completion of [closed, { ...closed, revision: 1 }]) {
+    const db = database([...raw, completion]);
+    try {
+      const extra = completion.revision === 2 ? " AND json_get_int(payload_json, 'generation') = 1" : '';
+      const ctes = exposureProjection('observations', 'o', 'eye', "'site'", start, start, start + 1, now, extra);
+      expect(db.run(`WITH ${ctes} SELECT * FROM o`)).toMatchObject([{ status: 'pending', record_id: 'shown' }]);
+    } finally { db.close(); }
+  }
+});
 function fixture(initial: EyeEvent[], later: EyeEvent[] = []) {
   const learning = learningDatabase();
   for (const event of [...initial].sort(compareEvents)) learning.engine.accept([event], event.occurredAt);
