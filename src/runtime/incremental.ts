@@ -4,16 +4,16 @@ import { closedSampleMoments, type ClosedSample, type ClosedCohort } from '../co
 import { finite, invariant } from '../core/errors.js';
 import { decayFactor } from '../core/moments.js';
 import { addReward, type RewardSum } from '../core/reward-sum.js';
+import { hasExposureContext, observationEndAt, observationCloseAt, sampleDefinition, type SampledExposureEvent } from '../core/sample-context.js';
 import type { ExposureEvent, EyeEvent, GoalEvent, IdentityEvent } from '../core/types.js';
 import { RETENTION_MS, subjectKey } from '../core/validation.js';
 import { analyticsRecord, type AnalyticsRecord } from '../analytics/records.js';
 
-type SampleEvent = ExposureEvent & { sample: NonNullable<ExposureEvent['sample']>; attributionWindowMs: number };
 type IdentityRow = { uid: string | null; occurred_at: number; event_id: string };
 type Last = { occurredAt: number; eventId: string; sampleId: string; attributionWindowMs: number };
 type SampleRow = RewardSum & { sample_id: string; data: string; definition: string; close_at: number };
 type RewardRow = RewardSum & { sample_id: string; close_at: number; start_at: number; end_at: number; half_life: number };
-type SampleDetail = { event: SampleEvent; data: string; definition: string; changed: boolean };
+type SampleDetail = { event: SampledExposureEvent; data: string; definition: string; changed: boolean };
 type SampleState = { row: RewardRow; detail: SampleDetail | null; inserted: boolean; rewardChanged: boolean };
 type FullSampleState = SampleState & { detail: SampleDetail };
 type OwnerState = { values: Map<string, Last>; loaded: Set<string>; all: boolean; dirty: Set<string> };
@@ -35,7 +35,7 @@ export interface LearningSQL {
 }
 
 /** Compact references remain after sample closure: they still participate in the denominator. */
-function lastReference(event: SampleEvent): Last {
+function lastReference(event: SampledExposureEvent): Last {
   return { occurredAt: event.occurredAt, eventId: event.eventId,
     sampleId: event.sample.sampleId, attributionWindowMs: event.attributionWindowMs };
 }
@@ -97,7 +97,7 @@ class LearningBatch {
     if (!this.samples.has(id)) {
       if (full) {
         const row = this.sql.exec<SampleRow>('SELECT * FROM learning_samples WHERE sample_id = ?', id).toArray()[0];
-        this.samples.set(id, row ? this.fullSample(row, decode<SampleEvent>(row.data), false) : null);
+        this.samples.set(id, row ? this.fullSample(row, decode<SampledExposureEvent>(row.data), false) : null);
       } else {
         // definition is small and immutable. Do not fetch/parse the potentially
         // large exposure attributes on every reward update.
@@ -112,17 +112,17 @@ class LearningBatch {
     const state = this.samples.get(id)!;
     if (full && state && !state.detail) {
       const row = this.sql.exec<{ data: string; definition: string }>('SELECT data, definition FROM learning_samples WHERE sample_id = ?', id).toArray()[0]!;
-      state.detail = { ...row, event: decode<SampleEvent>(row.data), changed: false };
+      state.detail = { ...row, event: decode<SampledExposureEvent>(row.data), changed: false };
     }
     return state;
   }
-  private fullSample(row: SampleRow, event: SampleEvent, inserted: boolean): FullSampleState {
+  private fullSample(row: SampleRow, event: SampledExposureEvent, inserted: boolean): FullSampleState {
     return { row: { sample_id: row.sample_id, close_at: row.close_at, scale: row.scale, sum: row.sum, correction: row.correction,
-      start_at: event.sample.startAt, end_at: event.sample.startAt + event.assignment.settings.observationWindowMs,
+      start_at: event.sample.startAt, end_at: observationEndAt(event.sample.startAt, event.assignment.settings.observationWindowMs),
       half_life: event.assignment.settings.attributionHalfLifeMs },
     detail: { event, data: row.data, definition: row.definition, changed: false }, inserted, rewardChanged: false };
   }
-  createSample(row: SampleRow, event: SampleEvent): void {
+  createSample(row: SampleRow, event: SampledExposureEvent): void {
     this.samples.set(row.sample_id, this.fullSample(row, event, true));
   }
   flush(): void {
@@ -212,11 +212,11 @@ export class IncrementalLearning {
     batch.setIdentity(cid, { uid: event.kind === 'identify' ? event.subject.uid! : null, occurred_at: event.occurredAt, event_id: event.eventId });
   }
   private exposure(batch: LearningBatch, event: ExposureEvent, now: number, diagnostics: LearningDiagnostics): boolean {
-    invariant(event.sample && event.attributionWindowMs, 'invalid_input', 'Exposure needs local sample context');
-    const exposure = event as SampleEvent;
+    invariant(hasExposureContext(event), 'invalid_input', 'Exposure needs local sample context');
+    const exposure = event;
     const sampleId = exposure.sample.sampleId;
-    const closeAt = exposure.sample.startAt + exposure.assignment.settings.observationWindowMs + exposure.assignment.settings.allowedLatenessMs;
-    const definition = JSON.stringify([exposure.assignment, exposure.sample.startAt, exposure.attributionWindowMs]);
+    const closeAt = observationCloseAt(exposure.sample.startAt, exposure.assignment.settings.observationWindowMs, exposure.assignment.settings.allowedLatenessMs);
+    const definition = sampleDefinition(exposure.assignment, exposure.sample.startAt, exposure.attributionWindowMs);
     const old = batch.sample(sampleId, true);
     // Check existing context even if the incoming definition claims an expired
     // window. Reject only this exposure, before changing sample or last reference.
@@ -271,9 +271,9 @@ export class IncrementalLearning {
     const summaries = this.summaries.batch(now);
     let bytes = 0;
     for (const row of rows) {
-      const event = decode<SampleEvent>(row.data), a = event.assignment;
+      const event = decode<SampledExposureEvent>(row.data), a = event.assignment;
       const reward = finite((row.sum + row.correction) * row.scale, 'Sample reward');
-      const endAt = event.sample.startAt + a.settings.observationWindowMs;
+      const endAt = observationEndAt(event.sample.startAt, a.settings.observationWindowMs);
       const record = analyticsRecord({ siteId, subjectKey: subjectKey(siteId, event.subject), ...event.subject },
         'observations', row.sample_id, 2, event.sample.startAt, now,
         { sampleId: row.sample_id, assignment: a, startAt: event.sample.startAt, endAt, reward,
