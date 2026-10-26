@@ -27,7 +27,10 @@ Deletion commits through PyIceberg's Catalog transaction. Whole matching files
 can be excluded through metadata; only boundary files require copy-on-write.
 Concurrent commit conflicts reload metadata and retry at most three times.
 The next scheduled pass can repeat safely after an unknown commit outcome.
-The script neither drops tables nor deletes R2 objects directly.
+The script neither drops tables nor deletes R2 objects directly. The locked
+`pyiceberg-core` extra supplies native partition transforms required when
+rewriting partitioned Catalog data files; unpartitioned local fixtures alone
+do not exercise that dependency.
 
 **Physical cleanup is a separate step.** Enable Catalog automatic snapshot
 expiration and compaction on this bucket during provisioning. Row deletion
@@ -44,5 +47,6 @@ Local contract tests use an actual PyIceberg SQL Catalog and Parquet files:
 uv run --locked --project maintenance python -m unittest discover -s maintenance
 ```
 
-They prove boundary semantics, repeatability, and schema refusal. They do not
+They prove boundary semantics, repeatability, schema refusal, and bucket-partitioned
+boundary rewrites. They do not
 prove remote permissions, Stream concurrency, or Catalog physical cleanup.
