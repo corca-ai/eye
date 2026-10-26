@@ -66,6 +66,8 @@ interface ExperimentSession {
   token?: string;
 }
 const caches = new WeakMap<DecisionService, DecisionCache>();
+const bindingKeys = new WeakMap<DecisionService, number>();
+let nextBindingKey = 0;
 const encoder = new TextEncoder();
 export function validateDecisionOptions(options: DecisionOptions | undefined): void {
   const fresh = policyFreshMs(options), maxAge = options?.maxAgeMs ?? DEFAULT_POLICY_MAX_AGE_MS;
@@ -76,7 +78,7 @@ export function validateDecisionOptions(options: DecisionOptions | undefined): v
 const policyLoads = new WeakMap<DecisionCache, Map<string, { work: Promise<PublishedPolicy>; expiresAt: number }>>();
 function b64(bytes: Uint8Array): string { return btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', ''); }
 function unb64(text: string): Uint8Array { return Uint8Array.from(atob(text.replaceAll('-', '+').replaceAll('_', '/')), c => c.charCodeAt(0)); }
-export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionContext, 'waitUntil'>, siteId: string, options: DecisionOptions | undefined, report: (error: unknown) => void) {
+export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionContext, 'waitUntil'>, options: DecisionOptions | undefined, report: (error: unknown) => void) {
   validateDecisionOptions(options);
   let shared = caches.get(service);
   if (!shared) { shared = new DecisionCache(); caches.set(service, shared); }
@@ -93,16 +95,18 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
     invariant(options && encoder.encode(options.secret).length >= 32, 'invalid_input', 'Configure a decision secret of at least 32 UTF-8 bytes');
     return cryptoKey ??= crypto.subtle.importKey('raw', encoder.encode(options.secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
   };
-  const key = (experimentId: string) => JSON.stringify([siteId, experimentId]);
+  let bindingKey = bindingKeys.get(service);
+  if (bindingKey === undefined) { bindingKey = ++nextBindingKey; bindingKeys.set(service, bindingKey); }
+  const key = (experimentId: string) => JSON.stringify([bindingKey, experimentId]);
   const background = (work: Promise<unknown>) => ctx.waitUntil(work.catch(report));
   const fetchPolicy = (experimentId: string, force = false): Promise<PublishedPolicy> => {
     let loads = policyLoads.get(cache);
     if (!loads) { loads = new Map(); policyLoads.set(cache, loads); }
-    const loadKey = JSON.stringify([siteId, experimentId, maxAge]);
+    const loadKey = JSON.stringify([bindingKey, experimentId, maxAge]);
     const pending = loads.get(loadKey);
     if (!force && pending && pending.expiresAt > Date.now()) return pending.work;
     const work = (async () => {
-      const policy = await service.getPublishedPolicy(siteId, experimentId, maxAge);
+      const policy = await service.getPublishedPolicy(experimentId, maxAge);
       cache.put(key(experimentId), policy);
       return cache.read(key(experimentId))!;
     })();
@@ -154,7 +158,7 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
       const value = record(JSON.parse(new TextDecoder().decode(unb64(payload))), 'state');
       invariant(value.version === 2, 'invalid_input', 'Unsupported state version');
       const context = parseLocalContext(value.context);
-      invariant(context.siteId === siteId && context.assignment.experimentId === experimentId, 'invalid_input', 'State scope mismatch');
+      invariant(context.assignment.experimentId === experimentId, 'invalid_input', 'State scope mismatch');
       // Signature verification yields: a receipt may have opened a newer sample
       // while restoration was in flight. Local updates take precedence.
       if (!session.context) { session.context = context; session.token = token; }
@@ -162,6 +166,7 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
   };
   const choose = (subject: Subject, experimentId: string, policy: PublishedPolicy | undefined): { decision: Decision; selection: LocalSelection } => {
     const previous = sessions.get(experimentId)?.context, now = Date.now();
+    const siteId = policy?.installationId ?? 'unprepared';
     const selection = selectLocal({ siteId, experimentId, subject, now, newId: () => crypto.randomUUID(),
       ...(previous === undefined ? {} : { previous }), ...(policy === undefined ? {} : { policy: {
         ...policy, siteId, active: policy.status === 'active', freshUntil: (cache.checkedAt(key(experimentId)) ?? policy.publishedAt) + fresh, usableUntil: policy.publishedAt + maxAge,
@@ -201,7 +206,8 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
       reuseUntil: result.selection.status === 'assigned' ? result.selection.applyUntil : Date.now() };
   };
   const stageExposure = (decision: Extract<Decision, { status: 'assigned' }>, occurredAt: number, eventId: string) => {
-    invariant(decision.localContext && decision.applyUntil !== undefined, 'invalid_input', 'Expected a local decision from this SDK');
+    const policy = cache.read(key(decision.assignment.experimentId));
+    invariant(decision.localContext && (!policy || decision.localContext.siteId === policy.installationId) && decision.applyUntil !== undefined, 'invalid_input', 'Expected a local decision from this SDK');
     const latest = sessions.get(decision.assignment.experimentId)?.context;
     const context = latest?.assignment.assignmentId === decision.assignment.assignmentId
       && (latest.sample?.startAt ?? 0) <= occurredAt

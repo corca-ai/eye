@@ -97,7 +97,7 @@ it('rolls back summaries with dedup, preserves core learning at capacity and exp
 });
 
 it('exposes opt-in summaries through the SDK and service without raw analytics', async () => {
-  const ctx = createExecutionContext(), eye = createEye({ siteId: crypto.randomUUID(), ctx, service: new EyeWorker(ctx, env) });
+  const ctx = createExecutionContext(), eye = createEye({ ctx, service: new EyeWorker(ctx, env) });
   expect((await eye.analytics.summaries.status()).state).toBe('disabled');
   const s = await eye.analytics.summaries.configure({ goalIds: ['pay'], experimentIds: [] });
   expect(s.state).toBe('collecting');

@@ -9,13 +9,13 @@ import type { EventEnvelope } from '../../src/core/types.js';
 const subject = { cid: 'browser' }, at = 1_800_000_000_000;
 function fixture(limits?: EyeOptions['collectionLimits']) {
   const ctx = createExecutionContext(), service = new EyeWorker(ctx, env), received: EventEnvelope[] = [];
-  const ingest = vi.spyOn(service, 'ingest').mockImplementation(async batch => { received.push(...batch); });
-  const options = { service, ctx, siteId: 'site', ...(limits === undefined ? {} : { collectionLimits: limits }) };
+  const ingest = vi.spyOn(service, 'ingest').mockImplementation(async batch => { received.push(...batch.map(item => ({ ...item, siteId: 'installation' }))); });
+  const options = { service, ctx, ...(limits === undefined ? {} : { collectionLimits: limits }) };
   return { ctx, options, received, ingest, eye: createEye(options) };
 }
 const track = { subject, name: 'view', eventId: 'one' };
 function sizeOf(eventId: string, value = 'x') {
-  return encodedSize({ siteId: 'site', receivedAt: at,
+  return encodedSize({ siteId: '00000000-0000-0000-0000-000000000000', receivedAt: at,
     event: { kind: 'track', subject, name: 'view', eventId, occurredAt: at, attributes: { value } } }) + 200;
 }
 
@@ -81,7 +81,7 @@ it('releases earlier batches while draining and preserves queued events and orde
   const f = fixture({ maxEvents: 220, maxPendingBytes: 1_000_000 });
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
-  f.ingest.mockImplementationOnce(async batch => { f.received.push(...batch); await gate; });
+  f.ingest.mockImplementationOnce(async batch => { f.received.push(...batch.map(item => ({ ...item, siteId: 'installation' }))); await gate; });
   for (let i = 0; i < 150; i++) expect(f.eye.track({ ...track, eventId: String(i) }).accepted).toBe(true);
   const flushing = f.eye.flush(); await Promise.resolve();
   for (let i = 150; i < 220; i++) expect(f.eye.track({ ...track, eventId: String(i) }).accepted).toBe(true);

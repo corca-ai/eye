@@ -35,7 +35,7 @@ it('freezes explicitly selected summaries through the SDK without raw queries, i
   const { EyeWorker } = await import('../../src/runtime/service.js');
   const { createEye } = await import('../../src/client.js');
   const siteId = crypto.randomUUID(), ctx = createExecutionContext(), H = 3_600_000;
-  const eye = createEye({ siteId, ctx, service: new EyeWorker(ctx, env) });
+  const eye = createEye({ ctx, service: new EyeWorker(ctx, { ...env, EYE_INSTALLATION_ID: siteId }) });
   const to = Math.floor(Date.now() / H) * H, from = to - H;
   const event: GoalEvent = { kind: 'goal', eventId: 'first', occurredAt: from + 1, subject: { cid: 'c' }, goalId: 'pay', value: 7 };
   const add = async (e: GoalEvent, configure = false) => runInDurableObject(env.SITES.getByName(siteId), (_a, state) => {
@@ -197,12 +197,12 @@ it('expires cached freshness without invalidating retained pages, and bounds cra
     expect((await actor.status({ scope: 'admins', jobId: second.jobId })).status).toBe('failed');
   } finally { query.mockRestore(); }
 });
-it('SDK returns typed report pages over the service binding and separates sites', async () => {
+it('SDK returns typed report pages over the service binding and separates installations', async () => {
   const { createExecutionContext, waitOnExecutionContext } = await import('cloudflare:test');
   const { EyeWorker } = await import('../../src/runtime/service.js');
   const { createEye } = await import('../../src/client.js');
   const siteId = crypto.randomUUID(), ctx = createExecutionContext();
-  const eye = createEye({ siteId, ctx, service: new EyeWorker(ctx, env) });
+  const eye = createEye({ ctx, service: new EyeWorker(ctx, { ...env, EYE_INSTALLATION_ID: siteId }) });
   const query = vi.spyOn(BasinAnalytics.prototype, 'goals').mockResolvedValue(result());
   try {
     const job = await eye.analytics.jobs.create(input());

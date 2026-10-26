@@ -32,9 +32,9 @@ UNION SELECT uid FROM ac_links WHERE cid = ${scope.value} AND uid IS NOT NULL`;
   }
   return [
     `ac_events AS (SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY record_id ORDER BY received_at ASC) AS rn FROM ${table}.events
-WHERE site_id = ${site} AND occurred_at >= ${min} AND occurred_at < ${to} AND received_at <= ${receivedBefore} AND status = 'accepted') a WHERE rn = 1)`,
-    `ac_links AS (SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY record_id ORDER BY received_at ASC) AS rn FROM ${table}.identity_links
-WHERE site_id = ${site} AND occurred_at >= ${min} AND occurred_at < ${to} AND received_at <= ${receivedBefore} AND status IN ('identify','logout')) a WHERE rn = 1)`,
+WHERE table_name = 'events' AND site_id = ${site} AND occurred_at >= ${min} AND occurred_at < ${to} AND received_at <= ${receivedBefore} AND status = 'accepted') a WHERE rn = 1)`,
+    `ac_links AS (SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY record_id ORDER BY received_at ASC) AS rn FROM ${table}.projections
+WHERE table_name = 'identity_links' AND site_id = ${site} AND occurred_at >= ${min} AND occurred_at < ${to} AND received_at <= ${receivedBefore} AND status IN ('identify','logout')) a WHERE rn = 1)`,
     ...scopeCTEs,
     // Scope goals first, but retain all experiments capable of competing for them.
     `ac_goals AS (SELECT * FROM ac_events WHERE json_get_str(payload_json, 'kind') = 'goal' AND occurred_at >= ${from}${goalScope})`,

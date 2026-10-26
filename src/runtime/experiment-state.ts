@@ -134,7 +134,7 @@ export class ExperimentState {
     const cached = this.cachedPolicy(maxAgeMs); if (cached) return cached;
     const config = this.getConfig(), previous = this.kv.get<import('../transport.js').PublishedPolicy>('publishedPolicy');
     const policy = this.getPolicy();
-    const result = { ...policy, settings: config.settings, publishedAt: Date.now(), sequence: (previous?.sequence ?? 0) + 1,
+    const result = { ...policy, installationId: siteId, settings: config.settings, publishedAt: Date.now(), sequence: (previous?.sequence ?? 0) + 1,
       status: config.status, activeArms: config.arms.filter(a => a.status === 'active').map(a => a.armId) };
     this.kv.put('publishedPolicy', result); if (this.kv.get('policyDirty')) this.kv.delete('policyDirty');
     const history = config.arms.map(configured => result.arms.find(a => a.armId === configured.armId) ?? { armId: configured.armId, probability: 0, meanReward: null, score: null });

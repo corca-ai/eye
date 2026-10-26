@@ -7,10 +7,10 @@ import time
 
 from pyiceberg.catalog.rest import RestCatalog
 from pyiceberg.exceptions import CommitFailedException, NoSuchTableError
-from pyiceberg.expressions import LessThan
+from pyiceberg.expressions import And, EqualTo, LessThan, NotEqualTo, Or
 from pyiceberg.types import LongType, StringType
 
-TABLES = ("events", "observations", "identity_links", "policies", "attribute_keys")
+TABLES = ("events", "projections")
 RETENTION_MS = 60 * 86_400_000
 
 
@@ -32,14 +32,16 @@ def expire_rows(catalog, namespace, cutoff, apply=False):
     results = []
     for name in TABLES:
         # Dictionaries are keyed by UTC day; retain the live boundary day.
-        table_cutoff = cutoff // 86_400_000 * 86_400_000 if name == "attribute_keys" else cutoff
+        dictionary_cutoff = cutoff // 86_400_000 * 86_400_000
+        predicate = Or(And(EqualTo("table_name", "attribute_keys"), LessThan("occurred_at", dictionary_cutoff)),
+                       And(NotEqualTo("table_name", "attribute_keys"), LessThan("occurred_at", cutoff)))
         for attempt in range(3):
             try:
                 table = catalog.load_table((namespace, name))
                 validate_eye_table(table)
                 if apply:
-                    table.delete(LessThan("occurred_at", table_cutoff))
-                results.append({"table": name, "status": "expired" if apply else "validated", "cutoff": table_cutoff})
+                    table.delete(predicate)
+                results.append({"table": name, "status": "expired" if apply else "validated", "cutoff": cutoff, "dictionary_cutoff": dictionary_cutoff})
                 break
             except NoSuchTableError:
                 results.append({"table": name, "status": "not_created"})

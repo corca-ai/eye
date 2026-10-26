@@ -27,8 +27,8 @@ export function exposureProjection(table: 'observations' | 'decisions', alias: s
     attributes_json: observation ? "COALESCE(json_get_json(payload_json, 'userAttributes'), '{}')" : "'{}'",
     payload_json: payload,
   };
-  const completed = observation ? `${alias}_complete AS (SELECT ${columns.join(', ')} FROM ${namespace}.observations
-WHERE site_id = ${site} AND occurred_at >= ${from} AND occurred_at < ${to} AND received_at <= ${receivedBefore} AND status = 'complete'${extra}),
+  const completed = observation ? `${alias}_complete AS (SELECT ${columns.join(', ')} FROM ${namespace}.projections
+WHERE table_name = 'observations' AND site_id = ${site} AND occurred_at >= ${from} AND occurred_at < ${to} AND received_at <= ${receivedBefore} AND status = 'complete'${extra}),
 ${alias}_closed_keys AS (SELECT DISTINCT record_id AS closed_observation_id FROM ${alias}_complete WHERE revision > 1),
 ` : '';
   // subject_key is JSON-encoded at ingestion because Basin has no portable
@@ -39,7 +39,7 @@ ${alias}_closed_keys AS (SELECT DISTINCT record_id AS closed_observation_id FROM
   // Keep final ranking: retries can duplicate physical completed records.
   return `${completed}${alias}_receipts AS (SELECT * FROM (SELECT e.*, ROW_NUMBER() OVER (PARTITION BY ${key} ORDER BY occurred_at, record_id, received_at) AS receipt_rank
 FROM ${namespace}.events e${observation ? ` LEFT JOIN ${alias}_closed_keys c ON c.closed_observation_id = e.observation_id` : ''}
-WHERE site_id = ${site} AND occurred_at >= ${Math.max(retained, from)} AND occurred_at < ${receivedBefore + 1}
+WHERE table_name = 'events' AND site_id = ${site} AND occurred_at >= ${Math.max(retained, from)} AND occurred_at < ${receivedBefore + 1}
 AND received_at <= ${receivedBefore} AND status = 'accepted' AND json_get_str(payload_json, 'kind') = 'exposure'
 AND json_get_json(payload_json, 'projectionSubjectKey') IS NOT NULL${observation ? ' AND c.closed_observation_id IS NULL' : ''}) r WHERE receipt_rank = 1),
 ${alias}_derived AS (SELECT ${columns.map(column => `${overrides[column] ?? column} AS ${column}`).join(', ')} FROM ${alias}_receipts),

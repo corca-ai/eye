@@ -485,7 +485,7 @@ export type ArmStatus = 'active' | 'paused' | 'deleted';
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L62)
+[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L66)
 
 ```ts
 /** 실제 적용·노출 가능한 결정. decide/prepare의 status를 확인해 좁히고 원본 객체를 expose에 전달한다. */
@@ -1242,8 +1242,6 @@ export interface EyeOptions {
     service: EyeService;
     /** 현재 요청의 실행 컨텍스트. 수집과 배정 준비를 waitUntil에 등록한다. */
     ctx: Pick<ExecutionContext, 'waitUntil'>;
-    /** 사이트별 격리 키. 같은 사이트의 수집·관리·조회에서 동일하게 사용한다. */
-    siteId: string;
     /** Reports background delivery failures. Exceptions from this hook never fail host requests. */
     onError?: (error: unknown) => void;
 }
@@ -1297,47 +1295,49 @@ export interface EyeRequestOptions extends EyeOptions {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L23)
+[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L25)
 
 ```ts
 /** 호스트 Worker의 Service Binding 타입. 바인딩 이름은 자유이며 일반 연동은 createEye로 호출한다.
  * 저수준 RPC 계약이며 호스트의 사용자 인증이나 HTTP 라우팅을 대신하지 않는다. */
 export interface EyeService {
-    configureSummaries(siteId: string, input: Parameters<SummariesAPI['configure']>[0]): ReturnType<SummariesAPI['configure']>;
-    summaryStatus(siteId: string): ReturnType<SummariesAPI['status']>;
-    querySummary(siteId: string, input: Parameters<SummariesAPI['query']>[0]): ReturnType<SummariesAPI['query']>;
-    analyticsJobSchedule(siteId: string, input: Parameters<AnalyticsJobsAPI['schedule']>[0]): ReturnType<AnalyticsJobsAPI['schedule']>;
-    analyticsJobScheduled(siteId: string, input: Parameters<AnalyticsJobsAPI['scheduled']>[0]): ReturnType<AnalyticsJobsAPI['scheduled']>;
-    analyticsJobUnschedule(siteId: string, input: Parameters<AnalyticsJobsAPI['unschedule']>[0]): ReturnType<AnalyticsJobsAPI['unschedule']>;
-    analyticsJobCreate(siteId: string, input: Parameters<AnalyticsJobsAPI['create']>[0]): ReturnType<AnalyticsJobsAPI['create']>;
-    analyticsJobStatus(siteId: string, input: Parameters<AnalyticsJobsAPI['status']>[0]): ReturnType<AnalyticsJobsAPI['status']>;
-    analyticsJobPage(siteId: string, input: Parameters<AnalyticsJobsAPI['page']>[0]): Promise<string>;
-    analyticsJobCancel(siteId: string, input: Parameters<AnalyticsJobsAPI['cancel']>[0]): ReturnType<AnalyticsJobsAPI['cancel']>;
-    getPublishedPolicy(siteId: string, experimentId: string, maxAgeMs?: number): Promise<PublishedPolicy>;
-    ingest(events: readonly EventEnvelope[]): Promise<void>;
-    createExperiment(siteId: string, input: CreateExperiment): Promise<Experiment>;
-    getExperiment(siteId: string, experimentId: string): Promise<Experiment>;
-    listExperiments(siteId: string, after?: string, limit?: number): Promise<string[]>;
-    updateExperiment(siteId: string, experimentId: string, settings: Partial<ExperimentSettings>): Promise<Experiment>;
-    addArm(siteId: string, experimentId: string, armId: string): Promise<Experiment>;
-    setArmStatus(siteId: string, experimentId: string, armId: string, status: ArmStatus): Promise<Experiment>;
-    setExperimentStatus(siteId: string, experimentId: string, status: ArmStatus): Promise<Experiment>;
-    getPolicy(siteId: string, experimentId: string): Promise<PolicySnapshot>;
-    createGoal(siteId: string, goalId: string): Promise<GoalDefinition>;
-    getGoal(siteId: string, goalId: string): Promise<GoalDefinition | null>;
-    listGoals(siteId: string, after?: string, limit?: number): Promise<GoalDefinition[]>;
-    setGoalStatus(siteId: string, goalId: string, status: GoalStatus): Promise<GoalDefinition>;
-    analyticsArmSeries(siteId: string, query: Parameters<AnalyticsAPI['armSeries']>[0]): ReturnType<AnalyticsAPI['armSeries']>;
-    analyticsTraffic(siteId: string, query: Parameters<AnalyticsAPI['traffic']>[0]): ReturnType<AnalyticsAPI['traffic']>;
-    analyticsPolicies(siteId: string, query: Parameters<AnalyticsAPI['policies']>[0]): ReturnType<AnalyticsAPI['policies']>;
-    analyticsAttributeKeys(siteId: string, query: Parameters<AnalyticsAPI['attributeKeys']>[0]): ReturnType<AnalyticsAPI['attributeKeys']>;
-    analyticsLearning(siteId: string, query: Parameters<AnalyticsAPI['learning']>[0]): ReturnType<AnalyticsAPI['learning']>;
-    analyticsArms(siteId: string, query: Parameters<AnalyticsAPI['arms']>[0]): ReturnType<AnalyticsAPI['arms']>;
-    analyticsTimeline(siteId: string, query: Parameters<AnalyticsAPI['timeline']>[0]): ReturnType<AnalyticsAPI['timeline']>;
-    analyticsEvents(siteId: string, query: Parameters<AnalyticsAPI['events']>[0]): ReturnType<AnalyticsAPI['events']>;
-    analyticsGoals(siteId: string, query: Parameters<AnalyticsAPI['goals']>[0]): ReturnType<AnalyticsAPI['goals']>;
-    analyticsSeries(siteId: string, query: Parameters<AnalyticsAPI['series']>[0]): ReturnType<AnalyticsAPI['series']>;
-    analyticsAttributeValues(siteId: string, query: Parameters<AnalyticsAPI['attributeValues']>[0]): ReturnType<AnalyticsAPI['attributeValues']>;
+    /** Runtime-generated identity for server-side receipt verification; never configured by the caller. */
+    getInstallationId(): Promise<string>;
+    configureSummaries(input: Parameters<SummariesAPI['configure']>[0]): ReturnType<SummariesAPI['configure']>;
+    summaryStatus(): ReturnType<SummariesAPI['status']>;
+    querySummary(input: Parameters<SummariesAPI['query']>[0]): ReturnType<SummariesAPI['query']>;
+    analyticsJobSchedule(input: Parameters<AnalyticsJobsAPI['schedule']>[0]): ReturnType<AnalyticsJobsAPI['schedule']>;
+    analyticsJobScheduled(input: Parameters<AnalyticsJobsAPI['scheduled']>[0]): ReturnType<AnalyticsJobsAPI['scheduled']>;
+    analyticsJobUnschedule(input: Parameters<AnalyticsJobsAPI['unschedule']>[0]): ReturnType<AnalyticsJobsAPI['unschedule']>;
+    analyticsJobCreate(input: Parameters<AnalyticsJobsAPI['create']>[0]): ReturnType<AnalyticsJobsAPI['create']>;
+    analyticsJobStatus(input: Parameters<AnalyticsJobsAPI['status']>[0]): ReturnType<AnalyticsJobsAPI['status']>;
+    analyticsJobPage(input: Parameters<AnalyticsJobsAPI['page']>[0]): Promise<string>;
+    analyticsJobCancel(input: Parameters<AnalyticsJobsAPI['cancel']>[0]): ReturnType<AnalyticsJobsAPI['cancel']>;
+    getPublishedPolicy(experimentId: string, maxAgeMs?: number): Promise<PublishedPolicy>;
+    ingest(events: readonly Omit<EventEnvelope, 'siteId'>[]): Promise<void>;
+    createExperiment(input: CreateExperiment): Promise<Experiment>;
+    getExperiment(experimentId: string): Promise<Experiment>;
+    listExperiments(after?: string, limit?: number): Promise<string[]>;
+    updateExperiment(experimentId: string, settings: Partial<ExperimentSettings>): Promise<Experiment>;
+    addArm(experimentId: string, armId: string): Promise<Experiment>;
+    setArmStatus(experimentId: string, armId: string, status: ArmStatus): Promise<Experiment>;
+    setExperimentStatus(experimentId: string, status: ArmStatus): Promise<Experiment>;
+    getPolicy(experimentId: string): Promise<PolicySnapshot>;
+    createGoal(goalId: string): Promise<GoalDefinition>;
+    getGoal(goalId: string): Promise<GoalDefinition | null>;
+    listGoals(after?: string, limit?: number): Promise<GoalDefinition[]>;
+    setGoalStatus(goalId: string, status: GoalStatus): Promise<GoalDefinition>;
+    analyticsArmSeries(query: Parameters<AnalyticsAPI['armSeries']>[0]): ReturnType<AnalyticsAPI['armSeries']>;
+    analyticsTraffic(query: Parameters<AnalyticsAPI['traffic']>[0]): ReturnType<AnalyticsAPI['traffic']>;
+    analyticsPolicies(query: Parameters<AnalyticsAPI['policies']>[0]): ReturnType<AnalyticsAPI['policies']>;
+    analyticsAttributeKeys(query: Parameters<AnalyticsAPI['attributeKeys']>[0]): ReturnType<AnalyticsAPI['attributeKeys']>;
+    analyticsLearning(query: Parameters<AnalyticsAPI['learning']>[0]): ReturnType<AnalyticsAPI['learning']>;
+    analyticsArms(query: Parameters<AnalyticsAPI['arms']>[0]): ReturnType<AnalyticsAPI['arms']>;
+    analyticsTimeline(query: Parameters<AnalyticsAPI['timeline']>[0]): ReturnType<AnalyticsAPI['timeline']>;
+    analyticsEvents(query: Parameters<AnalyticsAPI['events']>[0]): ReturnType<AnalyticsAPI['events']>;
+    analyticsGoals(query: Parameters<AnalyticsAPI['goals']>[0]): ReturnType<AnalyticsAPI['goals']>;
+    analyticsSeries(query: Parameters<AnalyticsAPI['series']>[0]): ReturnType<AnalyticsAPI['series']>;
+    analyticsAttributeValues(query: Parameters<AnalyticsAPI['attributeValues']>[0]): ReturnType<AnalyticsAPI['attributeValues']>;
 }
 ```
 
@@ -1620,7 +1620,7 @@ export interface PolicySnapshot extends UnreservedPolicyEvaluation {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L20)
+[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L22)
 
 ```ts
 /** reuseUntil은 이번 결정의 적용 기한(Unix 밀리초)이다. 정책 유효기간과 유지·관측 조건으로 결정하며 저장 문맥의 삭제 시각은 아니다. */
@@ -1642,6 +1642,8 @@ export interface PreparedDecision {
 ```ts
 /** 로컬 선택에 사용하는 발행 정책. sequence는 발행 순서, publishedAt은 발행 Unix ms이며 조회로 연장되지 않는다. */
 export interface PublishedPolicy extends PolicySnapshot {
+    /** Automatically generated runtime identity; prevents cross-installation decision reuse. */
+    installationId: string;
     settings: ExperimentSettings;
     publishedAt: number;
     sequence: number;

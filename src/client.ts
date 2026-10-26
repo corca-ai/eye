@@ -28,8 +28,6 @@ export interface EyeOptions {
   service: EyeService;
   /** 현재 요청의 실행 컨텍스트. 수집과 배정 준비를 waitUntil에 등록한다. */
   ctx: Pick<ExecutionContext, 'waitUntil'>;
-  /** 사이트별 격리 키. 같은 사이트의 수집·관리·조회에서 동일하게 사용한다. */
-  siteId: string;
   /** Reports background delivery failures. Exceptions from this hook never fail host requests. */
   onError?: (error: unknown) => void;
 }
@@ -37,7 +35,8 @@ export function encodedSize(value: unknown): number { return encoder.encode(JSON
 
 /** 요청마다 생성한다. 관리·조회만 필요하면 decisions 설정을 생략할 수 있다. */
 export function createEye(options: EyeOptions) {
-  const siteId = id(options.siteId, 'siteId'), service = options.service;
+  // Admission reserves the exact UUID width that the bound Worker stamps.
+  const siteId = '00000000-0000-0000-0000-000000000000', service = options.service;
   const limits = collectionLimits(options.collectionLimits);
   validateDecisionOptions(options.decisions);
   const pending: { envelope: EventEnvelope; bytes: number }[] = [];
@@ -106,7 +105,7 @@ export function createEye(options: EyeOptions) {
   };
   const base = <T extends { eventId?: string; occurredAt?: number }>(input: T) => ({ ...input, eventId: input.eventId ?? crypto.randomUUID(), occurredAt: input.occurredAt ?? Date.now() });
   let runtime: ReturnType<typeof decisionRuntime> | undefined;
-  const decisions = () => runtime ??= decisionRuntime(service, options.ctx, siteId, options.decisions, report);
+  const decisions = () => runtime ??= decisionRuntime(service, options.ctx, options.decisions, report);
   return {
     /** 사용 가능한 정책 캐시로 준비하고 오래된 캐시는 백그라운드 갱신한다. 캐시가 없거나 forceRefresh=true이면 정책 조회를 기다린다. decisions.secret 필요. 반환 token은 미배정이면 null이며 호출자가 저장한다. 문맥이 바뀌면 onPrepared에도 전달한다. */
     prepare: (input: { subject: Subject; experimentId: string; context?: import('./core/local-assignment.js').LocalAssignmentContext; forceRefresh?: boolean }) => decisions().prepare(parseSubject(input.subject), id(input.experimentId, 'experimentId'), input.context, input.forceRefresh),
@@ -144,92 +143,92 @@ export function createEye(options: EyeOptions) {
     analytics: {
       summaries: {
         /** 관리 경로에서 자주 쓰는 ID만 활성화한다. 설정 변경은 집계를 초기화한다. */
-        configure: input => service.configureSummaries(siteId, input),
+        configure: input => service.configureSummaries(input),
         /** 집계 시작 시각·상태를 확인한다. */
-        status: () => service.summaryStatus(siteId),
+        status: () => service.summaryStatus(),
         /** 원본 SQL 없이 전체 UTC 시간 구간의 로컬 확정 합계·평균을 조회한다. */
-        query: input => service.querySummary(siteId, input),
+        query: input => service.querySummary(input),
       } satisfies SummariesAPI,
       /** 원본 귀속을 다시 계산하지 않고 확정 학습 표본의 합계·평균을 조회한다. */
-      learning: query => service.analyticsLearning(siteId, query),
+      learning: query => service.analyticsLearning(query),
       jobs: {
         /** 기본 골·확정 학습 보고서를 1~24시간 간격으로 생성한다. */
-        schedule: input => service.analyticsJobSchedule(siteId, input),
+        schedule: input => service.analyticsJobSchedule(input),
         /** 새 작업을 시작하지 않고 자동 보고서와 이전 완료 결과를 확인한다. */
-        scheduled: input => service.analyticsJobScheduled(siteId, input),
+        scheduled: input => service.analyticsJobScheduled(input),
         /** 이후 자동 실행을 중단한다. 이미 생성된 작업은 자체 만료까지 남는다. */
-        unschedule: input => service.analyticsJobUnschedule(siteId, input),
+        unschedule: input => service.analyticsJobUnschedule(input),
         /** 동일 권한 범위·조건의 작업과 완료 결과를 재사용한다. 등록은 SQL 완료를 기다리지 않는다. */
-        create: input => service.analyticsJobCreate(siteId, input),
+        create: input => service.analyticsJobCreate(input),
         /** 작업 진행 상태·시각·만료·실패 이유를 조회한다. */
-        status: input => service.analyticsJobStatus(siteId, input),
+        status: input => service.analyticsJobStatus(input),
         /** R2에 고정된 결과의 페이지를 읽으며 원본 SQL을 다시 계산하지 않는다. */
-        page: async input => JSON.parse(await service.analyticsJobPage(siteId, input)) as AnalyticsJobPage,
+        page: async input => JSON.parse(await service.analyticsJobPage(input)) as AnalyticsJobPage,
         /** 같은 scope에서 공유하는 미완료 작업을 취소한다. */
-        cancel: input => service.analyticsJobCancel(siteId, input),
+        cancel: input => service.analyticsJobCancel(input),
       } satisfies AnalyticsJobsAPI,
       /** 기간에 걸친 UTC 날짜 전체의 속성 키·타입·출처 목록. coverage로 실제 조회 범위를 확인한다. */
-      attributeKeys: query => service.analyticsAttributeKeys(siteId, query),
+      attributeKeys: query => service.analyticsAttributeKeys(query),
       /** 발행된 arm 선택 확률·평균·점수 이력. 모든 로컬 선택 순간의 기록은 아니다. */
-      policies: query => service.analyticsPolicies(siteId, query),
+      policies: query => service.analyticsPolicies(query),
       /** bucket·arm·세대별 신규 배정 수와 실제 노출 수 및 각각의 비율. */
-      traffic: query => service.analyticsTraffic(siteId, query),
+      traffic: query => service.analyticsTraffic(query),
       /** 관측 시작 시각의 bucket별 arm 성과. arms와 동일한 분모·속성 필터를 사용한다. */
-      armSeries: query => service.analyticsArmSeries(siteId, query),
+      armSeries: query => service.analyticsArmSeries(query),
       /** 관측 시작 시각 기준 arm·세대별 완료 보상 비교. groupBy/filter는 최초 노출의 userAttributes를 사용한다. */
-      arms: query => service.analyticsArms(siteId, query),
+      arms: query => service.analyticsArms(query),
       /** 한 cid 또는 uid의 사건·배정·관측·귀속·신원 연결 이력. nextCursor로 다음 페이지를 조회한다. */
-      timeline: query => service.analyticsTimeline(siteId, query),
+      timeline: query => service.analyticsTimeline(query),
       /** 사이트 전체 원본 사건만 필터·커서로 조회한다. uid는 직접 기록된 계정만 찾는다. */
-      events: query => service.analyticsEvents(siteId, query),
+      events: query => service.analyticsEvents(query),
       /** 발생 시각 기준 accepted 원본 goal의 수와 가치 합. filter는 사건 attributes에 적용한다. */
-      goals: query => service.analyticsGoals(siteId, query),
+      goals: query => service.analyticsGoals(query),
       /** goal 합계를 UTC bucket별로 반환한다. 사건 없는 bucket은 행을 만들지 않는다. */
-      series: query => service.analyticsSeries(siteId, query),
+      series: query => service.analyticsSeries(query),
       /** 원본 사건 attributes의 지정 키 값별 빈도. 관측 userAttributes의 분포와는 다르다. */
-      attributeValues: query => service.analyticsAttributeValues(siteId, query),
+      attributeValues: query => service.analyticsAttributeValues(query),
     } satisfies AnalyticsAPI & { jobs: AnalyticsJobsAPI; summaries: SummariesAPI },
     /** 신뢰할 수 있는 관리 경로에서 사용한다. */
     experiments: {
       /** 최초 정의를 등록한다. 같은 최초 정의로 재호출하면 현재 정의를 반환하며, 다른 최초 정의는 conflict다. */
-      create: (input: CreateExperiment) => { return service.createExperiment(siteId, parseCreateExperiment(input));
+      create: (input: CreateExperiment) => { return service.createExperiment(parseCreateExperiment(input));
       },
       /** 현재 실험 정의를 반환한다. 없으면 not_found 오류. */
-      get: (experimentId: string) => service.getExperiment(siteId, id(experimentId, 'experimentId')),
+      get: (experimentId: string) => service.getExperiment(id(experimentId, 'experimentId')),
       /** ID 오름차순 목록. after는 제외할 마지막 ID, limit 기본 100·최대 1000. 삭제된 실험도 포함한다. */
-      list: (options: { after?: string; limit?: number } = {}) => service.listExperiments(siteId, options.after, options.limit),
+      list: (options: { after?: string; limit?: number } = {}) => service.listExperiments(options.after, options.limit),
       /** 설정 patch를 반영하고 변경 시 새 학습 세대를 시작한다. 기존 배정의 설정·최소 유지 기간은 보존한다. */
-      update: (experimentId: string, input: Partial<ExperimentSettings>) => service.updateExperiment(siteId, id(experimentId, 'experimentId'), input),
+      update: (experimentId: string, input: Partial<ExperimentSettings>) => service.updateExperiment(id(experimentId, 'experimentId'), input),
       /** 활성 arm을 추가한다. 기존 arm은 그대로 반환하며 삭제된 ID는 재사용할 수 없다. */
-      addArm: (experimentId: string, armId: string) => service.addArm(siteId, id(experimentId, 'experimentId'), id(armId, 'armId')),
+      addArm: (experimentId: string, armId: string) => service.addArm(id(experimentId, 'experimentId'), id(armId, 'armId')),
       /** arm을 일시중지한다. 정책에 반영되면 최소 유지 기간보다 우선하며 로컬 정책에는 갱신 지연이 있다. */
-      pauseArm: (experimentId: string, armId: string) => service.setArmStatus(siteId, id(experimentId, 'experimentId'), id(armId, 'armId'), 'paused'),
+      pauseArm: (experimentId: string, armId: string) => service.setArmStatus(id(experimentId, 'experimentId'), id(armId, 'armId'), 'paused'),
       /** 일시중지한 arm을 재개한다. 삭제된 arm은 재개할 수 없다. */
-      resumeArm: (experimentId: string, armId: string) => service.setArmStatus(siteId, id(experimentId, 'experimentId'), id(armId, 'armId'), 'active'),
+      resumeArm: (experimentId: string, armId: string) => service.setArmStatus(id(experimentId, 'experimentId'), id(armId, 'armId'), 'active'),
       /** 실험 전체를 일시중지한다. 기존 이력과 보상은 유지한다. */
-      pause: (experimentId: string) => service.setExperimentStatus(siteId, id(experimentId, 'experimentId'), 'paused'),
+      pause: (experimentId: string) => service.setExperimentStatus(id(experimentId, 'experimentId'), 'paused'),
       /** 실험 전체를 재개한다. 개별 arm의 중지 상태는 유지한다. */
-      resume: (experimentId: string) => service.setExperimentStatus(siteId, id(experimentId, 'experimentId'), 'active'),
+      resume: (experimentId: string) => service.setExperimentStatus(id(experimentId, 'experimentId'), 'active'),
       /** 실험을 영구 비활성화한다. 이력은 보존하고 ID 재사용·재개를 금지한다. */
-      delete: (experimentId: string) => service.setExperimentStatus(siteId, id(experimentId, 'experimentId'), 'deleted'),
+      delete: (experimentId: string) => service.setExperimentStatus(id(experimentId, 'experimentId'), 'deleted'),
       /** arm을 영구 비활성화한다. 과거 노출의 지연 보상은 귀속 규칙을 따르며 ID를 재사용하지 않는다. */
-      deleteArm: (experimentId: string, armId: string) => service.setArmStatus(siteId, id(experimentId, 'experimentId'), id(armId, 'armId'), 'deleted'),
+      deleteArm: (experimentId: string, armId: string) => service.setArmStatus(id(experimentId, 'experimentId'), id(armId, 'armId'), 'deleted'),
       /** 중앙의 현재 감쇠 정책. 사용자별 held 배정 확률이나 최신 수집 완료를 뜻하지 않는다. */
-      policy: (experimentId: string) => service.getPolicy(siteId, id(experimentId, 'experimentId')),
+      policy: (experimentId: string) => service.getPolicy(id(experimentId, 'experimentId')),
     },
     goals: {
       /** ID만 등록한다. 가치·달성 조건은 서비스가 goal 호출마다 제공한다. 기존 ID는 현재 정의 반환, 삭제 ID 재사용은 거절한다. */
-      create: (goalId: string) => service.createGoal(siteId, id(goalId, 'goalId')),
+      create: (goalId: string) => service.createGoal(id(goalId, 'goalId')),
       /** 없으면 null. 실험 get은 없으면 not_found 오류라는 차이가 있다. */
-      get: (goalId: string) => service.getGoal(siteId, id(goalId, 'goalId')),
+      get: (goalId: string) => service.getGoal(id(goalId, 'goalId')),
       /** goalId 오름차순 정의 목록. after는 제외할 마지막 ID, limit 기본 100·최대 1000. 삭제된 골도 포함한다. */
-      list: (options: { after?: string; limit?: number } = {}) => service.listGoals(siteId, options.after, options.limit),
+      list: (options: { after?: string; limit?: number } = {}) => service.listGoals(options.after, options.limit),
       /** 일시중지 이후 발생한 골을 무시한다. 늦게 도착한 사건은 발생 당시 상태로 판단한다. */
-      pause: (goalId: string) => service.setGoalStatus(siteId, id(goalId, 'goalId'), 'paused'),
+      pause: (goalId: string) => service.setGoalStatus(id(goalId, 'goalId'), 'paused'),
       /** 일시중지한 골을 재개한다. 재개 이후 발생한 사건을 수집한다. */
-      resume: (goalId: string) => service.setGoalStatus(siteId, id(goalId, 'goalId'), 'active'),
+      resume: (goalId: string) => service.setGoalStatus(id(goalId, 'goalId'), 'active'),
       /** 골을 영구 비활성화한다. 기존 기록·보상을 유지하고 ID 재사용을 금지한다. */
-      delete: (goalId: string) => service.setGoalStatus(siteId, id(goalId, 'goalId'), 'deleted'),
+      delete: (goalId: string) => service.setGoalStatus(id(goalId, 'goalId'), 'deleted'),
     },
   };
 }

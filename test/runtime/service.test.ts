@@ -1,15 +1,15 @@
 import { env } from 'cloudflare:workers';
 import { createExecutionContext, createMessageBatch, getQueueResult, waitOnExecutionContext, runInDurableObject } from 'cloudflare:test';
 import { expect, it, vi } from 'vitest';
-import { createEye } from '../../src/client.js';
+import { createEye, encodedSize } from '../../src/client.js';
 import { EyeWorker } from '../../src/runtime/service.js';
 import type { EventEnvelope } from '../../src/core/types.js';
 import type { AnalyticsRecord } from '../../src/analytics/records.js';
 import { packIngestion } from '../../src/runtime/queue-batch.js';
 
 it('decodes compressed settings before learning and keeps valid siblings across retries', async () => {
-  const siteId = crypto.randomUUID(), ctx = createExecutionContext(), service = new EyeWorker(ctx, env);
-  const config = await service.createExperiment(siteId, { experimentId: 'exp', arms: ['a'], settings: { minHoldMs: 0 } });
+  const siteId = crypto.randomUUID(), ctx = createExecutionContext(), service = new EyeWorker(ctx, { ...env, EYE_INSTALLATION_ID: siteId });
+  const config = await service.createExperiment({ experimentId: 'exp', arms: ['a'], settings: { minHoldMs: 0 } });
   const at = Date.now();
   const envelopes: EventEnvelope[] = Array.from({ length: 99 }, (_, i) => ({ siteId, receivedAt: at,
     event: { kind: 'exposure', eventId: `e-${i}`, occurredAt: at, subject: { cid: `c-${i}` },
@@ -41,9 +41,9 @@ it('decodes compressed settings before learning and keeps valid siblings across 
 
 it('runs SDK selection, actual exposure, signed goal, raw export, closed learning and next policy end to end', async () => {
   const siteId = crypto.randomUUID(), ctx = createExecutionContext();
-  const envelopes: EventEnvelope[] = [], service = new EyeWorker(ctx, env);
-  vi.spyOn(service, 'ingest').mockImplementation(async items => { envelopes.push(...items); });
-  const eye = createEye({ siteId, ctx, service, decisions: { secret: 'integration-secret-at-least-32-bytes-long' } });
+  const envelopes: EventEnvelope[] = [], service = new EyeWorker(ctx, { ...env, EYE_INSTALLATION_ID: siteId });
+  vi.spyOn(service, 'ingest').mockImplementation(async items => { envelopes.push(...items.map(item => ({ ...item, siteId: 'installation' }))); });
+  const eye = createEye({ ctx, service, decisions: { secret: 'integration-secret-at-least-32-bytes-long' } });
   await eye.goals.create('purchase');
   await eye.experiments.create({ experimentId: 'exp', arms: ['a'], settings: { minHoldMs: 0, observationWindowMs: 1000, allowedLatenessMs: 0 } });
   const prepared = await eye.prepare({ subject: { cid: 'c' }, experimentId: 'exp' });
@@ -54,8 +54,8 @@ it('runs SDK selection, actual exposure, signed goal, raw export, closed learnin
   await eye.flush(); await eye.state();
   const rows: AnalyticsRecord[] = [];
   const send = vi.spyOn(env.ANALYTICS, 'send').mockImplementation(async records => { rows.push(...records as AnalyticsRecord[]); });
-  const batch = createMessageBatch('eye-events', envelopes.map(body => ({ id: crypto.randomUUID(), timestamp: Date.now(), attempts: 1, body: { version: 2, events: [body] } })));
-  await new EyeWorker(ctx, env).queue(batch);
+  const batch = createMessageBatch('eye-events', envelopes.map(body => ({ id: crypto.randomUUID(), timestamp: Date.now(), attempts: 1, body: { version: 2, events: [{ ...body, siteId }] } })));
+  await new EyeWorker(ctx, { ...env, EYE_INSTALLATION_ID: siteId }).queue(batch);
   expect((await getQueueResult(batch, ctx)).retryMessages).toHaveLength(0);
   expect(rows.filter(r => r.table_name === 'events')).toHaveLength(2);
   const sample = envelopes[0]!.event;
@@ -69,11 +69,11 @@ it('runs SDK selection, actual exposure, signed goal, raw export, closed learnin
   send.mockRestore(); await waitOnExecutionContext(ctx);
 });
 it('collection returns before network completion and rejects nonfinite rewards', async () => {
-  const ctx = createExecutionContext(), service = new EyeWorker(ctx, env);
+  const ctx = createExecutionContext(), service = new EyeWorker(ctx, { ...env, EYE_INSTALLATION_ID: env.EYE_INSTALLATION_ID });
   let release!: () => void;
   const delivery = new Promise<void>(resolve => { release = resolve; });
   const ingest = vi.spyOn(service, 'ingest').mockReturnValue(delivery);
-  const eye = createEye({ siteId: 'site', ctx, service });
+  const eye = createEye({ ctx, service });
   expect(eye.track({ subject: { cid: 'c' }, name: 'view' }).accepted).toBe(true);
   expect(eye.goal({ subject: { cid: 'c' }, goalId: 'pay', value: NaN }).accepted).toBe(false);
   expect(ingest).not.toHaveBeenCalled();
@@ -86,18 +86,18 @@ it('track bypasses learning while identity events update the site learner', asyn
   const send = vi.spyOn(env.ANALYTICS, 'send').mockImplementation(async rows => { records.push(...rows as AnalyticsRecord[]); });
   const site = vi.spyOn(env.SITES, 'getByName');
   const input: EventEnvelope[] = [
-    { siteId: 'site', receivedAt: at, event: { kind: 'track', eventId: 't', occurredAt: at, subject: { cid: 'c' }, name: 'view' } },
-    { siteId: 'site', receivedAt: at, event: { kind: 'identify', eventId: 'i', occurredAt: at, subject: { cid: 'c', uid: 'u' } } },
+    { siteId: env.EYE_INSTALLATION_ID, receivedAt: at, event: { kind: 'track', eventId: 't', occurredAt: at, subject: { cid: 'c' }, name: 'view' } },
+    { siteId: env.EYE_INSTALLATION_ID, receivedAt: at, event: { kind: 'identify', eventId: 'i', occurredAt: at, subject: { cid: 'c', uid: 'u' } } },
   ];
-  const batch = createMessageBatch('eye-events', input.map(body => ({ id: body.event.eventId, timestamp: at, attempts: 1, body: { version: 2, events: [body] } })));
-  await new EyeWorker(ctx, env).queue(batch);
+  const batch = createMessageBatch('eye-events', input.map(body => ({ id: body.event.eventId, timestamp: at, attempts: 1, body: { version: 2, events: [{ ...body, siteId: env.EYE_INSTALLATION_ID }] } })));
+  await new EyeWorker(ctx, { ...env, EYE_INSTALLATION_ID: env.EYE_INSTALLATION_ID }).queue(batch);
   expect(site).toHaveBeenCalledTimes(1); expect(records.filter(r => r.table_name === 'events')).toHaveLength(2);
   expect(records.some(r => r.table_name === 'identity_links')).toBe(true);
   site.mockRestore(); send.mockRestore(); await waitOnExecutionContext(ctx);
 });
 it('packs ingestion and keeps valid siblings when a Queue event is malformed', async () => {
-  const ctx = createExecutionContext(), at = Date.now(), service = new EyeWorker(ctx, env);
-  const envelopes: EventEnvelope[] = ['one', 'two'].map(eventId => ({ siteId: 'batch-site', receivedAt: at,
+  const ctx = createExecutionContext(), at = Date.now(), service = new EyeWorker(ctx, { ...env, EYE_INSTALLATION_ID: env.EYE_INSTALLATION_ID });
+  const envelopes: EventEnvelope[] = ['one', 'two'].map(eventId => ({ siteId: env.EYE_INSTALLATION_ID, receivedAt: at,
     event: { kind: 'track', eventId, occurredAt: at, subject: { cid: 'c' }, name: 'view' } }));
   const enqueue = vi.spyOn(env.EVENTS, 'sendBatch').mockResolvedValue({ metadata: { metrics: { backlogCount: 0, backlogBytes: 0 } } });
   const rows: AnalyticsRecord[] = [];
@@ -118,7 +118,7 @@ it('packs ingestion and keeps valid siblings when a Queue event is malformed', a
 });
 
 it('validates actual UTF-8 sizes before enqueueing any sibling and ignores supplied size metadata', async () => {
-  const ctx = createExecutionContext(), service = new EyeWorker(ctx, env), at = Date.now();
+  const ctx = createExecutionContext(), service = new EyeWorker(ctx, { ...env, EYE_INSTALLATION_ID: env.EYE_INSTALLATION_ID }), at = Date.now();
   const make = (eventId: string, detail: string) => ({ siteId: 'size-test', receivedAt: at, encodedSize: 1,
     event: { kind: 'track' as const, eventId, occurredAt: at, subject: { cid: 'c' }, name: 'view', attributes: { detail } } });
   const enqueue = vi.spyOn(env.EVENTS, 'sendBatch').mockResolvedValue({ metadata: { metrics: { backlogCount: 0, backlogBytes: 0 } } });
@@ -131,12 +131,12 @@ it('validates actual UTF-8 sizes before enqueueing any sibling and ignores suppl
   } finally { enqueue.mockRestore(); await waitOnExecutionContext(ctx); }
 });
 it('retries a packed message if one sibling needs goal configuration, even after exporting track siblings', async () => {
-  const ctx = createExecutionContext(), at = Date.now(), service = new EyeWorker(ctx, env);
+  const ctx = createExecutionContext(), at = Date.now(), service = new EyeWorker(ctx, { ...env, EYE_INSTALLATION_ID: env.EYE_INSTALLATION_ID });
   const site = vi.spyOn(env.SITES, 'getByName').mockImplementation(() => { throw new Error('transient outage'); });
   const send = vi.spyOn(env.ANALYTICS, 'send').mockResolvedValue(undefined);
   const body = { version: 2, events: [
-    { siteId: 'site', receivedAt: at, event: { kind: 'track', eventId: 'track', occurredAt: at, subject: { cid: 'c' }, name: 'view' } },
-    { siteId: 'site', receivedAt: at, event: { kind: 'goal', eventId: 'goal', occurredAt: at, subject: { cid: 'c' }, goalId: 'pay', value: 5 } },
+    { siteId: env.EYE_INSTALLATION_ID, receivedAt: at, event: { kind: 'track', eventId: 'track', occurredAt: at, subject: { cid: 'c' }, name: 'view' } },
+    { siteId: env.EYE_INSTALLATION_ID, receivedAt: at, event: { kind: 'goal', eventId: 'goal', occurredAt: at, subject: { cid: 'c' }, goalId: 'pay', value: 5 } },
   ] };
   try {
     const batch = createMessageBatch('eye-events', [{ id: 'packed', timestamp: at, attempts: 1, body }]);
@@ -147,11 +147,11 @@ it('retries a packed message if one sibling needs goal configuration, even after
 });
 
 it.each([false, true])('exports admitted high-cardinality attributes in bounded chunks, retry=%s', async failOnce => {
-  const ctx = createExecutionContext(), service = new EyeWorker(ctx, env);
+  const siteId = crypto.randomUUID(), ctx = createExecutionContext(), service = new EyeWorker(ctx, { ...env, EYE_INSTALLATION_ID: siteId });
   const envelopes: EventEnvelope[] = [];
-  const ingest = vi.spyOn(service, 'ingest').mockImplementation(async items => { envelopes.push(...items); });
+  const ingest = vi.spyOn(service, 'ingest').mockImplementation(async items => { envelopes.push(...items.map(item => ({ ...item, siteId: 'installation' }))); });
   // Exercise the explicit high-cardinality override; ordinary requests use a smaller key budget.
-  const eye = createEye({ siteId: crypto.randomUUID(), ctx, service, collectionLimits: { maxAttributeKeys: 10_000 } });
+  const eye = createEye({ ctx, service, collectionLimits: { maxAttributeKeys: 10_000 } });
   const attributes = Object.fromEntries(Array.from({ length: 10000 }, (_, i) => [String(i), 0]));
   for (const [eventId, attrs] of [['before', {}], ['large', attributes], ['after', {}]] as const) {
     expect(eye.track({ eventId, subject: { cid: 'c' }, name: 'view', attributes: attrs }).accepted).toBe(true);
@@ -164,7 +164,7 @@ it.each([false, true])('exports admitted high-cardinality attributes in bounded 
     if (++attempts === 2 && failOnce) throw new Error('temporary chunk failure');
     sent.push(records as AnalyticsRecord[]);
   });
-  const batch = () => createMessageBatch('eye-events', envelopes.map((body, i) => ({ id: `message-${i}`, timestamp: Date.now(), attempts: 1, body: { version: 2, events: [body] } })));
+  const batch = () => createMessageBatch('eye-events', envelopes.map((body, i) => ({ id: `message-${i}`, timestamp: Date.now(), attempts: 1, body: { version: 2, events: [{ ...body, siteId }] } })));
   try {
     if (failOnce) {
       const first = batch();
@@ -183,9 +183,9 @@ it.each([false, true])('exports admitted high-cardinality attributes in bounded 
 });
 
 it('collects across microtasks without losing events or waiting for an explicit flush', async () => {
-  const ctx = createExecutionContext(), service = new EyeWorker(ctx, env), received: EventEnvelope[] = [];
-  const ingest = vi.spyOn(service, 'ingest').mockImplementation(async batch => { received.push(...batch); });
-  const eye = createEye({ siteId: 'batch-microtasks', ctx, service });
+  const ctx = createExecutionContext(), service = new EyeWorker(ctx, { ...env, EYE_INSTALLATION_ID: env.EYE_INSTALLATION_ID }), received: EventEnvelope[] = [];
+  const ingest = vi.spyOn(service, 'ingest').mockImplementation(async batch => { received.push(...batch.map(item => ({ ...item, siteId: 'installation' }))); });
+  const eye = createEye({ ctx, service });
   for (let i = 0; i < 5; i++) {
     expect(eye.track({ subject: { cid: 'c' }, name: 'view', eventId: String(i) }).accepted).toBe(true);
     await Promise.resolve();
@@ -196,9 +196,9 @@ it('collects across microtasks without losing events or waiting for an explicit 
 });
 
 it('explicit flush bypasses the scheduled send and exposes delivery failures', async () => {
-  const ctx = createExecutionContext(), service = new EyeWorker(ctx, env), onError = vi.fn();
+  const ctx = createExecutionContext(), service = new EyeWorker(ctx, { ...env, EYE_INSTALLATION_ID: env.EYE_INSTALLATION_ID }), onError = vi.fn();
   const ingest = vi.spyOn(service, 'ingest').mockRejectedValue(new Error('offline'));
-  const eye = createEye({ siteId: 'batch-failure', ctx, service, onError });
+  const eye = createEye({ ctx, service, onError });
   eye.track({ subject: { cid: 'c' }, name: 'view' });
   await expect(eye.flush()).rejects.toThrow('offline');
   await waitOnExecutionContext(ctx);
@@ -207,8 +207,8 @@ it('explicit flush bypasses the scheduled send and exposes delivery failures', a
 });
 
 it('keeps acceptance separate for sibling goals inside the same packed message', async () => {
-  const siteId = crypto.randomUUID(), ctx = createExecutionContext(), service = new EyeWorker(ctx, env);
-  await service.createGoal(siteId, 'active');
+  const siteId = crypto.randomUUID(), ctx = createExecutionContext(), service = new EyeWorker(ctx, { ...env, EYE_INSTALLATION_ID: siteId });
+  await service.createGoal('active');
   const at = Date.now(), rows: AnalyticsRecord[] = [];
   const send = vi.spyOn(env.ANALYTICS, 'send').mockImplementation(async records => { rows.push(...records as AnalyticsRecord[]); });
   const events: EventEnvelope[] = ['active', 'unknown'].map(goalId => ({ siteId, receivedAt: at,
@@ -223,9 +223,9 @@ it('keeps acceptance separate for sibling goals inside the same packed message',
 });
 
 it.each(['arm', 'expired window'] as const)('rejects a conflicting %s without retrying or losing valid siblings in its packed message', async conflict => {
-  const siteId = crypto.randomUUID(), ctx = createExecutionContext(), service = new EyeWorker(ctx, env);
-  const config = await service.createExperiment(siteId, { experimentId: 'exp', arms: ['a', 'b'], settings: { minHoldMs: 0, observationWindowMs: 1000, allowedLatenessMs: 0 } });
-  await service.createGoal(siteId, 'pay');
+  const siteId = crypto.randomUUID(), ctx = createExecutionContext(), service = new EyeWorker(ctx, { ...env, EYE_INSTALLATION_ID: siteId });
+  const config = await service.createExperiment({ experimentId: 'exp', arms: ['a', 'b'], settings: { minHoldMs: 0, observationWindowMs: 1000, allowedLatenessMs: 0 } });
+  await service.createGoal('pay');
   const at = Date.now(), events: EventEnvelope[] = [];
   const original: import('../../src/core/types.js').ExposureEvent = { kind: 'exposure', eventId: 'a-valid', occurredAt: at, subject: { cid: 'c' },
     assignment: { assignmentId: 'assignment', experimentId: 'exp', armId: 'a', generation: 1, policyRevision: 1, assignedAt: at, probability: .5, settings: config.settings },
@@ -253,8 +253,8 @@ it.each(['arm', 'expired window'] as const)('rejects a conflicting %s without re
 });
 
 it('rejects malformed Unicode sample IDs while preserving valid packed exposures through closure', async () => {
-  const siteId = crypto.randomUUID(), ctx = createExecutionContext(), service = new EyeWorker(ctx, env);
-  const config = await service.createExperiment(siteId, { experimentId: 'exp', arms: ['a'], settings: { minHoldMs: 0 } });
+  const siteId = crypto.randomUUID(), ctx = createExecutionContext(), service = new EyeWorker(ctx, { ...env, EYE_INSTALLATION_ID: siteId });
+  const config = await service.createExperiment({ experimentId: 'exp', arms: ['a'], settings: { minHoldMs: 0 } });
   const at = Date.now();
   const events: EventEnvelope[] = ['\ud800', '\udfff', 'valid-😀'].map((sampleId, i) => ({ siteId, receivedAt: at,
     event: { kind: 'exposure', eventId: String(i), occurredAt: at, subject: { cid: 'c' },
@@ -279,15 +279,39 @@ it('rejects malformed Unicode sample IDs while preserving valid packed exposures
 });
 
 it('validates the entire experiment definition before changing site retention bounds', async () => {
-  const siteId = crypto.randomUUID(), ctx = createExecutionContext(), service = new EyeWorker(ctx, env), day = 86_400_000;
+  const siteId = crypto.randomUUID(), ctx = createExecutionContext(), service = new EyeWorker(ctx, { ...env, EYE_INSTALLATION_ID: siteId }), day = 86_400_000;
   try {
-    await expect(service.createExperiment(siteId, { experimentId: 'invalid', arms: [], settings: {
+    await expect(service.createExperiment({ experimentId: 'invalid', arms: [], settings: {
       minHoldMs: 0, observationWindowMs: day, allowedLatenessMs: 40 * day, attributionWindowMs: day,
     } })).rejects.toThrow('At least one arm');
-    const valid = await service.createExperiment(siteId, { experimentId: 'valid', arms: ['a'], settings: {
+    const valid = await service.createExperiment({ experimentId: 'valid', arms: ['a'], settings: {
       minHoldMs: 0, observationWindowMs: 40 * day, allowedLatenessMs: 0, attributionWindowMs: day,
     } });
     expect(valid.experimentId).toBe('valid');
     expect(await service.listExperiments(siteId)).toEqual(['valid']);
   } finally { await waitOnExecutionContext(ctx); }
+});
+
+it('keeps event and batch byte admission consistent with a generated installation UUID', async () => {
+  const siteId = crypto.randomUUID(), ctx = createExecutionContext(), at = Date.now();
+  const service = new EyeWorker(ctx, { ...env, EYE_INSTALLATION_ID: siteId });
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(at);
+  const enqueue = vi.spyOn(env.EVENTS, 'sendBatch').mockResolvedValue({ metadata: { metrics: { backlogCount: 0, backlogBytes: 0 } } });
+  const eye = createEye({ ctx, service, collectionLimits: { maxBytes: 1_000_000, maxPendingBytes: 1_000_000 } });
+  const input = (eventId: string, size: number) => {
+    const event = { kind: 'track' as const, eventId, occurredAt: at, subject: { cid: 'c' }, name: 'view', attributes: { detail: '' } };
+    const overhead = encodedSize({ siteId, receivedAt: at, event }) + 200;
+    return { ...event, attributes: { detail: 'x'.repeat(size - overhead) } };
+  };
+  try {
+    expect(eye.track(input('limit', 100_000)).accepted).toBe(true);
+    expect(eye.track(input('oversized', 100_001)).accepted).toBe(false);
+    expect(eye.track(input('second', 80_000)).accepted).toBe(true);
+    expect(eye.track(input('third', 80_000)).accepted).toBe(true);
+    await eye.flush(); await waitOnExecutionContext(ctx);
+    expect(enqueue).toHaveBeenCalledTimes(2);
+    const delivered = enqueue.mock.calls.flatMap(([batch]) => Array.from(batch).flatMap(message => (message.body as { events: EventEnvelope[] }).events));
+    expect(delivered.map(row => row.event.eventId)).toEqual(['limit', 'second', 'third']);
+    expect(delivered.every(row => row.siteId === siteId)).toBe(true);
+  } finally { enqueue.mockRestore(); clock.mockRestore(); }
 });

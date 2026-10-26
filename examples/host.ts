@@ -18,7 +18,7 @@ export const checkout = {
 /** Common request boundary. Reuse the session already loaded by host authentication. */
 export function requestEye(request: Request, env: HostEnv, ctx: ExecutionContext, session: HostSession, uid?: string) {
   const cookie = getOrCreateCid(request);
-  const eye = createEyeRequest({ service: env.EYE, ctx, siteId: 'shop',
+  const eye = createEyeRequest({ service: env.EYE, ctx,
     subject: { cid: cookie.cid, ...(uid === undefined ? {} : { uid }) },
     userAttributes: { locale: 'ko' },
     decisions: { secret: env.EYE_DECISION_SECRET, cache: policies, tokens: session.decisionTokens,
@@ -47,13 +47,13 @@ export async function handlePage(request: Request, env: HostEnv, ctx: ExecutionC
 
 /** Invoke from a trusted setup job or administration route, once per definition. */
 export async function configure(env: HostEnv, ctx: ExecutionContext): Promise<void> {
-  const eye = createEye({ service: env.EYE, ctx, siteId: 'shop' });
+  const eye = createEye({ service: env.EYE, ctx });
   await eye.goals.create('purchase');
   await eye.goals.create('refund');
   await eye.experiments.create({ experimentId: checkout.experimentId, arms: Object.keys(checkout.variants), settings: { minHoldMs: 86_400_000 } });
 }
 
 export async function compareLocale(env: HostEnv, ctx: ExecutionContext) {
-  const eye = createEye({ service: env.EYE, ctx, siteId: 'shop' }), to = Date.now();
+  const eye = createEye({ service: env.EYE, ctx }), to = Date.now();
   return eye.analytics.arms({ experimentId: 'checkout', from: to - 7 * 86_400_000, to, groupBy: [{ key: 'locale', type: 'string' }] });
 }

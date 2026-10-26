@@ -1,28 +1,28 @@
 import { exports } from 'cloudflare:workers';
-import { createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
-import { expect, it, vi } from 'vitest';
+import { createExecutionContext, waitOnExecutionContext, reset } from 'cloudflare:test';
+import { afterEach, expect, it, vi } from 'vitest';
 import { createEye } from '../../src/client.js';
 import { createEyeRequest } from '../../src/request.js';
 import { DecisionCache } from '../../src/decisions.js';
 import type { EventEnvelope } from '../../src/core/types.js';
 
 async function fixture() {
-  const ctx = createExecutionContext(), siteId = crypto.randomUUID();
+  const ctx = createExecutionContext();
   const subject = { cid: 'browser', uid: 'alice' };
   const decisions = { secret: 'request-test-secret-at-least-32-bytes', cache: new DecisionCache() };
-  const admin = createEye({ ctx, siteId, service: exports.default, decisions });
-  await admin.experiments.create({ experimentId: 'checkout', arms: ['compact'], settings: { minHoldMs: 0 } });
-  const prepared = await admin.prepare({ subject, experimentId: 'checkout' });
-  if (!prepared.token) throw new Error('Expected token');
   const events: EventEnvelope[] = [];
-  const ingest = vi.fn(async (batch: readonly EventEnvelope[]) => { events.push(...batch); });
+  const ingest = vi.fn(async (batch: readonly EventEnvelope[]) => { events.push(...batch.map(item => ({ ...item }))); });
   // Capture only SDK delivery; policy, assignment and signing use the real Worker.
   const service = new Proxy(exports.default, { get(target, property) {
     return property === 'ingest' ? ingest : Reflect.get(target, property);
   } });
+  const admin = createEye({ ctx, service, decisions });
+  await admin.experiments.create({ experimentId: 'checkout', arms: ['compact'], settings: { minHoldMs: 0 } });
+  const prepared = await admin.prepare({ subject, experimentId: 'checkout' });
+  if (!prepared.token) throw new Error('Expected token');
   const onError = vi.fn();
   return { ctx, subject, events, ingest, onError, options: {
-    ctx, siteId, service, subject, onError, decisions: { ...decisions, tokens: { checkout: prepared.token } },
+    ctx, service, subject, onError, decisions: { ...decisions, tokens: { checkout: prepared.token } },
   } };
 }
 const checkout = { experimentId: 'checkout', variants: { compact: 'small' }, fallback: 'normal' };
@@ -59,7 +59,7 @@ it('unknown arms and disabled experiments fall back without fabricated exposure'
 it('initialization and invalid-input errors cannot break fallback, even with a throwing reporter', async () => {
   const f = await fixture();
   const report = vi.fn(() => { throw new Error('logging offline'); });
-  const broken = createEyeRequest({ ...f.options, siteId: '', onError: report });
+  const broken = createEyeRequest({ ...f.options, decisions: { secret: 'short' }, onError: report });
   expect((await broken.variant(checkout)).expose()).toBeNull();
   expect(broken.track({ name: 'page_view' }).accepted).toBe(false);
   const eye = createEyeRequest({ ...f.options, onError: report });
@@ -110,7 +110,7 @@ it('session token writes merge and stale authentication epochs cannot repopulate
 it('cookie preparation is separate from rendering and old auth scopes cannot supply the next scope token', async () => {
   const { cookieCheckout } = await import('../../examples/cookie-host.js');
   const f = await fixture();
-  const admin = createEye({ ...f.options, siteId: 'shop' });
+  const admin = createEye({ ...f.options });
   await admin.experiments.create({ experimentId: 'checkout', arms: ['compact'], settings: { minHoldMs: 0 } });
   const env = { EYE: f.options.service, EYE_DECISION_SECRET: f.options.decisions.secret };
   const page = new Request('https://shop.example/checkout', { headers: { Cookie: 'cid=browser' } });
@@ -177,3 +177,5 @@ it('budget rejection does not open a sample and a fresh request can expose the h
   await next.flush(); await waitOnExecutionContext(f.ctx);
   expect(f.events.filter(row => row.event.kind === 'exposure')).toHaveLength(1);
 });
+
+afterEach(async () => { vi.restoreAllMocks(); await reset(); });

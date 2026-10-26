@@ -30,7 +30,7 @@ declare const service: EyeService;
 declare const ctx: ExecutionContext;
 // The customer's Env need not match the library's generated runtime Env.
 interface Env { MY_EYE_SERVICE: EyeService; OTHER_CONFIG: string }
-const client = createEye({ service, ctx, siteId: 'consumer' });
+const client = createEye({ service, ctx });
 const report: Promise<ArmReport> = client.analytics.arms({ from: 1, to: 2, experimentId: 'test' });
 void report;
 `);
@@ -65,11 +65,13 @@ selection.expose(); client.dispose();
   });
   assert.deepEqual(installedConfig.r2_buckets, [{ binding: 'REPORT_RESULTS', bucket_name: 'eye-data' }]);
   const resources = JSON.parse(await readFile(join(installation, 'resources.json'), 'utf8'));
-  assert.deepEqual(resources.tables, ['events', 'observations', 'identity_links', 'policies', 'attribute_keys']);
+  assert.deepEqual(resources.tables, ['events', 'projections']);
   assert.equal(resources.sinkRollIntervalSeconds, 300);
   const fanout = await readFile(join(installation, 'fanout.sql'), 'utf8');
   assert.equal((fanout.match(/INSERT INTO /g) ?? []).length, resources.tables.length);
-  for (const table of resources.tables) assert.ok(fanout.includes(`WHERE table_name = '${table}'`));
+  assert.ok(fanout.includes("WHERE table_name = 'events'"));
+  assert.ok(fanout.includes("WHERE table_name <> 'events'"));
+  assert.match(installedConfig.vars.EYE_INSTALLATION_ID, /^[a-f0-9-]{36}$/);
   const deployed = await exec(process.execPath, [join(root, 'node_modules/wrangler/bin/wrangler.js'), 'deploy', '--dry-run', '--config', join(installation, 'wrangler.jsonc')]);
   const bundle = deployed.stdout.split('\n').find(line => line.includes('Total Upload:'));
   console.log(JSON.stringify({ tarballBytes: size, externalConsumerTypes: 'passed', browserConsumerTypes: 'passed', generatedWorkerBundle: bundle?.trim() ?? 'passed', deployed: false }));
