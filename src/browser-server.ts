@@ -33,7 +33,9 @@ export function createEyeBrowserServer(options: BrowserServerOptions) {
   const eye = createEye(options), subject = parseSubject(options.subject);
   const userAttributes = attributes(options.userAttributes ?? {}, collectionLimits(options.collectionLimits));
   const binding = id(options.browserBinding, 'browserBinding'), scope = id(options.scope, 'scope');
-  const audience = encoder.encode(`eye/browser-exposure/v1/${options.siteId}`);
+  let installation: Promise<string> | undefined;
+  const installationId = () => installation ??= options.service.getInstallationId();
+  const audience = (id: string) => encoder.encode(`eye/browser-exposure/v1/${id}`);
   let importedKey: Promise<CryptoKey> | undefined;
   const importKey = async () => {
     invariant(encoder.encode(options.receiptSecret).length >= 32, 'invalid_input', 'receiptSecret requires 32 bytes');
@@ -41,15 +43,15 @@ export function createEyeBrowserServer(options: BrowserServerOptions) {
     return crypto.subtle.importKey('raw', digest, 'AES-GCM', false, ['encrypt', 'decrypt']);
   };
   const key = () => importedKey ??= importKey();
-  const seal = async (value: unknown) => {
+  const seal = async (value: unknown, installation: string) => {
     const iv = crypto.getRandomValues(new Uint8Array(12));
-    const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: audience }, await key(), encoder.encode(JSON.stringify(value)));
+    const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: audience(installation) }, await key(), encoder.encode(JSON.stringify(value)));
     return `${encode(iv)}.${encode(new Uint8Array(ciphertext))}`;
   };
   const openReceipt = async (receipt: unknown) => {
     invariant(typeof receipt === 'string' && receipt.length <= 24_000, 'invalid_input', 'Invalid receipt');
     const parts = receipt.split('.'); invariant(parts.length === 2, 'invalid_input', 'Invalid receipt');
-    const clear = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: decode(parts[0]!), additionalData: audience }, await key(), decode(parts[1]!));
+    const clear = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: decode(parts[0]!), additionalData: audience(await installationId()) }, await key(), decode(parts[1]!));
     const value = record(JSON.parse(new TextDecoder().decode(clear)), 'receipt');
     invariant(value.binding === binding, 'invalid_input', 'Receipt browser mismatch');
     return value;
@@ -81,7 +83,7 @@ export function createEyeBrowserServer(options: BrowserServerOptions) {
           const applyUntil = Math.min(prepared.reuseUntil, prepared.policy.publishedAt + (options.decisions?.maxAgeMs ?? DEFAULT_POLICY_MAX_AGE_MS));
           if (applyUntil <= issuedAt || !prepared.policy.activeArms.includes(prepared.decision.assignment.armId) || prepared.policy.status !== 'active') continue;
           const receipt = await seal({ binding, scope, subject, decision: prepared.decision, issuedAt, applyUntil,
-            userAttributes });
+            userAttributes }, prepared.policy.installationId);
           invariant(receipt.length <= 24_000, 'invalid_input', 'Exposure receipt exceeds 24 KB');
           choices.push({ experimentId, armId: prepared.decision.assignment.armId, applyUntil, receipt,
             refreshAfter: Math.min(applyUntil, issuedAt + policyFreshMs(options.decisions)),

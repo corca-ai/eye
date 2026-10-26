@@ -28,7 +28,7 @@ export async function cookieCheckout(request: Request, env: Env, ctx: ExecutionC
   const cookie = getOrCreateCid(request), name = await tokenCookieName(scope);
   const subject = { cid: cookie.cid, ...(uid === undefined ? {} : { uid }) };
   const token = readCookie(request, name);
-  const options = { service: env.EYE, ctx, siteId: 'shop',
+  const options = { service: env.EYE, ctx,
     decisions: { secret: env.EYE_DECISION_SECRET, cache, tokens: token ? { checkout: token } : {} },
     onError: (error: unknown) => console.error('Eye integration failed', error) };
   const headers = new Headers({ 'Cache-Control': 'private, no-store' });

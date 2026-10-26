@@ -3,6 +3,7 @@ import { readFile, mkdir, writeFile, readdir } from 'node:fs/promises';
 import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { randomUUID } from 'node:crypto';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 async function main() {
@@ -30,13 +31,13 @@ async function main() {
   template.queues.consumers[0].queue = `${name}-events`;
   template.queues.consumers[0].dead_letter_queue = `${name}-events-failed`;
   template.r2_buckets = [{ binding: 'REPORT_RESULTS', bucket_name: bucket }];
-  template.vars = { EYE_ANALYTICS_WAREHOUSE: `${account}_${bucket}`, EYE_ANALYTICS_NAMESPACE: namespace };
+  template.vars = { EYE_INSTALLATION_ID: randomUUID(), EYE_ANALYTICS_WAREHOUSE: `${account}_${bucket}`, EYE_ANALYTICS_NAMESPACE: namespace };
   const streamName = `${name.replaceAll('-', '_')}_stream`;
-  const tables = ['events', 'observations', 'identity_links', 'policies', 'attribute_keys'];
+  const tables = ['events', 'projections'];
   const outputs = {
     'wrangler.jsonc': JSON.stringify(template, null, 2) + '\n',
     'resources.json': JSON.stringify({ bucket, namespace, streamName, pipelineName: `${name.replaceAll('-', '_')}_pipeline`, sinkRollIntervalSeconds: 300, tables }, null, 2) + '\n',
-    'fanout.sql': tables.map(table => `INSERT INTO ${streamName}_${table}\nSELECT * FROM ${streamName} WHERE table_name = '${table}';`).join('\n\n') + '\n',
+    'fanout.sql': tables.map(table => `INSERT INTO ${streamName}_${table}\nSELECT * FROM ${streamName} WHERE table_name ${table === 'events' ? "= 'events'" : "<> 'events'"};`).join('\n\n') + '\n',
     '.gitignore': '.dev.vars\n.provision-state.json\n.wrangler/\n',
   };
   for (const name of ['worker.ts', 'schema.json', 'provision.mjs', 'README.md']) outputs[name] = await readFile(join(root, 'templates', name), 'utf8');

@@ -1,15 +1,15 @@
 import { exports } from 'cloudflare:workers';
-import { createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
-import { expect, it, vi } from 'vitest';
+import { createExecutionContext, waitOnExecutionContext, reset } from 'cloudflare:test';
+import { afterEach, expect, it, vi } from 'vitest';
 import { createEye } from '../../src/client.js';
 import { createEyeBrowserServer } from '../../src/browser-server.js';
 import type { EventEnvelope } from '../../src/core/types.js';
 const secret = 'browser-server-test-secret-with-32-bytes';
 async function fixture(observationWindowMs = 7 * 86400000) {
-  const ctx = createExecutionContext(), siteId = crypto.randomUUID(), events: EventEnvelope[] = [];
-  const ingest = vi.fn(async (batch: readonly EventEnvelope[]) => { events.push(...batch); });
+  const ctx = createExecutionContext(), events: EventEnvelope[] = [];
+  const ingest = vi.fn(async (batch: readonly EventEnvelope[]) => { events.push(...batch.map(item => ({ ...item }))); });
   const service = new Proxy(exports.default, { get(target, property) { return property === 'ingest' ? ingest : Reflect.get(target, property); } });
-  const options = { ctx, siteId, service, subject: { cid: 'browser', uid: 'alice' }, browserBinding: 'trusted-browser', scope: 'login-a',
+  const options = { ctx, service, subject: { cid: 'browser', uid: 'alice' }, browserBinding: 'trusted-browser', scope: 'login-a',
     receiptSecret: secret, decisions: { secret }, onError: vi.fn() };
   await createEye(options).experiments.create({ experimentId: 'checkout', arms: ['compact'], settings: { minHoldMs: 0, observationWindowMs } });
   const snapshot = await createEyeBrowserServer(options).prepare(['checkout']);
@@ -31,7 +31,7 @@ it('rejects changed receipt, wrong browser/site, and display outside its lease',
   const tampered = { ...f.event, receipt: `x${f.event.receipt}` };
   expect((await receiver.receive([tampered]))[0]!.accepted).toBe(false);
   expect((await createEyeBrowserServer({ ...f.options, browserBinding: 'other' }).receive([f.event]))[0]!.accepted).toBe(false);
-  expect((await createEyeBrowserServer({ ...f.options, siteId: 'other' }).receive([f.event]))[0]!.accepted).toBe(false);
+  expect((await createEyeBrowserServer({ ...f.options, service: new Proxy(f.options.service, { get(target, property) { return property === 'getInstallationId' ? async () => 'another-installation' : Reflect.get(target, property); } }) }).receive([f.event]))[0]!.accepted).toBe(false);
   expect((await receiver.receive([{ ...f.event, occurredAt: f.choice.applyUntil }]))[0]!.accepted).toBe(false);
   expect(f.events).toHaveLength(0); await waitOnExecutionContext(f.options.ctx);
 });
@@ -142,3 +142,5 @@ it('receives large valid attribute receipts without corrupting the original attr
   expect(f.events[0]!.event).toMatchObject({ kind: 'exposure', userAttributes: { segment } });
   await waitOnExecutionContext(f.options.ctx);
 });
+
+afterEach(async () => { vi.restoreAllMocks(); await reset(); });

@@ -200,3 +200,16 @@ it('hasEvent does not use a login that follows the track event in the same milli
     expect((await f.api.arms({ from: start, to: now, experimentId: 'exp', hasEvent: { name: 'read' } })).rows).toEqual([]);
   } finally { f.db.close(); }
 });
+
+it('keeps record-kind identity when policies and completed observations share an ID', async () => {
+  const context = { siteId: 'site', subjectKey: 'c' };
+  const observation = analyticsRecord(context, 'observations', 'shared', 2, start, now - 1,
+    { generation: 1, endAt: start + 1000 }, { experiment_id: 'exp', arm_id: 'a', status: 'complete', value: -7 });
+  const policy = analyticsRecord(context, 'policies', 'shared', 99, start, now - 1,
+    { generation: 1 }, { experiment_id: 'exp', arm_id: 'a', status: 'published', value: 999 });
+  const db = database([observation, { ...observation, received_at: now }, policy]);
+  try {
+    const report = await new BasinAnalytics(env, 'site', db.request, () => now).learning({ from: start, to: now });
+    expect(report.rows).toMatchObject([{ completed: 1, learningValue: -7 }]);
+  } finally { db.close(); }
+});

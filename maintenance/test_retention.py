@@ -40,14 +40,13 @@ class RetentionTests(unittest.TestCase):
             schema = pa.schema([(name, pa.int64() if name in ("occurred_at", "received_at", "schema_version") else pa.string())
                                 for name in ("occurred_at", "received_at", "schema_version", "site_id", "table_name", "record_id")])
             day = 86_400_000
-            for name in ("events", "attribute_keys"):
-                table = catalog.create_table(("eye", name), schema=schema)
-                times = [day - 1, day + 11] if name == "events" else [0, day]
+            table = catalog.create_table(("eye", "projections"), schema=schema)
+            for name in ("observations", "attribute_keys"):
+                times = [day - 1, day + 11] if name == "observations" else [0, day]
                 table.append(pa.Table.from_pylist([dict(occurred_at=at, received_at=at, schema_version=1,
                     site_id="site", table_name=name, record_id=str(at)) for at in times], schema=schema))
             expire_rows(catalog, "eye", day + 10, apply=True)
-            self.assertEqual(catalog.load_table(("eye", "events")).scan().to_arrow()["occurred_at"].to_pylist(), [day + 11])
-            self.assertEqual(catalog.load_table(("eye", "attribute_keys")).scan().to_arrow()["occurred_at"].to_pylist(), [day])
+            self.assertEqual(sorted(catalog.load_table(("eye", "projections")).scan().to_arrow()["occurred_at"].to_pylist()), [day, day + 11])
 
     def test_wrong_schema_is_refused_before_deletion(self):
         with tempfile.TemporaryDirectory() as folder:

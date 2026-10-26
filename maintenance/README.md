@@ -20,7 +20,9 @@ paths with `node_modules/@eye/workers/maintenance`.
 Catalog read/write and R2 object read/write access to the selected bucket.
 Warehouse and namespace are explicit; no other namespace or bucket is visited.
 Missing tables are reported as `not_created` because a new Stream has not
-necessarily written every table yet. Existing tables must have the Eye schema.
+necessarily written both tables yet. Existing tables must have the Eye schema. `events` contains raw events;
+`projections` contains all other stored kinds. The dictionary keeps its UTC
+boundary day while other kinds use the exact retention cutoff.
 Errors expose only exception types, never token values or signed object URLs.
 
 Deletion commits through PyIceberg's Catalog transaction. Whole matching files

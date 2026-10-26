@@ -25,7 +25,7 @@ export async function handleEyeHttp(request: Request, env: Env, ctx: ExecutionCo
     const bytes = new Uint8Array(size); let offset = 0;
     for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
     const input: unknown = JSON.parse(new TextDecoder().decode(bytes));
-    const server = createEyeBrowserServer({ service: env.EYE, ctx, siteId: 'shop', ...auth,
+    const server = createEyeBrowserServer({ service: env.EYE, ctx, ...auth,
       decisions: { secret: env.EYE_DECISION_SECRET }, receiptSecret: env.EYE_RECEIPT_SECRET,
       onError: error => console.error('Eye CSR failed', error) });
     if (url.pathname === '/eye/prepare') {

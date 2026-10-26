@@ -111,11 +111,11 @@ await eye.analytics.jobs.schedule({ scope, scheduleId: 'purchase-summary',
 
 `from`, `to`는 최근 60일 안의 Unix 밀리초이며 `[from, to)`다. 기본 `limit=100`, 최대 1,000행이다. 한 행을 추가로 조회해 `meta.truncated`를 표시한다. 집계가 잘리면 arm·세대·속성·기간 조건을 좁힌다. 쿼리는 30초, 응답은 16 MiB로 제한하며 초과를 빈 성공 결과로 바꾸지 않는다.
 
-모든 테이블은 site별 record ID의 최신 revision을 선택한 뒤 상태·속성 조건을 적용한다. 같은 revision의 재전송은 최초 수신 행을 사용한다. 원본 goal 재전송은 한 번만 세며 credit을 사이트 합계에 다시 더하지 않는다.
+모든 논리 레코드 종류는 설치별 record ID의 최신 revision을 선택한 뒤 상태·속성 조건을 적용한다. 같은 revision의 재전송은 최초 수신 행을 사용한다. 원본 goal 재전송은 한 번만 세며 credit을 사이트 합계에 다시 더하지 않는다.
 
 `meta`에는 `queriedAt`, `receivedBefore`, `consistency: 'eventual'`, `truncated`, `bytesScanned`가 있다. `receivedBefore`는 처리 시각 상한이지 수신 완료 watermark가 아니다. 행별 `latestReceivedAt`도 관측한 최댓값일 뿐이다. 파일 반영 지연과 테이블 간 반영 차이로 최근 결과가 바뀔 수 있다. 현재 정책 상태는 별도의 `experiments.policy()`에서 읽는다. 정책 응답의 `meanReward`는 원래 가치 단위이며 `score`는 공통 `scoreScale`로 나눈 비교용 점수다. 현재 정책의 asOf는 통계를 감쇠해 평가한 기준 시각이다. statsAsOf는 마지막 적용한 마감 통계의 기준이다.
 
-원본 subject는 입력 당시 cid·uid를 보존한다. 로그인 이력으로 익명 구간의 첫 uid를 조회 시 연결하며 영구 상태 인계를 하지 않는다. 수집 원본과 신원 projection은 같은 Stream 경로로 보내지만 테이블 간 가시성 시각은 다를 수 있다. pending 관측과 selected 배정은 보관된 노출 원본에서 조회 시 재구성한다. 첫 전송을 잃어도 후속 노출로 복구할 수 있으며, 학습이 확정한 관측 결과는 별도로 저장한다. 기존 물리 projection도 함께 읽되 ID별 한 행만 반환한다.
+원본 subject는 입력 당시 cid·uid를 보존한다. 로그인 이력으로 익명 구간의 첫 uid를 조회 시 연결하며 영구 상태 인계를 하지 않는다. 수집 원본과 신원 projection은 같은 Stream 경로로 보내지만 테이블 간 가시성 시각은 다를 수 있다. pending 관측과 selected 배정은 보관된 노출 원본에서 조회 시 재구성한다. 첫 전송을 잃어도 후속 노출로 복구할 수 있으며, 학습이 확정한 관측 결과는 별도로 저장한다. 완료된 학습 결과와 원본에서 재구성한 projection은 종류·ID별 한 행만 반환한다.
 
 ## Arm 비교
 
@@ -149,7 +149,7 @@ cohort 기간은 관측 시작 시각이며 속성은 최초 실제 노출에서
 
 `timeline({ from, to, subject: { cid } | { uid }, includeLinked?, cursor?, limit? })`
 
-다섯 테이블의 최신 레코드를 `(occurredAt, table, recordId)` 순으로 반환한다. 원본 `attributes`, `payload`에서 선택 확률·정책 버전·귀속 사유·동시 실험 노출도 탐색할 수 있다.
+원본과 projection의 최신 레코드를 `(occurredAt, table, recordId)` 순으로 반환한다. 원본 `attributes`, `payload`에서 선택 확률·정책 버전·귀속 사유·동시 실험 노출도 탐색할 수 있다.
 
 cid 조회는 해당 브라우저 이력이다. uid 조회는 해당 uid 행을 포함하며 기본 includeLinked=true이면 보존 범위 내 첫 로그인 직전 익명 구간도 포함한다. 로그아웃·다른 계정은 경계다. 원본 cid·uid를 수정하거나 서로 다른 계정을 병합하지 않는다. 링크 이력 자체가 보존 범위 밖이면 연결을 복구하지 않는다.
 
@@ -177,7 +177,7 @@ cid 조회는 해당 브라우저 이력이다. uid 조회는 해당 uid 행을 
 
 ## 사용자군 비교와 페이지 처리 예제
 
-아래 eye는 같은 siteId의 서버 클라이언트다. 속성 이름은 사이트에서 실제 수집한 값으로 바꾼다.
+아래 eye는 같은 Eye 설치를 가리키는 서버 클라이언트다. 속성 이름은 사이트에서 실제 수집한 값으로 바꾼다.
 
 ```ts
 const to = Date.now(), from = to - 7 * 86_400_000;
@@ -222,3 +222,13 @@ pending 관측과 배정은 실제 노출에서 재구성한다. 같은 표본�
 Iceberg snapshot이나 수집 완료를 보장하지 않는다. `nextCursor=null`이면 끝이다.
 기간·필터를 바꾸면 새 조회를 시작한다. 비동기 저장 조회는
 `jobs.create({ scope, request: { kind: 'events', query } })`를 사용한다.
+
+## 물리 저장 경계
+
+설치마다 Stream·Pipeline 하나와 Sink 두 개를 사용한다. 원본 사건은 `events`에,
+신원 연결·마감 학습 결과·정책 이력·일별 속성 사전은 `projections`에 저장한다.
+`table_name`이 논리 종류를 구분하며 종류를 제한한 뒤 record ID별 revision을 고른다.
+일반 로그·골 집계가 보조 레코드까지 스캔하지 않도록 원본 테이블을 분리한다.
+
+보존 작업은 원본·보조 테이블 모두에 적용한다. 속성 사전은 UTC 날짜 단위이므로
+60일 경계가 걸친 날짜 전체를 남기고, 나머지는 정확한 발생 시각 경계를 사용한다.

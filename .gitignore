@@ -24,3 +24,6 @@ __pycache__/
 
 # Catalog maintenance Python environment
 .venv/
+
+# Local verification and review evidence
+report/

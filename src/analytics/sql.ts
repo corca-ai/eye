@@ -88,7 +88,7 @@ export class AnalyticsSQL {
   private latest(table: AnalyticsTable, alias: string, from: number, to: number, receivedBefore: number, extra = '', reconstruct = true): string {
     if (reconstruct && (table === 'observations' || table === 'decisions')) return exposureProjection(table, alias, this.namespace, literal(this.siteId), Math.max(0, this.now - RETENTION_MS), from, to, receivedBefore, extra);
     return `${alias} AS (SELECT * FROM (SELECT ${recordColumns}, ROW_NUMBER() OVER (PARTITION BY record_id ORDER BY revision DESC, received_at ASC) AS _revision_rank
-FROM ${this.namespace}."${table}" WHERE site_id = ${literal(this.siteId)} AND occurred_at >= ${from} AND occurred_at < ${to} AND received_at <= ${receivedBefore}${extra}) ranked WHERE _revision_rank = 1)`;
+FROM ${this.namespace}.${table === 'events' ? 'events' : 'projections'} WHERE table_name = ${literal(table)} AND site_id = ${literal(this.siteId)} AND occurred_at >= ${from} AND occurred_at < ${to} AND received_at <= ${receivedBefore}${extra}) ranked WHERE _revision_rank = 1)`;
   }
   arms(q: ArmQuery, bucketMs?: number): QueryPlan {
     if (bucketMs !== undefined) invariant(Number.isSafeInteger(bucketMs) && bucketMs > 0, 'invalid_input', 'bucketMs must be positive integer milliseconds');

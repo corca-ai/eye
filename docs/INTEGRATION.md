@@ -40,12 +40,12 @@ node eye/provision.mjs
 
 ## 2. 골과 실험 등록
 
-신뢰할 수 있는 초기 설정 작업이나 관리자 경로에서 실행한다. `env`, `ctx`는 사이트 Worker의 바인딩과 현재 실행 컨텍스트다. 이 예제는 이후에도 같은 `siteId`를 사용한다.
+신뢰할 수 있는 초기 설정 작업이나 관리자 경로에서 실행한다. `env`, `ctx`는 사이트 Worker의 바인딩과 현재 실행 컨텍스트다. 이후에도 같은 Eye Service Binding을 사용한다.
 
 ```ts
 import { createEye } from '@eye/workers';
 
-const eye = createEye({ service: env.EYE, ctx, siteId: 'shop' });
+const eye = createEye({ service: env.EYE, ctx });
 await eye.goals.create('purchase');
 await eye.goals.create('signup');
 await eye.goals.create('refund');
@@ -82,7 +82,7 @@ const policies = new DecisionCache(); // 모듈 범위, 사용자 데이터는 �
 const cookie = getOrCreateCid(request);
 const subject = uid === undefined ? { cid: cookie.cid } : { cid: cookie.cid, uid };
 const eye = createEye({
-  service: env.EYE, ctx, siteId: 'shop',
+  service: env.EYE, ctx,
   onError: error => console.error('Eye delivery failed', error),
   decisions: {
     secret: env.EYE_DECISION_SECRET,
@@ -182,7 +182,7 @@ Queue 접수도 학습 마감·정책 갱신·분석 가시성 완료를 보장�
 `collectionLimits`에서 필요한 한도만 조정할 수 있다. `maxEvents/maxBytes`는 flush 후에도 복구되지 않으므로 클라이언트는 요청마다 생성한다. 속성은 `attributes/userAttributes` 각각 기본 256키, 각 문자열은 100,000 UTF-16 코드 단위까지다. 기존 사건당 100KB 제한도 적용하며, 키가 많은 기존 연동은 `maxAttributeKeys`를 명시적으로 늘린다. 큰 값을 가진 사건이나 이미 수행한 사용자 계산의 비용까지 없애는 기능은 아니다. [설정 타입](api/types.md#collectionlimits)과 [측정·대기열 동작](REQUEST-PERFORMANCE.md)을 참고한다.
 
 ```ts
-const eye = createEye({ service: env.EYE, ctx, siteId: 'shop',
+const eye = createEye({ service: env.EYE, ctx,
   collectionLimits: { maxEvents: 100, maxBytes: 240_000, maxPendingBytes: 120_000 },
 });
 ```
@@ -205,7 +205,7 @@ if (!result.accepted) console.error(result.error.code, result.error.message);
 | no_active_arm | 실험 상태와 활성 arm, 로컬 정책 갱신 대기 |
 | 골은 있는데 arm 완료 평균이 없음 | 실제 expose, 관측 종료와 allowedLatenessMs, 귀속 범위 |
 | 속성별 결과가 예상과 다름 | expose.userAttributes와 사건 attributes 구분, 최초 노출 시점의 값 |
-| 분석 결과가 비거나 이전 값임 | 같은 siteId, 분석 토큰·파이프라인, 최종 일관성, 최근 60일 범위 |
+| 분석 결과가 비거나 이전 값임 | 같은 Eye 바인딩, 분석 토큰·파이프라인, 최종 일관성, 최근 60일 범위 |
 | 일부 결과만 보임 | meta.truncated 확인 후 기간·arm·속성 조건 축소 |
 
 운영 전 `onDecision`으로 미준비 참여 누락을 지역·신규/재방문별로 측정한다. 목표와 측정 범위는 [빠른 배정 운영 계약](FAST-DECISIONS.md#운영-목표와-측정)에 있다.
