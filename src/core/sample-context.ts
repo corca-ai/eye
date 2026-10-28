@@ -1,3 +1,4 @@
+import { OBSERVATION_GRACE_MS } from './validation.js';
 import type { Assignment, ExposureEvent } from './types.js';
 
 /** Wire exposure after the collection boundary has required its sample context.
@@ -16,8 +17,8 @@ export function observationEndAt(startAt: number, windowMs: number): number {
   return startAt + windowMs;
 }
 
-export function observationCloseAt(startAt: number, windowMs: number, latenessMs: number): number {
-  return observationEndAt(startAt, windowMs) + latenessMs;
+export function observationCloseAt(startAt: number, windowMs: number): number {
+  return observationEndAt(startAt, windowMs) + OBSERVATION_GRACE_MS;
 }
 
 /** Full immutable definition, independent of the earliest receipt's attributes.

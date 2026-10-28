@@ -11,7 +11,7 @@ export function sweepStream(seed: number) {
     const at = SWEEP_START + draw(100), eventId = `${i % 17 ? 'id' : '😀'}-${i}`;
     switch (i % 4) {
       case 0: {
-        const config = settings({ minHoldMs: 0, observationWindowMs: 10 + draw(90), allowedLatenessMs: 0, attributionHalfLifeMs: 20 + draw(80) });
+        const config = settings({ minHoldMs: 0, observationWindowMs: 10 + draw(90), attributionHalfLifeMs: 20 + draw(80) });
         events.push({ kind: 'exposure', eventId, occurredAt: at, subject,
           assignment: { assignmentId: eventId, experimentId: `exp-${draw(4)}`, armId: `arm-${draw(2)}`, generation: 1 + draw(2),
             assignedAt: at, probability: .5, policyRevision: 1, settings: config },

@@ -26,6 +26,8 @@ createEye(options: EyeOptions): EyeClient
 - [eye.logout](#eyelogout)
 - [eye.decide](#eyedecide)
 - [eye.flush](#eyeflush)
+- [eye.analytics.summaries.hours](#eyeanalyticssummarieshours)
+- [eye.analytics.summaries.series](#eyeanalyticssummariesseries)
 - [eye.analytics.summaries.configure](#eyeanalyticssummariesconfigure)
 - [eye.analytics.summaries.status](#eyeanalyticssummariesstatus)
 - [eye.analytics.summaries.query](#eyeanalyticssummariesquery)
@@ -161,6 +163,26 @@ eye.decide(input: { subject: Subject; experimentId: string; }): Promise<Decision
 ```ts
 eye.flush(): Promise<void>
 ```
+
+## eye.analytics.summaries.hours
+
+Read automatic receipt-hour coverage and the immutable cutoff.
+
+```ts
+eye.analytics.summaries.hours(): Promise<HourlyGoalStatus>
+```
+
+타입: [HourlyGoalStatus](types.md#hourlygoalstatus)
+
+## eye.analytics.summaries.series
+
+Read all accepted goals by finalized receipt hour without raw SQL.
+
+```ts
+eye.analytics.summaries.series(query: HourlyGoalQuery): Promise<HourlyGoalReport>
+```
+
+타입: [HourlyGoalQuery](types.md#hourlygoalquery) · [HourlyGoalReport](types.md#hourlygoalreport)
 
 ## eye.analytics.summaries.configure
 

@@ -1,3 +1,4 @@
+import type { HourlyGoalQuery } from '../analytics/hourly-goals.js';
 import type { SummaryConfig, SummaryQuery, SummaryReport, SummaryStatus } from '../analytics/summaries.js';
 import type { RuntimeEnv as Env } from './environment.generated.js';
 import { invariant } from '../core/errors.js';
@@ -9,7 +10,7 @@ import { ExperimentState } from './experiment-state.js';
 import type { CreateExperiment, ExperimentSettings, ArmStatus } from '../core/types.js';
 import { POLICY_REEVALUATION_MS } from '../policy-timing.js';
 import { sendExportBatches } from '../analytics/export.js';
-import { RETENTION_MS } from '../core/validation.js';
+import { RETENTION_MS, OBSERVATION_GRACE_MS } from '../core/validation.js';
 import type { EyeEvent } from '../core/types.js';
 
 /** 골의 등록·상태 정보. 시각은 Unix ms이며 달성 조건·value는 각 goal 사건에서 서비스가 제공한다. */
@@ -30,7 +31,8 @@ export class SiteControl extends StoredObject {
       CREATE INDEX IF NOT EXISTS goal_history_time ON goal_history(goal_id, effective_at DESC, revision DESC);
       CREATE TABLE IF NOT EXISTS experiments (experiment_id TEXT PRIMARY KEY, created_at INTEGER NOT NULL);
     `);
-    this.learning = new IncrementalLearning(this.sql);
+    this.learning = this.atomic(() => new IncrementalLearning(this.sql));
+    if (this.learning.migratedDeadlines) void this.ctx.blockConcurrencyWhile(() => this.scheduleLearning(Date.now()));
     ExperimentState.initialize(this.sql);
   }
   private state(experimentId: string): ExperimentState { return new ExperimentState(this.sql, this.kv, id(experimentId, 'experimentId')); }
@@ -121,7 +123,7 @@ export class SiteControl extends StoredObject {
   noteSettings(settings: import('../core/types.js').ExperimentSettings): void {
     const previous = this.kv.get<{ windowMs: number; graceMs: number; attributionMs: number }>('learningBounds');
     const next = { windowMs: Math.max(previous?.windowMs ?? 0, settings.observationWindowMs),
-      graceMs: Math.max(previous?.graceMs ?? 0, settings.allowedLatenessMs),
+      graceMs: Math.max(previous?.graceMs ?? 0, OBSERVATION_GRACE_MS),
       attributionMs: Math.max(previous?.attributionMs ?? 0, settings.attributionWindowMs ?? 7 * 86_400_000) };
     invariant(next.windowMs + next.graceMs + next.attributionMs < RETENTION_MS - 3_600_000,
       'invalid_input', 'Site historical maximum observation + grace + attribution horizons must leave an hour inside 60-day raw retention');
@@ -145,10 +147,12 @@ export class SiteControl extends StoredObject {
   }
   summaryStatus(): SummaryStatus { return this.learning.summaries.status(Date.now()); }
   querySummary(input: SummaryQuery): SummaryReport { return this.learning.summaries.query(input, Date.now()); }
+  hourlyGoalStatus() { return this.learning.hourlyGoals.status(Date.now()); }
+  hourlyGoals(input: HourlyGoalQuery) { return this.learning.hourlyGoals.query(input, Date.now()); }
   /** Queue ingestion and reward updates commit together. Only this batch is sorted. */
-  async consumeLearning(siteId: string, events: readonly EyeEvent[]): Promise<boolean[]> {
+  async consumeLearning(siteId: string, events: readonly EyeEvent[], receivedAt?: readonly number[]): Promise<boolean[]> {
     this.checkSite(siteId);
-    invariant(events.length <= 100, 'invalid_input', 'Too many learning events');
+    invariant(events.length <= 100 && (receivedAt === undefined || receivedAt.length === events.length), 'invalid_input', 'Invalid learning batch');
     const now = Date.now();
     const previousSiteId = this.kv.get<string>('siteId');
     const accepted = this.atomic(() => {
@@ -160,7 +164,7 @@ export class SiteControl extends StoredObject {
           if (!definitions.has(goal.goalId)) definitions.set(goal.goalId, this.getGoal(goal.goalId));
           const current = definitions.get(goal.goalId)!;
           return current !== null && (goal.occurredAt >= current.changedAt ? current.status : this.goalStatusAt(goal.goalId, goal.occurredAt)) === 'active';
-        });
+        }, receivedAt);
       if (previousSiteId === undefined) this.kv.put('siteId', siteId);
       const rejectedExposures = events.filter((event, i) => event.kind === 'exposure' && !accepted[i]).length;
       if (rejectedExposures) console.warn(JSON.stringify({ component: 'eye', operation: 'learning_rejected_exposures', siteId, count: rejectedExposures, code: 'conflict' }));

@@ -24,7 +24,7 @@ export interface BrowserServerOptions extends EyeOptions {
   userAttributes?: Attributes;
 }
 const encoder = new TextEncoder();
-const grace = 300_000;
+const grace = 15_000;
 function encode(bytes: Uint8Array) { return btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', ''); }
 function decode(text: string) { return Uint8Array.from(atob(text.replaceAll('-', '+').replaceAll('_', '/')), c => c.charCodeAt(0)); }
 

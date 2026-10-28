@@ -40,13 +40,13 @@ it('does not acknowledge delivery until Queue ingestion succeeds', async () => {
   await expect(createEyeBrowserServer(f.options).receive([f.event])).rejects.toThrow('Queue offline');
   await waitOnExecutionContext(f.options.ctx);
 });
-it('accepts delayed display within the delivery grace but rejects after the grace', async () => {
+it('accepts delivery within 15 seconds and drops older displays', async () => {
   const f = await fixture(), receiver = createEyeBrowserServer(f.options);
   const clock = vi.spyOn(Date, 'now');
   try {
-    clock.mockReturnValue(f.choice.applyUntil + 1);
+    clock.mockReturnValue(f.event.occurredAt + 15_000);
     expect((await receiver.receive([f.event]))[0]!.accepted).toBe(true);
-    clock.mockReturnValue(f.choice.applyUntil + 300_001);
+    clock.mockReturnValue(f.event.occurredAt + 15_001);
     expect((await receiver.receive([{ ...f.event, eventId: 'too-late' }]))[0]!.accepted).toBe(false);
   } finally { clock.mockRestore(); }
   await waitOnExecutionContext(f.options.ctx);

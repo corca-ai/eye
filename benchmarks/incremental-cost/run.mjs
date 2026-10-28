@@ -14,7 +14,7 @@ const { IncrementalLearning } = await load('runtime/incremental.js');
 const { settings } = await load('core/validation.js');
 const { rawRecords } = await load('analytics/raw.js');
 const { DictionaryCache, sendExportBatches } = await load('analytics/export.js');
-const config = settings({ minHoldMs: 0, observationWindowMs: 1000, allowedLatenessMs: 10, attributionHalfLifeMs: 1000 });
+const config = settings({ minHoldMs: 0, observationWindowMs: 1000, attributionHalfLifeMs: 1000 });
 function exposure(id, at, experimentId = 'e', attrs = '') {
   return { kind: 'exposure', eventId: id, occurredAt: at, subject: { cid: 'c', uid: 'u' },
     assignment: { assignmentId: id, experimentId, armId: 'a', generation: 1, assignedAt: at, probability: 1, policyRevision: 1, settings: config },

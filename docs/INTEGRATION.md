@@ -203,7 +203,7 @@ if (!result.accepted) console.error(result.error.code, result.error.message);
 | --- | --- |
 | 계속 unavailable | secret, 정책 조회 실패·캐시 갱신, onPrepared 오류. 설정 없는 decide는 자동 참여하지 않음 |
 | no_active_arm | 실험 상태와 활성 arm, 로컬 정책 갱신 대기 |
-| 골은 있는데 arm 완료 평균이 없음 | 실제 expose, 관측 종료와 allowedLatenessMs, 귀속 범위 |
+| 골은 있는데 arm 완료 평균이 없음 | 실제 expose, 관측 종료 후 고정 1분 유예, 귀속 범위 |
 | 속성별 결과가 예상과 다름 | expose.userAttributes와 사건 attributes 구분, 최초 노출 시점의 값 |
 | 분석 결과가 비거나 이전 값임 | 같은 Eye 바인딩, 분석 토큰·파이프라인, 최종 일관성, 최근 60일 범위 |
 | 일부 결과만 보임 | meta.truncated 확인 후 기간·arm·속성 조건 축소 |

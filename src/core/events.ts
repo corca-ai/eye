@@ -1,6 +1,6 @@
 import { EyeError, invariant } from './errors.js';
 import { observationEndAt } from './sample-context.js';
-import { attributes, id, number, record, RETENTION_MS, settings, subject, timestamp, sampleId } from './validation.js';
+import { EVENT_MAX_AGE_MS, historicalSettings, attributes, id, number, record, RETENTION_MS, settings, subject, timestamp, sampleId } from './validation.js';
 import type { Assignment, CreateExperiment, EventEnvelope, EyeEvent } from './types.js';
 import type { CollectionLimits } from '../collection-limits.js';
 
@@ -9,7 +9,7 @@ export function parseAssignment(value: unknown): Assignment {
   const generation = timestamp(v.generation, 'generation');
   const probability = number(v.probability, 'probability');
   invariant(generation >= 1 && probability > 0 && probability <= 1, 'invalid_input', 'Invalid assignment generation or probability');
-  const parsedSettings = settings(v.settings);
+  const parsedSettings = historicalSettings(v.settings);
   return {
     assignmentId: id(v.assignmentId, 'assignmentId'), experimentId: id(v.experimentId, 'experimentId'),
     armId: id(v.armId, 'armId'), generation, assignedAt: timestamp(v.assignedAt, 'assignedAt'),
@@ -63,4 +63,10 @@ export function parseCreateExperiment(value: unknown): CreateExperiment & { sett
   const arms = v.arms.map((a: unknown) => id(a, 'armId'));
   invariant(new Set(arms).size === arms.length, 'invalid_input', 'Arm IDs must be unique');
   return { experimentId: id(v.experimentId, 'experimentId'), arms, settings: settings(v.settings) };
+}
+
+/** External admission only. Queue retries preserve their original server receipt. */
+export function validateEventAge(event: EyeEvent, receivedAt: number): void {
+  invariant(event.occurredAt <= receivedAt && receivedAt - event.occurredAt <= EVENT_MAX_AGE_MS,
+    'invalid_input', 'Events must arrive within 15 seconds of occurrence');
 }

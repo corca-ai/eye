@@ -1,3 +1,4 @@
+import { HourlyGoals } from './hourly-goals.js';
 import { IncrementalSummaries } from './summaries.js';
 import { compareEvents } from '../core/attribution.js';
 import { closedSampleMoments, type ClosedSample, type ClosedCohort } from '../core/closed-cohort.js';
@@ -6,7 +7,7 @@ import { decayFactor } from '../core/moments.js';
 import { addReward, type RewardSum } from '../core/reward-sum.js';
 import { hasExposureContext, observationEndAt, observationCloseAt, sampleDefinition, type SampledExposureEvent } from '../core/sample-context.js';
 import type { ExposureEvent, EyeEvent, GoalEvent, IdentityEvent } from '../core/types.js';
-import { RETENTION_MS, subjectKey } from '../core/validation.js';
+import { RETENTION_MS, OBSERVATION_GRACE_MS, subjectKey } from '../core/validation.js';
 import { analyticsRecord, type AnalyticsRecord } from '../analytics/records.js';
 
 type IdentityRow = { uid: string | null; occurred_at: number; event_id: string };
@@ -157,6 +158,8 @@ class LearningBatch {
  */
 export class IncrementalLearning {
   readonly summaries: IncrementalSummaries;
+  readonly hourlyGoals: HourlyGoals;
+  readonly migratedDeadlines: boolean;
   constructor(private readonly sql: LearningSQL) {
     sql.exec(`
       CREATE TABLE IF NOT EXISTS learning_seen (event_id TEXT PRIMARY KEY, occurred_at INTEGER NOT NULL, accepted INTEGER NOT NULL);
@@ -169,9 +172,20 @@ export class IncrementalLearning {
       CREATE INDEX IF NOT EXISTS learning_samples_close ON learning_samples(close_at, sample_id);
       CREATE TABLE IF NOT EXISTS learning_outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, data TEXT NOT NULL);
     `);
+    sql.exec('CREATE TABLE IF NOT EXISTS learning_runtime_version (id INTEGER PRIMARY KEY CHECK(id=1), version INTEGER NOT NULL)');
+    const version = sql.exec<{ version: number }>('SELECT version FROM learning_runtime_version WHERE id=1').toArray()[0]?.version ?? 0;
+    this.migratedDeadlines = version < 1;
+    if (this.migratedDeadlines) {
+      sql.exec(`UPDATE learning_samples SET
+        close_at=json_extract(definition,'$[1]')+json_extract(definition,'$[0].settings.observationWindowMs')+?,
+        data=json_remove(data,'$.assignment.settings.allowedLatenessMs'),
+        definition=json_remove(definition,'$[0].settings.allowedLatenessMs')`, OBSERVATION_GRACE_MS);
+      sql.exec('INSERT OR REPLACE INTO learning_runtime_version VALUES (1,1)');
+    }
     this.summaries = new IncrementalSummaries(sql);
+    this.hourlyGoals = new HourlyGoals(sql);
   }
-  accept(events: readonly EyeEvent[], now: number, goalActive: (goal: GoalEvent) => boolean = () => true): LearningReceipt {
+  accept(events: readonly EyeEvent[], now: number, goalActive: (goal: GoalEvent) => boolean = () => true, receivedAt?: readonly number[]): LearningReceipt {
     const diagnostics: LearningDiagnostics = { staleExposures: 0, staleIdentities: 0, futureExposures: 0, closedGoals: 0 };
     const accepted = events.map(() => true);
     const batch = new LearningBatch(this.sql), summaries = this.summaries.batch(now);
@@ -186,7 +200,7 @@ export class IncrementalLearning {
           continue;
         }
         accepted[index] = status;
-        if (status) { this.goal(batch, event, now, diagnostics); summaries.goal(event); }
+        if (status) { this.goal(batch, event, now, diagnostics); summaries.goal(event); this.hourlyGoals.add(event, receivedAt?.[index] ?? now, now); }
       } else if (event.kind === 'identify' || event.kind === 'logout') this.identity(batch, event, diagnostics);
       else if (event.kind === 'exposure') accepted[index] = this.exposure(batch, event, now, diagnostics);
     }
@@ -215,7 +229,7 @@ export class IncrementalLearning {
     invariant(hasExposureContext(event), 'invalid_input', 'Exposure needs local sample context');
     const exposure = event;
     const sampleId = exposure.sample.sampleId;
-    const closeAt = observationCloseAt(exposure.sample.startAt, exposure.assignment.settings.observationWindowMs, exposure.assignment.settings.allowedLatenessMs);
+    const closeAt = observationCloseAt(exposure.sample.startAt, exposure.assignment.settings.observationWindowMs);
     const definition = sampleDefinition(exposure.assignment, exposure.sample.startAt, exposure.attributionWindowMs);
     const old = batch.sample(sampleId, true);
     // Check existing context even if the incoming definition claims an expired
@@ -313,7 +327,8 @@ export class IncrementalLearning {
       SELECT MIN(occurred_at) AS at FROM learning_seen UNION ALL
       SELECT MIN(occurred_at) AS at FROM learning_identity UNION ALL
       SELECT MIN(occurred_at) AS at FROM learning_last UNION ALL
-      SELECT MIN(bucket) AS at FROM summary_buckets)`).toArray()[0]!.at;
+      SELECT MIN(bucket) AS at FROM summary_buckets UNION ALL
+      SELECT MIN(bucket) AS at FROM hourly_goals)`).toArray()[0]!.at;
     const dates = [close, first === null ? null : first + RETENTION_MS + 1].filter((at): at is number => at !== null);
     if (!dates.length) return null;
     const earliest = Math.min(...dates);
@@ -329,6 +344,7 @@ export class IncrementalLearning {
       const removed = this.sql.exec(`DELETE FROM ${table} WHERE ${key} IN (SELECT ${key} FROM ${table} WHERE occurred_at < ? LIMIT 1000) RETURNING ${key}`, now - RETENTION_MS).toArray();
       more ||= removed.length === 1000;
     }
-    return this.summaries.prune(now) || more;
+    const hourlyMore = this.hourlyGoals.prune(now);
+    return this.summaries.prune(now) || hourlyMore || more;
   }
 }

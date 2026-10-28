@@ -72,6 +72,9 @@
 - [GoalQuery](#goalquery)
 - [GoalRow](#goalrow)
 - [GoalStatus](#goalstatus)
+- [HourlyGoalQuery](#hourlygoalquery)
+- [HourlyGoalReport](#hourlygoalreport)
+- [HourlyGoalStatus](#hourlygoalstatus)
 - [IdentityEvent](#identityevent)
 - [LearningQuery](#learningquery)
 - [LearningReport](#learningreport)
@@ -485,7 +488,7 @@ export type ArmStatus = 'active' | 'paused' | 'deleted';
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L66)
+[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L68)
 
 ```ts
 /** 실제 적용·노출 가능한 결정. decide/prepare의 status를 확인해 좁히고 원본 객체를 expose에 전달한다. */
@@ -500,7 +503,7 @@ export type AssignedDecision = Extract<Decision, {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L60)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L58)
 
 ```ts
 /** 서버가 발급한 배정. settings는 배정 당시 고정되며 probability는 신규 선택 당시 확률이다. 직접 만들거나 수정하지 않는다. */
@@ -903,7 +906,7 @@ export interface CollectionLimits {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L41)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L39)
 
 ```ts
 /** 최초 정의. arms는 중복 없는 비어 있지 않은 ID 목록이다. settings에서 minHoldMs만 필수다. */
@@ -920,7 +923,7 @@ export interface CreateExperiment {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L72)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L70)
 
 ```ts
 /** assigned만 실제 적용 후 expose한다. unavailable은 정책 미준비/만료 등, no_active_arm은 비활성 상태다.
@@ -1003,7 +1006,7 @@ export type ErrorCode = 'invalid_input' | 'not_found' | 'conflict' | 'deleted' |
 
 보조 타입: 공개 API의 입력·반환형에 포함되지만 패키지에서 직접 export하지 않는다.
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L76)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L74)
 
 ```ts
 interface EventBase {
@@ -1022,7 +1025,7 @@ interface EventBase {
 
 보조 타입: 공개 API의 입력·반환형에 포함되지만 패키지에서 직접 export하지 않는다.
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L97)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L95)
 
 ```ts
 export interface EventEnvelope {
@@ -1075,7 +1078,7 @@ export interface EventsQuery extends QueryRange {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L47)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L45)
 
 ```ts
 /** 현재 실험 정의. 상태 변경은 이력을 보존하며 설정 변경은 새 generation으로 학습한다. */
@@ -1120,8 +1123,6 @@ export interface ExperimentSettings {
     readonly attributionHalfLifeMs: number;
     /** 기본 14일. 완료 표본의 학습 가중치를 잊는 반감기(ms), 양의 정수. 귀속 반감기와 독립적이다. */
     readonly learningHalfLifeMs: number;
-    /** 기본 1시간, 0 이상 정수. 관측 종료 후 수신 유예(ms). 유예까지 끝난 시각 이후 수신한 골은 학습에 더하지 않는다. */
-    readonly allowedLatenessMs: number;
     /** 기본 0.02. 신규 배정 전체 중 균등 탐색 비율, 0 초과 1 이하. arm별 하한은 이 값 / 활성 arm 수이다. */
     readonly explorationFloor: number;
     /** 기본 1. 분산이 작거나 자료가 없을 때 탐색 보너스의 최소 가치 척도, 양수. 보상을 자르는 상한이 아니다. */
@@ -1152,7 +1153,7 @@ export type ExperimentStatus = ArmStatus;
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L89)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L87)
 
 ```ts
 /** 실제 적용한 배정의 노출 원본. SDK expose가 표본 문맥을 구성하므로 직접 생성하지 않는다. */
@@ -1216,7 +1217,7 @@ export interface EyeBrowser {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L96)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L94)
 
 ```ts
 /** 수집 가능한 사건 원본의 구분 유니온. 일반 호출에는 EventInput을 사용하는 SDK 메서드를 쓴다. */
@@ -1303,6 +1304,8 @@ export interface EyeRequestOptions extends EyeOptions {
 export interface EyeService {
     /** Runtime-generated identity for server-side receipt verification; never configured by the caller. */
     getInstallationId(): Promise<string>;
+    hourlyGoalStatus(): ReturnType<SummariesAPI['hours']>;
+    hourlyGoals(input: Parameters<SummariesAPI['series']>[0]): ReturnType<SummariesAPI['series']>;
     configureSummaries(input: Parameters<SummariesAPI['configure']>[0]): ReturnType<SummariesAPI['configure']>;
     summaryStatus(): ReturnType<SummariesAPI['status']>;
     querySummary(input: Parameters<SummariesAPI['query']>[0]): ReturnType<SummariesAPI['query']>;
@@ -1381,7 +1384,7 @@ export type Filter = {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/runtime/site.ts#L16)
+[소스](https://github.com/corca-ai/eye/blob/main/src/runtime/site.ts#L17)
 
 ```ts
 /** 골의 등록·상태 정보. 시각은 Unix ms이며 달성 조건·value는 각 goal 사건에서 서비스가 제공한다. */
@@ -1400,7 +1403,7 @@ export interface GoalDefinition {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L87)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L85)
 
 ```ts
 /** 등록된 goal의 실제 발생과 가치. 사이트 내 모든 goal의 단위를 통일하며 유한한 음수·0도 허용한다. */
@@ -1460,11 +1463,68 @@ export type GoalStatus = 'active' | 'paused' | 'deleted';
 
 타입: [GoalStatus](types.md#goalstatus)
 
+## HourlyGoalQuery
+
+임포트: `@eye/workers`
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/hourly-goals.ts#L2)
+
+```ts
+/** Automatic goal totals on the runtime's first-receipt clock. No configuration or raw SQL. */
+export interface HourlyGoalQuery {
+    from: number;
+    to: number;
+    goalId?: string;
+}
+```
+
+타입: [HourlyGoalQuery](types.md#hourlygoalquery)
+
+## HourlyGoalReport
+
+임포트: `@eye/workers`
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/hourly-goals.ts#L6)
+
+```ts
+/** Signed totals of accepted goals by server receipt hour; closed buckets never change. */
+export interface HourlyGoalReport {
+    rows: {
+        bucketStart: number;
+        goalId: string;
+        events: number;
+        totalValue: number;
+    }[];
+    meta: HourlyGoalStatus & {
+        basis: 'receipt_hour';
+    };
+}
+```
+
+타입: [HourlyGoalReport](types.md#hourlygoalreport) · [HourlyGoalStatus](types.md#hourlygoalstatus)
+
+## HourlyGoalStatus
+
+임포트: `@eye/workers`
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/hourly-goals.ts#L4)
+
+```ts
+/** Automatic collection coverage and the exclusive end of immutable UTC hours. */
+export interface HourlyGoalStatus {
+    coverageFrom: number;
+    finalizedBefore: number;
+    queriedAt: number;
+}
+```
+
+타입: [HourlyGoalStatus](types.md#hourlygoalstatus)
+
 ## IdentityEvent
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L94)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L92)
 
 ```ts
 /** identify는 인증된 cid+uid, logout은 cid만 전달한다. 호스트의 로그인·세션 상태를 변경하지 않는다. */
@@ -1820,6 +1880,9 @@ export type Submission = {
 ```ts
 /** 원본 SQL 없이 기본 합계를 읽는다. 범위 부족을 빈 성공 결과나 원본 조회로 자동 대체하지 않는다. */
 export interface SummariesAPI {
+    /** Automatic finalized receipt-hour totals across all accepted goals; no configure call needed. */
+    hours(): Promise<import('./hourly-goals.js').HourlyGoalStatus>;
+    series(query: import('./hourly-goals.js').HourlyGoalQuery): Promise<import('./hourly-goals.js').HourlyGoalReport>;
     /** 관리 경로에서 호출한다. 목록 변경은 전체 요약을 초기화하며 동일 설정 재시도는 보존한다.
      * capacity_exceeded 이후에는 빈 목록으로 비활성화한 뒤 다시 설정한다. */
     configure(config: SummaryConfig): Promise<SummaryStatus>;
@@ -1830,7 +1893,7 @@ export interface SummariesAPI {
 }
 ```
 
-타입: [SummariesAPI](types.md#summariesapi) · [SummaryConfig](types.md#summaryconfig) · [SummaryQuery](types.md#summaryquery) · [SummaryReport](types.md#summaryreport) · [SummaryStatus](types.md#summarystatus)
+타입: [HourlyGoalQuery](types.md#hourlygoalquery) · [HourlyGoalReport](types.md#hourlygoalreport) · [HourlyGoalStatus](types.md#hourlygoalstatus) · [SummariesAPI](types.md#summariesapi) · [SummaryConfig](types.md#summaryconfig) · [SummaryQuery](types.md#summaryquery) · [SummaryReport](types.md#summaryreport) · [SummaryStatus](types.md#summarystatus)
 
 ## SummaryConfig
 
@@ -2025,7 +2088,7 @@ export interface TimelineRow {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L85)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L83)
 
 ```ts
 /** 서비스 정의 행동 로그. 분석에 사용하며 직접 학습 보상을 만들지는 않는다. */

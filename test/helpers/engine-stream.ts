@@ -10,7 +10,7 @@ import type { EyeEvent, Subject } from '../../src/core/types.js';
 
 export const HOUR = 3_600_000, DAY = 24 * HOUR, START = 1_800_000_000_000;
 export const streamSettings = settings({ minHoldMs: 30 * 60_000, observationWindowMs: 10 * 60_000,
-  allowedLatenessMs: 2 * 60_000, attributionWindowMs: HOUR, attributionHalfLifeMs: HOUR,
+  attributionWindowMs: HOUR, attributionHalfLifeMs: HOUR,
   learningHalfLifeMs: 12 * HOUR });
 export function random(seed: number): () => number {
   let state = seed >>> 0;

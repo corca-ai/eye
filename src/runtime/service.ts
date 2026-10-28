@@ -5,7 +5,7 @@ import { packIngestion, unpackEvents } from './queue-batch.js';
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { RuntimeEnv as Env } from './environment.generated.js';
 import { invariant } from '../core/errors.js';
-import { parseCreateExperiment, parseEnvelope } from '../core/events.js';
+import { parseCreateExperiment, parseEnvelope, validateEventAge } from '../core/events.js';
 import { id } from '../core/validation.js';
 import type { ArmStatus, CreateExperiment, EventEnvelope, Experiment, ExperimentSettings, GoalStatus } from '../core/types.js';
 import type { EyeService, PublishedPolicy, PolicySnapshot } from '../transport.js';
@@ -27,7 +27,12 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
   async getPublishedPolicy(experimentId: string, maxAgeMs?: number): Promise<PublishedPolicy> { return this.site().publishedPolicy(this.installationId, id(experimentId, 'experimentId'), maxAgeMs); }
   async ingest(inputs: readonly Omit<EventEnvelope, 'siteId'>[]): Promise<void> {
     invariant(Array.isArray(inputs) && inputs.length <= 100, 'invalid_input', 'An ingestion batch must contain at most 100 events');
-    const envelopes = inputs.map(input => parseEnvelope({ ...input, siteId: this.installationId }, Date.now()));
+    const receivedAt = Date.now();
+    const envelopes = inputs.map(input => {
+      const envelope = parseEnvelope({ ...input, receivedAt, siteId: this.installationId }, receivedAt);
+      validateEventAge(envelope.event, receivedAt);
+      return envelope;
+    });
     const batches = packIngestion(envelopes);
     if (batches.length > 0) await this.env.EVENTS.sendBatch(batches.map(body => ({ body, contentType: 'json' })));
   }
@@ -53,7 +58,7 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
     for (let offset = 0; offset < group.length; offset += 100) {
       const chunk = group.slice(offset, offset + 100);
       try {
-        const accepted = await this.site().consumeLearning(this.installationId, chunk.map(w => w.envelope.event));
+        const accepted = await this.site().consumeLearning(this.installationId, chunk.map(w => w.envelope.event), chunk.map(w => w.envelope.receivedAt));
         chunk.forEach((item, i) => statuses.set(item.envelope, accepted[i] === true));
       } catch { for (const item of chunk) retries.add(item.message); }
     }
@@ -86,6 +91,8 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
   async getGoal(goalId: string) { return this.env.SITES.getByName(this.installationId).getGoal(goalId); }
   async listGoals(after = '', limit = 100) { return this.env.SITES.getByName(this.installationId).listGoals(after, limit); }
   async setGoalStatus(goalId: string, status: GoalStatus) { return this.env.SITES.getByName(this.installationId).setGoalStatus(goalId, status); }
+  async hourlyGoalStatus() { return this.site().hourlyGoalStatus(); }
+  async hourlyGoals(input: Parameters<SummariesAPI['series']>[0]) { return this.site().hourlyGoals(input); }
   async configureSummaries(input: Parameters<SummariesAPI['configure']>[0]) { return this.env.SITES.getByName(this.installationId).configureSummaries(this.installationId, input); }
   async summaryStatus() { return this.env.SITES.getByName(this.installationId).summaryStatus(); }
   async querySummary(input: Parameters<SummariesAPI['query']>[0]) { return this.env.SITES.getByName(this.installationId).querySummary(input); }

@@ -9,7 +9,7 @@ import { createEye } from '../../src/client.js';
 import { createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
 
 const H = 3_600_000, start = 10 * H;
-const config = settings({ minHoldMs: 0, observationWindowMs: 1000, allowedLatenessMs: 10, attributionHalfLifeMs: H });
+const config = settings({ minHoldMs: 0, observationWindowMs: 1000, attributionHalfLifeMs: H });
 const goal = (eventId: string, at: number, value: number): GoalEvent => ({ kind: 'goal', eventId, occurredAt: at, subject: { cid: 'c' }, goalId: 'pay', value });
 const exposure = (sampleId: string, at: number, armId = 'a', generation = 1): ExposureEvent => ({ kind: 'exposure', eventId: sampleId, occurredAt: at,
   subject: { cid: sampleId }, assignment: { assignmentId: sampleId, experimentId: 'e', armId, generation, policyRevision: 1,
@@ -30,11 +30,11 @@ it('summarizes accepted goals once, preserves rejected decisions and never count
     expect(summaries.query(q, start + H).rows).toEqual([{ kind: 'goals', goalId: 'pay', count: 3, total: 8, mean: 8 / 3 }]);
     const e = exposure('zero', start + 10);
     atomic(() => engine.accept([e], start + 11));
-    atomic(() => engine.close('s', start + 2000, () => {}));
+    atomic(() => engine.close('s', start + 62_000, () => {}));
     const before = summaries.query({ kind: 'learning', experimentId: 'e', from: start, to: start + H }, start + H);
     expect(before.rows).toEqual([{ kind: 'learning', experimentId: 'e', armId: 'a', generation: 1, observationWindowMs: 1000, count: 1, total: 0, mean: 0 }]);
     engine.outputs(); engine.outputs();
-    atomic(() => engine.close('s', start + 3000, () => {}));
+    atomic(() => engine.close('s', start + 63_000, () => {}));
     expect(summaries.query({ kind: 'learning', experimentId: 'e', from: start, to: start + H }, start + H)).toEqual(before);
   });
 });
@@ -113,12 +113,12 @@ it('does not materialize an overflowing report bucket while closing valid learni
     ctx.storage.transactionSync(() => engine.accept([a, b,
       { ...goal('g1', start + 10, 1e308), subject: a.subject },
       { ...goal('g2', start + 10, 1e308), subject: b.subject }], start + 10));
-    expect(ctx.storage.transactionSync(() => engine.close('s', start + 2000, () => {}))).toBe(2);
+    expect(ctx.storage.transactionSync(() => engine.close('s', start + 62_000, () => {}))).toBe(2);
     expect(engine.outputs().flatMap(o => o.output.records).every(r => r.value === 1e308)).toBe(true);
     expect(() => s.query({ kind: 'learning', experimentId: 'e', from: start, to: start + H }, start + H)).toThrow('Summary total');
     const c = exposure('a-third', start + H + 10);
     ctx.storage.transactionSync(() => engine.accept([c, { ...goal('g3', start + H + 10, -1e308), subject: c.subject }], start + H + 10));
-    expect(ctx.storage.transactionSync(() => engine.close('s', start + H + 2000, () => {}))).toBe(1);
+    expect(ctx.storage.transactionSync(() => engine.close('s', start + H + 62_000, () => {}))).toBe(1);
     expect(s.query({ kind: 'learning', experimentId: 'e', from: start, to: start + 2 * H }, start + 2 * H).rows[0]!.total).toBe(1e308);
   });
 });
@@ -130,7 +130,7 @@ it('keeps arm, generation and observation window dimensions distinct including z
     const original = exposure('long', start + 10);
     const long = { ...original, assignment: { ...original.assignment, settings: { ...config, observationWindowMs: 2000 } } };
     ctx.storage.transactionSync(() => engine.accept([exposure('a', start + 10), exposure('b', start + 10, 'b'), exposure('new-gen', start + 10, 'a', 2), long], start + 10));
-    ctx.storage.transactionSync(() => engine.close('s', start + 3000, () => {}));
+    ctx.storage.transactionSync(() => engine.close('s', start + 63_000, () => {}));
     const rows = s.query({ kind: 'learning', experimentId: 'e', from: start, to: start + H }, start + H).rows;
     expect(rows).toHaveLength(4);
     expect(rows.every(r => r.count === 1 && r.total === 0 && r.mean === 0)).toBe(true);

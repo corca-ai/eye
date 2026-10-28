@@ -26,8 +26,6 @@ export interface ExperimentSettings {
   readonly attributionHalfLifeMs: number;
   /** 기본 14일. 완료 표본의 학습 가중치를 잊는 반감기(ms), 양의 정수. 귀속 반감기와 독립적이다. */
   readonly learningHalfLifeMs: number;
-  /** 기본 1시간, 0 이상 정수. 관측 종료 후 수신 유예(ms). 유예까지 끝난 시각 이후 수신한 골은 학습에 더하지 않는다. */
-  readonly allowedLatenessMs: number;
   /** 기본 0.02. 신규 배정 전체 중 균등 탐색 비율, 0 초과 1 이하. arm별 하한은 이 값 / 활성 arm 수이다. */
   readonly explorationFloor: number;
   /** 기본 1. 분산이 작거나 자료가 없을 때 탐색 보너스의 최소 가치 척도, 양수. 보상을 자르는 상한이 아니다. */

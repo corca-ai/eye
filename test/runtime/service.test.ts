@@ -45,7 +45,7 @@ it('runs SDK selection, actual exposure, signed goal, raw export, closed learnin
   vi.spyOn(service, 'ingest').mockImplementation(async items => { envelopes.push(...items.map(item => ({ ...item, siteId: 'installation' }))); });
   const eye = createEye({ ctx, service, decisions: { secret: 'integration-secret-at-least-32-bytes-long' } });
   await eye.goals.create('purchase');
-  await eye.experiments.create({ experimentId: 'exp', arms: ['a'], settings: { minHoldMs: 0, observationWindowMs: 1000, allowedLatenessMs: 0 } });
+  await eye.experiments.create({ experimentId: 'exp', arms: ['a'], settings: { minHoldMs: 0, observationWindowMs: 1000, } });
   const prepared = await eye.prepare({ subject: { cid: 'c' }, experimentId: 'exp' });
   if (prepared.decision.status !== 'assigned') throw new Error('Expected assignment');
   const at = Date.now();
@@ -61,7 +61,7 @@ it('runs SDK selection, actual exposure, signed goal, raw export, closed learnin
   const sample = envelopes[0]!.event;
   if (sample.kind !== 'exposure' || !sample.sample) throw new Error('Expected sample');
   const site = env.SITES.getByName(siteId);
-  const clock = vi.spyOn(Date, 'now').mockReturnValue(at + 2000);
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(at + 62_000);
   try {
     await runInDurableObject(site, async actor => { await actor.alarm(); });
     expect((await eye.experiments.policy('exp')).arms[0]!.meanReward).toBe(100);
@@ -105,7 +105,7 @@ it('packs ingestion and keeps valid siblings when a Queue event is malformed', a
   try {
     await service.ingest(envelopes);
     expect(enqueue).toHaveBeenCalledTimes(1);
-    expect(enqueue.mock.calls[0]![0]).toEqual([{ body: { version: 2, events: envelopes }, contentType: 'json' }]);
+    expect(enqueue.mock.calls[0]![0]).toMatchObject([{ body: { version: 2, events: envelopes.map(e => ({ ...e, receivedAt: expect.any(Number) })) }, contentType: 'json' }]);
     await service.ingest([envelopes[0]!, { ...envelopes[1]!, event: { kind: 'track', eventId: 'large', occurredAt: at,
       subject: { cid: 'c' }, name: 'large', attributes: { detail: 'x'.repeat(70_000) } } }, envelopes[1]!]);
     expect(enqueue.mock.calls[1]![0]).toHaveLength(3);
@@ -224,7 +224,7 @@ it('keeps acceptance separate for sibling goals inside the same packed message',
 
 it.each(['arm', 'expired window'] as const)('rejects a conflicting %s without retrying or losing valid siblings in its packed message', async conflict => {
   const siteId = crypto.randomUUID(), ctx = createExecutionContext(), service = new EyeWorker(ctx, { ...env, EYE_INSTALLATION_ID: siteId });
-  const config = await service.createExperiment({ experimentId: 'exp', arms: ['a', 'b'], settings: { minHoldMs: 0, observationWindowMs: 1000, allowedLatenessMs: 0 } });
+  const config = await service.createExperiment({ experimentId: 'exp', arms: ['a', 'b'], settings: { minHoldMs: 0, observationWindowMs: 1000, } });
   await service.createGoal('pay');
   const at = Date.now(), events: EventEnvelope[] = [];
   const original: import('../../src/core/types.js').ExposureEvent = { kind: 'exposure', eventId: 'a-valid', occurredAt: at, subject: { cid: 'c' },
@@ -271,7 +271,7 @@ it('rejects malformed Unicode sample IDs while preserving valid packed exposures
     await runInDurableObject(env.SITES.getByName(siteId), async (_actor, state) => {
       const { IncrementalLearning } = await import('../../src/runtime/incremental.js');
       const engine = new IncrementalLearning(state.storage.sql);
-      state.storage.transactionSync(() => engine.close(siteId, at + config.settings.observationWindowMs + config.settings.allowedLatenessMs, () => {}));
+      state.storage.transactionSync(() => engine.close(siteId, at + config.settings.observationWindowMs + 60_000, () => {}));
       expect(state.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM learning_samples').one().n).toBe(0);
       expect(engine.outputs().flatMap(output => output.output.records).map(row => row.record_id)).toEqual(['valid-😀']);
     });
@@ -282,10 +282,10 @@ it('validates the entire experiment definition before changing site retention bo
   const siteId = crypto.randomUUID(), ctx = createExecutionContext(), service = new EyeWorker(ctx, { ...env, EYE_INSTALLATION_ID: siteId }), day = 86_400_000;
   try {
     await expect(service.createExperiment({ experimentId: 'invalid', arms: [], settings: {
-      minHoldMs: 0, observationWindowMs: day, allowedLatenessMs: 40 * day, attributionWindowMs: day,
+      minHoldMs: 0, observationWindowMs: day, attributionWindowMs: day,
     } })).rejects.toThrow('At least one arm');
     const valid = await service.createExperiment({ experimentId: 'valid', arms: ['a'], settings: {
-      minHoldMs: 0, observationWindowMs: 40 * day, allowedLatenessMs: 0, attributionWindowMs: day,
+      minHoldMs: 0, observationWindowMs: 40 * day, attributionWindowMs: day,
     } });
     expect(valid.experimentId).toBe('valid');
     expect(await service.listExperiments(siteId)).toEqual(['valid']);

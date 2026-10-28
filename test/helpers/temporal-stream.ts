@@ -2,7 +2,7 @@ import { rawRecords } from '../../src/analytics/raw.js';
 import { settings } from '../../src/core/validation.js';
 import type { EyeEvent, ExposureEvent, Subject } from '../../src/core/types.js';
 export const TEMPORAL_NOW = 1_800_000_000_000, TEMPORAL_START = TEMPORAL_NOW - 100_000;
-const config = settings({ minHoldMs: 0, observationWindowMs: 10_000, allowedLatenessMs: 0 });
+const config = settings({ minHoldMs: 0, observationWindowMs: 10_000, });
 export const temporalExposure = (eventId: string, at: number, subject: Subject, experimentId = 'exp', horizon = 10_000): ExposureEvent => ({
   kind: 'exposure', eventId, occurredAt: at, subject,
   assignment: { assignmentId: eventId, experimentId, armId: 'a', generation: 1, policyRevision: 1, assignedAt: at, probability: 1, settings: config },

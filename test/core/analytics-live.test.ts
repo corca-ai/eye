@@ -9,9 +9,9 @@ import { settings } from '../../src/core/validation.js';
 import type { EyeEvent, ExposureEvent, GoalEvent } from '../../src/core/types.js';
 import { analyticsRecord } from '../../src/analytics/records.js';
 import { exposureProjection } from '../../src/analytics/projections-sql.js';
-const now = 1_800_000_000_000, start = now - 10000;
+const now = 1_800_000_000_000, start = now - 100_000;
 const env = { EYE_ANALYTICS_WAREHOUSE: `${'a'.repeat(32)}_eye-data`, EYE_ANALYTICS_TOKEN: 'test' };
-const setting = settings({ minHoldMs: 0, observationWindowMs: 1000, allowedLatenessMs: 0, attributionHalfLifeMs: 100 });
+const setting = settings({ minHoldMs: 0, observationWindowMs: 1000, attributionHalfLifeMs: 100 });
 function exposure(eventId: string, cid: string, experimentId = 'exp', at = start): ExposureEvent {
   return { kind: 'exposure', eventId, occurredAt: at, subject: { cid },
     assignment: { assignmentId: eventId, experimentId, armId: 'a', generation: 1, policyRevision: 1, assignedAt: start - 1, probability: 1, settings: setting },
@@ -55,7 +55,7 @@ it('does not let a filtered completion or a tied revision suppress pending recei
 function fixture(initial: EyeEvent[], later: EyeEvent[] = []) {
   const learning = learningDatabase();
   for (const event of [...initial].sort(compareEvents)) learning.engine.accept([event], event.occurredAt);
-  learning.engine.close('site', start + 2000, () => {});
+  learning.engine.close('site', start + 62_000, () => {});
   const records = learning.engine.outputs().flatMap(item => item.output.records);
   learning.close();
   const rows = [...initial, ...later].flatMap(event => rawRecords({ siteId: 'site', receivedAt: now - 1, event }));
