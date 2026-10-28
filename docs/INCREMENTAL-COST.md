@@ -44,3 +44,8 @@ node benchmarks/compact-state/run.mjs --repeats=5 --output=/tmp/eye-compact-afte
 ## 검증
 
 회귀 검증은 과거 골 상태, 늦은 보상 거절, 빠른 backlog/outbox 후속 처리, 참조의 부분 읽기→전체 읽기, 보상 누적 후 전체 문맥 읽기, 사전 실패·동시 miss·축출, 요약 작업의 고정 페이지·UTC 경계·coverage 실패·SDK 경계를 포함한다. 전체 `npm run check`와 `npm run check:package`가 빌드·타입·테스트·생성 문서·외부 소비자·Worker dry-run을 검사한다.
+
+
+자동 receipt-hour 골 집계는 같은 수집 트랜잭션 안에서 `(hour, goalId)`별로 한 번 읽고 누적한 뒤 한 번 저장한다. 중복·비활성 골은 누적 전에 제외하며 합계와 중복 방지 기록은 함께 롤백한다. 확정 시간과 부호 있는 보상 합산 방식은 유지한다.
+
+다음 보관 정리 기한은 SQLite에 저장한다. 정상 수집은 이전 기한을 재사용하며 오래된 사건·표본 시작·receipt hour가 더 이른 정리를 요구할 때만 기한을 앞당긴다. 테이블별 최초 시각 조회는 캐시가 없는 최초 일정 계산과 정리 후 재계산에서 수행한다. 캐시는 트랜잭션에 포함되어 재시작·롤백에도 일치하며, 실험 마감과 outbox는 기존 일정대로 처리한다.

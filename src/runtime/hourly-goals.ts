@@ -23,16 +23,7 @@ export class HourlyGoals {
     const start = this.sql.exec<{ coverage_from: number }>('SELECT coverage_from FROM hourly_goal_state WHERE id=1').toArray()[0]!.coverage_from;
     return Math.max(start, ceilHour(now - RETENTION_MS));
   }
-  add(event: GoalEvent, receivedAt: number, now: number): void {
-    const bucket = Math.floor(receivedAt / HOUR) * HOUR;
-    if (bucket < this.coverage(now) || bucket < finalizedHour(now)) return;
-    const row = this.sql.exec<Bucket>('SELECT * FROM hourly_goals WHERE bucket=? AND goal_id=?', bucket, event.goalId).toArray()[0]
-      ?? { bucket, goal_id: event.goalId, events: 0, scale: 0, sum: 0, correction: 0 };
-    row.events++; addReward(row, event.value);
-    this.sql.exec(`INSERT INTO hourly_goals VALUES (?,?,?,?,?,?) ON CONFLICT(bucket,goal_id) DO UPDATE SET
-      events=excluded.events,scale=excluded.scale,sum=excluded.sum,correction=excluded.correction`,
-    bucket, event.goalId, row.events, row.scale, row.sum, row.correction);
-  }
+  batch(now: number): HourlyGoalBatch { return new HourlyGoalBatch(this.sql, this.coverage(now), finalizedHour(now)); }
   status(now: number): HourlyGoalStatus {
     return { coverageFrom: this.coverage(now), finalizedBefore: finalizedHour(now), queriedAt: now };
   }
@@ -55,5 +46,28 @@ export class HourlyGoals {
   prune(now: number): boolean {
     return this.sql.exec(`DELETE FROM hourly_goals WHERE rowid IN
       (SELECT rowid FROM hourly_goals WHERE bucket<? LIMIT 1000) RETURNING rowid`, ceilHour(now - RETENTION_MS)).toArray().length === 1000;
+  }
+}
+
+/** One learning transaction; discard this accumulator if the transaction rolls back. */
+export class HourlyGoalBatch {
+  private readonly pending = new Map<string, Bucket>();
+  constructor(private readonly sql: LearningSQL, private readonly coverage: number, private readonly finalized: number) {}
+  add(event: GoalEvent, receivedAt: number): void {
+    const bucket = Math.floor(receivedAt / HOUR) * HOUR;
+    if (bucket < this.coverage || bucket < this.finalized) return;
+    const key = JSON.stringify([bucket, event.goalId]);
+    let row = this.pending.get(key);
+    if (!row) {
+      row = this.sql.exec<Bucket>('SELECT * FROM hourly_goals WHERE bucket=? AND goal_id=?', bucket, event.goalId).toArray()[0]
+        ?? { bucket, goal_id: event.goalId, events: 0, scale: 0, sum: 0, correction: 0 };
+      this.pending.set(key, row);
+    }
+    row.events++; addReward(row, event.value);
+  }
+  flush(): void {
+    for (const row of this.pending.values()) this.sql.exec(`INSERT INTO hourly_goals VALUES (?,?,?,?,?,?) ON CONFLICT(bucket,goal_id) DO UPDATE SET
+      events=excluded.events,scale=excluded.scale,sum=excluded.sum,correction=excluded.correction`,
+      row.bucket, row.goal_id, row.events, row.scale, row.sum, row.correction);
   }
 }

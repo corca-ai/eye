@@ -1,3 +1,4 @@
+import { EVENT_MAX_AGE_MS } from './core/validation.js';
 import { DEFAULT_POLICY_FRESH_MS } from './policy-timing.js';
 import type { VariantDefinition } from './browser-types.js';
 import type { BrowserSnapshot, BrowserExposure, BrowserEventResult, BrowserState } from './browser-types.js';
@@ -74,7 +75,8 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
   let activeFlush: Promise<void> | undefined;
   let retryAt = 0;
   let wakeDrain: (() => void) | undefined;
-  const queue: { event: BrowserExposure; tries: number; queuedAt: number }[] = [];
+  const queue: { event: BrowserExposure; tries: number; queuedAt: number; queuedWall: number }[] = [];
+  const queuedAge = (item: (typeof queue)[number]) => Math.max(performance.now() - item.queuedAt, Date.now() - item.queuedWall);
   const report = (error: unknown) => { try { options.onError?.(error); } catch { /* host hook */ } };
   const post = async (url: string, body: unknown): Promise<unknown> => {
     const init = { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
@@ -155,6 +157,9 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
     let bytes = 2;
     while (queue.length && batch.length < 50) {
       const next = queue[0]!;
+      if (queuedAge(next) > EVENT_MAX_AGE_MS) {
+        queue.shift(); report(new Error('Eye dropped expired exposure')); continue;
+      }
       const size = new TextEncoder().encode(JSON.stringify(next.event)).length + 1;
       if (size + 2 > 48_000) { queue.shift(); report(new Error('Eye event exceeds browser batch budget')); continue; }
       if (bytes + size > 48_000) break;
@@ -172,7 +177,7 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
       if (stopped) return;
       for (const item of batch) {
         item.tries++;
-        if (item.tries < 3 && performance.now() - item.queuedAt < 60_000 && queue.length < 100) queue.push(item);
+        if (item.tries < 3 && queuedAge(item) + 3000 <= EVENT_MAX_AGE_MS && queue.length < 100) queue.push(item);
         else report(new Error('Eye dropped exposure after retry limit'));
       }
     } finally { sending = false; }
@@ -238,7 +243,7 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
                     while (samples.size > 1000) samples.delete(samples.keys().next().value!);
                     cached.choice.sample = sample;
                   }
-                  queue.push({ event: { eventId, receipt: cached.choice.receipt, occurredAt: at, ...(sample === undefined ? {} : { sample }) }, tries: 0, queuedAt: performance.now() });
+                  queue.push({ event: { eventId, receipt: cached.choice.receipt, occurredAt: at, ...(sample === undefined ? {} : { sample }) }, tries: 0, queuedAt: performance.now(), queuedWall: Date.now() });
                   emitted = true; scheduleSend(); return true;
                 } };
               if (now + cached.safetyMs >= (cached.choice.refreshAfter ?? cached.serverNow + DEFAULT_POLICY_FRESH_MS) || cached.choice.applyUntil - now < 60_000) { wanted.add(definition.experimentId); schedulePrepare(); }

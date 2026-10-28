@@ -241,3 +241,44 @@ it('clears a cached choice when a valid preparation omits a paused experiment', 
     expect(client.beginView().variant(definition).armId).toBeNull();
   } finally { client.dispose(); }
 });
+
+
+it('drops queued exposures after 15 seconds before sending, including a later batch blocked by a slow send', async () => {
+  vi.useFakeTimers();
+  let release!: () => void;
+  const send = vi.fn(async (events: BrowserExposure[]) => {
+    await new Promise<void>(resolve => { release = resolve; });
+    return events.map(e => ({ eventId: e.eventId, accepted: true }));
+  });
+  const onError = vi.fn(), client = createEyeBrowser({ scope: 'a', initial: snapshot(), send, onError });
+  for (let i = 0; i < 51; i++) client.beginView().variant(definition).expose();
+  const flushing = client.flush();
+  await vi.advanceTimersByTimeAsync(15_001); release(); await flushing;
+  expect(send).toHaveBeenCalledTimes(1);
+  expect(send.mock.calls[0]![0]).toHaveLength(50);
+  expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'Eye dropped expired exposure' }));
+  client.dispose();
+});
+
+it('does not schedule a retry that would already exceed the 15-second admission window', async () => {
+  vi.useFakeTimers();
+  let reject!: (error: Error) => void;
+  const send = vi.fn(() => new Promise<never>((_resolve, fail) => { reject = fail; }));
+  const client = createEyeBrowser({ scope: 'a', initial: snapshot(), send });
+  client.beginView().variant(definition).expose();
+  const flushing = client.flush();
+  await vi.advanceTimersByTimeAsync(12_001); reject(new Error('network')); await flushing;
+  await vi.advanceTimersByTimeAsync(3000);
+  expect(send).toHaveBeenCalledTimes(1); client.dispose();
+});
+
+
+it('drops an unsent exposure after wall-clock sleep even when the monotonic clock did not advance', async () => {
+  vi.useFakeTimers();
+  const send = vi.fn(async (events: BrowserExposure[]) => events.map(e => ({ eventId: e.eventId, accepted: true })));
+  const client = createEyeBrowser({ scope: 'a', initial: snapshot(), send });
+  client.beginView().variant(definition).expose();
+  vi.setSystemTime(Date.now() + 15_001);
+  await client.flush();
+  expect(send).not.toHaveBeenCalled(); client.dispose();
+});
