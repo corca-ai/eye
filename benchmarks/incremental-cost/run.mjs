@@ -46,7 +46,7 @@ for (const attributeBytes of [0, 25000]) for (const batchSize of [1, 100]) {
   const goals = Array.from({ length: 100 }, (_, i) => ({ kind: 'goal', eventId: 'g' + i, occurredAt: 20 + i, subject: { cid: 'c', uid: 'u' }, goalId: 'pay', value: i - 30 }));
   for (let i = 0; i < goals.length; i += batchSize) engine.accept(goals.slice(i, i + batchSize), 200);
   const sampleResultBytes = counts.sampleBytes;
-  engine.close('site', 2000, () => {});
+  engine.close('site', 62_000, () => {});
   const reward = engine.outputs().flatMap(o => o.output.records)[0].value;
   const expected = goals.reduce((sum, g) => sum + g.value * 2 ** (-(g.occurredAt - 10) / config.attributionHalfLifeMs), 0);
   assert.ok(Math.abs(reward - expected) < 1e-10);
