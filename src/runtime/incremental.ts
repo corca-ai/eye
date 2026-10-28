@@ -170,6 +170,7 @@ export class IncrementalLearning {
       CREATE INDEX IF NOT EXISTS learning_last_time ON learning_last(occurred_at);
       CREATE TABLE IF NOT EXISTS learning_samples (sample_id TEXT PRIMARY KEY, close_at INTEGER NOT NULL, data TEXT NOT NULL, definition TEXT NOT NULL, scale REAL NOT NULL, sum REAL NOT NULL, correction REAL NOT NULL);
       CREATE INDEX IF NOT EXISTS learning_samples_close ON learning_samples(close_at, sample_id);
+      CREATE TABLE IF NOT EXISTS learning_retention (id INTEGER PRIMARY KEY CHECK(id=1), at INTEGER);
       CREATE TABLE IF NOT EXISTS learning_outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, data TEXT NOT NULL);
     `);
     sql.exec('CREATE TABLE IF NOT EXISTS learning_runtime_version (id INTEGER PRIMARY KEY CHECK(id=1), version INTEGER NOT NULL)');
@@ -189,6 +190,7 @@ export class IncrementalLearning {
     const diagnostics: LearningDiagnostics = { staleExposures: 0, staleIdentities: 0, futureExposures: 0, closedGoals: 0 };
     const accepted = events.map(() => true);
     const batch = new LearningBatch(this.sql), summaries = this.summaries.batch(now);
+    let hourly: ReturnType<HourlyGoals['batch']> | undefined;
     for (const { event, index } of events.map((event, index) => ({ event, index })).sort((a, b) => compareEvents(a.event, b.event))) {
       if (event.kind === 'track') continue;
       if (event.kind === 'goal') {
@@ -200,11 +202,20 @@ export class IncrementalLearning {
           continue;
         }
         accepted[index] = status;
-        if (status) { this.goal(batch, event, now, diagnostics); summaries.goal(event); this.hourlyGoals.add(event, receivedAt?.[index] ?? now, now); }
+        if (status) { this.goal(batch, event, now, diagnostics); summaries.goal(event); (hourly ??= this.hourlyGoals.batch(now)).add(event, receivedAt?.[index] ?? now); }
       } else if (event.kind === 'identify' || event.kind === 'logout') this.identity(batch, event, diagnostics);
       else if (event.kind === 'exposure') accepted[index] = this.exposure(batch, event, now, diagnostics);
     }
-    batch.flush(); summaries.flush();
+    batch.flush(); summaries.flush(); hourly?.flush();
+    const retained = events.filter(event => event.kind !== 'track');
+    if (retained.length) {
+      // A conservative lower bound also covers receipt-hour and observation-start buckets.
+      // Missing state is populated from durable rows by nextWake, never from memory.
+      const first = Math.min(...retained.map(event => event.kind === 'exposure'
+        ? Math.min(event.occurredAt, event.sample!.startAt) : event.occurredAt), ...(receivedAt ?? [now]));
+      const at = Math.floor(first / 3_600_000) * 3_600_000 + RETENTION_MS + 1;
+      this.sql.exec('UPDATE learning_retention SET at=? WHERE id=1 AND (at IS NULL OR at>?)', at, at);
+    }
     return { accepted, diagnostics };
   }
   private identity(batch: LearningBatch, event: IdentityEvent, diagnostics: LearningDiagnostics): void {
@@ -323,13 +334,8 @@ export class IncrementalLearning {
   nextWake(now: number, drain = false): number | null {
     if (this.sql.exec('SELECT id FROM learning_outbox LIMIT 1').toArray().length) return now + 1000;
     const close = this.sql.exec<{ at: number | null }>('SELECT MIN(close_at) AS at FROM learning_samples').toArray()[0]!.at;
-    const first = this.sql.exec<{ at: number | null }>(`SELECT MIN(at) AS at FROM (
-      SELECT MIN(occurred_at) AS at FROM learning_seen UNION ALL
-      SELECT MIN(occurred_at) AS at FROM learning_identity UNION ALL
-      SELECT MIN(occurred_at) AS at FROM learning_last UNION ALL
-      SELECT MIN(bucket) AS at FROM summary_buckets UNION ALL
-      SELECT MIN(bucket) AS at FROM hourly_goals)`).toArray()[0]!.at;
-    const dates = [close, first === null ? null : first + RETENTION_MS + 1].filter((at): at is number => at !== null);
+    const retention = this.retentionWake();
+    const dates = [close, retention].filter((at): at is number => at !== null);
     if (!dates.length) return null;
     const earliest = Math.min(...dates);
     // Only successful alarm work requests fast draining. New ingestion must not
@@ -337,8 +343,22 @@ export class IncrementalLearning {
     const at = drain && earliest <= now ? now + 1000 : Math.ceil(earliest / FLUSH_INTERVAL_MS) * FLUSH_INTERVAL_MS;
     return Math.max(now + 1000, at);
   }
+  private retentionWake(): number | null {
+    const cached = this.sql.exec<{ at: number | null }>('SELECT at FROM learning_retention WHERE id=1').toArray()[0];
+    if (cached) return cached.at;
+    const first = this.sql.exec<{ at: number | null }>(`SELECT MIN(at) AS at FROM (
+      SELECT MIN(occurred_at) AS at FROM learning_seen UNION ALL
+      SELECT MIN(occurred_at) AS at FROM learning_identity UNION ALL
+      SELECT MIN(occurred_at) AS at FROM learning_last UNION ALL
+      SELECT MIN(bucket) AS at FROM summary_buckets UNION ALL
+      SELECT MIN(bucket) AS at FROM hourly_goals)`).toArray()[0]!.at;
+    const at = first === null ? null : first + RETENTION_MS + 1;
+    this.sql.exec('INSERT INTO learning_retention VALUES (1, ?)', at);
+    return at;
+  }
   /** At most a bounded number of expired rows per table per alarm. */
   prune(now: number): boolean {
+    this.sql.exec('DELETE FROM learning_retention WHERE id=1');
     let more = false;
     for (const [table, key] of [['learning_seen', 'event_id'], ['learning_identity', 'cid'], ['learning_last', 'rowid']] as const) {
       const removed = this.sql.exec(`DELETE FROM ${table} WHERE ${key} IN (SELECT ${key} FROM ${table} WHERE occurred_at < ? LIMIT 1000) RETURNING ${key}`, now - RETENTION_MS).toArray();

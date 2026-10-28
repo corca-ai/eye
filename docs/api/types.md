@@ -704,7 +704,7 @@ export interface BrowserExposure {
 
 임포트: `@eye/workers/browser`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L6)
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L7)
 
 ```ts
 /** 브라우저 전용 설정. 서버 secret·Worker 바인딩은 받지 않는다. */
@@ -754,7 +754,7 @@ export interface BrowserSample {
 
 임포트: `@eye/workers/browser`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L25)
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L26)
 
 ```ts
 /** 한 뷰·실험·placement에서 고정된 선택. 준비가 끝나도 현재 value는 바뀌지 않는다. */
@@ -829,7 +829,7 @@ export interface BrowserState {
 
 임포트: `@eye/workers/browser`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L32)
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L33)
 
 ```ts
 /** 실제 라우트·팝업 수명에 맞춘 선택 묶음. 컴포넌트 재렌더 동안 같은 뷰를 유지한다. */
@@ -1195,7 +1195,7 @@ export interface ExposureInput {
 
 임포트: `@eye/workers/browser`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L39)
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L40)
 
 ```ts
 /** 브라우저 앱 수명 동안 재사용한다. 로그인 전환에는 setScope, 화면 전환에는 beginView를 사용한다. */

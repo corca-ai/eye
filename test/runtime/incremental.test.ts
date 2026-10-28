@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { runInDurableObject } from 'cloudflare:test';
 import { expect, it } from 'vitest';
-import { IncrementalLearning } from '../../src/runtime/incremental.js';
+import { IncrementalLearning, type LearningSQL } from '../../src/runtime/incremental.js';
 import { reduceClosedCohort } from '../../src/core/closed-cohort.js';
 import { compareEvents } from '../../src/core/attribution.js';
 import { meanOf, stddevOf } from '../../src/core/moments.js';
@@ -306,5 +306,30 @@ it('point-reads one exposure reference and omits large immutable metadata from r
     expect(sampleBytes).toBeLessThan(20000);
     state.storage.transactionSync(() => engine.close('site', 62_000, () => {}));
     expect(engine.outputs().flatMap(o => o.output.records).find(r => r.record_id === 'e0')!.value).toBeCloseTo(2 ** (-10 / config.attributionHalfLifeMs), 10);
+  });
+});
+
+
+it('persists retention scheduling, avoids repeated expiry scans and rolls back earlier deadlines with events', async () => {
+  await runInDurableObject(env.SITES.getByName(crypto.randomUUID()), (_actor, state) => {
+    const calls: string[] = [];
+    const sql: LearningSQL = { exec(query, ...bindings) { calls.push(query); return state.storage.sql.exec(query, ...bindings); } };
+    const now = 10 * 3_600_000;
+    let engine = new IncrementalLearning(sql);
+    state.storage.transactionSync(() => engine.accept([goal('first', now, 1)], now));
+    const first = engine.nextWake(now);
+    engine = new IncrementalLearning(sql);
+    calls.length = 0;
+    state.storage.transactionSync(() => engine.accept([goal('second', now + 1, 1)], now + 1));
+    expect(engine.nextWake(now + 1)).toBe(first);
+    expect(calls.some(q => q.includes('SELECT MIN(occurred_at)'))).toBe(false);
+    expect(() => state.storage.transactionSync(() => {
+      engine.accept([goal('old', 1, 1)], now); throw Error('rollback');
+    })).toThrow('rollback');
+    expect(engine.nextWake(now)).toBe(first);
+    state.storage.transactionSync(() => engine.accept([goal('old', 1, 1)], now));
+    expect(engine.nextWake(now)).toBeLessThan(first!);
+    state.storage.transactionSync(() => engine.prune(now + RETENTION_MS + 2));
+    expect(engine.nextWake(now + RETENTION_MS + 2)).toBeNull();
   });
 });

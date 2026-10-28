@@ -7,6 +7,7 @@ import { HourlyGoals } from '../../src/runtime/hourly-goals.js';
 import { IncrementalLearning } from '../../src/runtime/incremental.js';
 import { EyeWorker } from '../../src/runtime/service.js';
 import { createEye } from '../../src/client.js';
+import type { LearningSQL } from '../../src/runtime/incremental.js';
 import type { GoalEvent } from '../../src/core/types.js';
 
 const H = 3_600_000, start = 100 * H;
@@ -17,13 +18,16 @@ it('uses receipt hours, includes signed goals, seals exactly ten minutes after h
   vi.spyOn(Date, 'now').mockReturnValue(start);
   await runInDurableObject(env.SITES.getByName(crypto.randomUUID()), (_actor, state) => {
     const s = new HourlyGoals(state.storage.sql, start);
-    s.add(goal('a', start - 1, 3), start, start);
-    s.add(goal('b', start + 1, -1), start + 1, start + 1);
+    const batch = s.batch(start + 1);
+    batch.add(goal('a', start - 1, 3), start);
+    batch.add(goal('b', start + 1, -1), start + 1);
+    batch.flush();
     const query = { from: start, to: start + H };
     expect(() => s.query(query, start + H + 599_999)).toThrow('finalized');
     const before = s.query(query, start + H + 600_000);
     expect(before.rows).toEqual([{ goalId: 'pay', bucketStart: start, events: 2, totalValue: 2 }]);
-    s.add(goal('too-late', start + 2, 100), start + 2, start + H + 600_000);
+    const late = s.batch(start + H + 600_000);
+    late.add(goal('too-late', start + 2, 100), start + 2); late.flush();
     expect(s.query(query, start + H + 600_001).rows).toEqual(before.rows);
     expect(new HourlyGoals(state.storage.sql, start + 2 * H).query(query, start + 2 * H).rows).toEqual(before.rows);
     expect(() => s.query({ ...query, from: start - H }, start + 2 * H)).toThrow('covered');
@@ -115,5 +119,27 @@ it('migrates old experiment definitions and pending samples to the fixed grace w
     expect(state.storage.sql.exec<{ close_at: number }>('SELECT close_at FROM learning_samples').one().close_at).toBe(start + 61_000);
     expect(state.storage.transactionSync(() => migrated.accept([goal('after-cutoff', start + 500)], start + 61_000)).diagnostics.closedGoals).toBe(1);
     expect(state.storage.transactionSync(() => migrated.close('migration', start + 61_000, () => {}))).toBe(1);
+  });
+});
+
+
+it('coalesces same-bucket goals while keeping dedup, signed sums and distinct receipt hours', async () => {
+  vi.spyOn(Date, 'now').mockReturnValue(start);
+  await runInDurableObject(env.SITES.getByName(crypto.randomUUID()), (_actor, state) => {
+    const calls: string[] = [];
+    const sql: LearningSQL = { exec(query, ...bindings) { calls.push(query); return state.storage.sql.exec(query, ...bindings); } };
+    const engine = new IncrementalLearning(sql);
+    calls.length = 0;
+    const goals = Array.from({ length: 100 }, (_, i) => goal(`g${i}`, start + i, i % 2 ? -1 : 3));
+    state.storage.transactionSync(() => engine.accept([...goals, goals[0]!], start + H + 1, () => true,
+      [...goals.map(() => start), start]));
+    expect(calls.filter(q => q.startsWith('SELECT * FROM hourly_goals'))).toHaveLength(1);
+    expect(calls.filter(q => q.startsWith('INSERT INTO hourly_goals'))).toHaveLength(1);
+    state.storage.transactionSync(() => engine.accept([goal('next', start + H, 9)], start + H + 1, () => true, [start + H]));
+    const report = engine.hourlyGoals.query({ from: start, to: start + 2 * H }, start + 3 * H);
+    expect(report.rows).toEqual([
+      { goalId: 'pay', bucketStart: start, events: 100, totalValue: 100 },
+      { goalId: 'pay', bucketStart: start + H, events: 1, totalValue: 9 },
+    ]);
   });
 });
