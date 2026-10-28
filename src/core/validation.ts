@@ -2,6 +2,8 @@ import { invariant } from './errors.js';
 import type { Attributes, ExperimentSettings, Subject } from './types.js';
 import type { CollectionLimits } from '../collection-limits.js';
 
+export const EVENT_MAX_AGE_MS = 15_000;
+export const OBSERVATION_GRACE_MS = 60_000;
 export const DAY_MS = 86_400_000;
 export const RETENTION_MS = 60 * DAY_MS;
 export const DEFAULT_SETTINGS = Object.freeze({
@@ -10,7 +12,6 @@ export const DEFAULT_SETTINGS = Object.freeze({
   bootstrapShare: 0.2,
   attributionHalfLifeMs: DAY_MS,
   learningHalfLifeMs: 14 * DAY_MS,
-  allowedLatenessMs: 3_600_000,
   explorationFloor: 0.02,
   rewardScale: 1,
   bonusMultiplier: 2,
@@ -73,21 +74,27 @@ export function settings(value: unknown): ExperimentSettings {
     minHoldMs: number(v.minHoldMs, 'minHoldMs'),
     attributionWindowMs: read('attributionWindowMs'), bootstrapShare: read('bootstrapShare'),
     observationWindowMs: read('observationWindowMs'), attributionHalfLifeMs: read('attributionHalfLifeMs'),
-    learningHalfLifeMs: read('learningHalfLifeMs'), allowedLatenessMs: read('allowedLatenessMs'),
+    learningHalfLifeMs: read('learningHalfLifeMs'),
     explorationFloor: read('explorationFloor'), rewardScale: read('rewardScale'),
     bonusMultiplier: read('bonusMultiplier'),
     bootstrapQuota: read('bootstrapQuota'),
   };
   for (const [key, n] of Object.entries(result)) {
-    const zeroAllowed = key === 'minHoldMs' || key === 'allowedLatenessMs';
+    const zeroAllowed = key === 'minHoldMs';
     invariant(zeroAllowed ? n >= 0 : n > 0, 'invalid_input', `${key} must be ${zeroAllowed ? 'nonnegative' : 'positive'}`);
     if (key.endsWith('Ms')) invariant(Number.isSafeInteger(n), 'invalid_input', `${key} must be integer milliseconds`);
   }
   invariant(result.explorationFloor <= 1, 'invalid_input', 'explorationFloor must be at most 1');
-  invariant(result.observationWindowMs + result.allowedLatenessMs <= RETENTION_MS, 'invalid_input', 'observationWindowMs + allowedLatenessMs must not exceed 60 days');
+  invariant(result.observationWindowMs + OBSERVATION_GRACE_MS <= RETENTION_MS, 'invalid_input', 'observationWindowMs + fixed one-minute grace must not exceed 60 days');
   invariant(Number.isSafeInteger(result.bootstrapQuota), 'invalid_input', 'bootstrapQuota must be an integer');
   invariant(result.attributionWindowMs! <= RETENTION_MS && result.bootstrapShare! < 1, 'invalid_input', 'Attribution horizon must be at most 60 days and bootstrapShare below one');
   return result;
+}
+
+/** Decode historical assignments/configs; the removed setting never affects the fixed grace. */
+export function historicalSettings(value: unknown): ExperimentSettings {
+  const v = record(value, 'settings');
+  return settings(Object.fromEntries(Object.entries(v).filter(([key]) => key !== 'allowedLatenessMs')));
 }
 
 /** JSON tuple encoding prevents collisions between user-controlled site/subject IDs. */

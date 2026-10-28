@@ -3,7 +3,7 @@ import { settings, subjectKey } from '../../src/core/validation.js';
 import { parseEnvelope, parseEvent } from '../../src/core/events.js';
 import type { Assignment } from '../../src/core/types.js';
 
-const config = settings({ minHoldMs: 100, observationWindowMs: 1000, attributionHalfLifeMs: 100, allowedLatenessMs: 10 });
+const config = settings({ minHoldMs: 100, observationWindowMs: 1000, attributionHalfLifeMs: 100, });
 const assignment = (experimentId: string, armId = 'a'): Assignment => ({ assignmentId: `assign:${experimentId}:${armId}`, experimentId, armId, generation: 1, assignedAt: 0, policyRevision: 1, probability: 0.5, settings: config });
 
 describe('public input boundaries', () => {

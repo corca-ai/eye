@@ -4,6 +4,34 @@
 
 `createEye(...).analytics`의 원본 분석은 서버 Service Binding을 통해 고객 계정의 Basin SQL을 호출한다. 명시적으로 선택한 `summaries`와 `kind: 'summary'` 작업은 SiteControl의 로컬 집계만 읽는다. 토큰은 Eye Worker secret에만 둔다. UI와 공개 HTTP API는 호스트가 구성한다.
 
+## Automatic finalized goal hours
+
+`eye.analytics.summaries.hours()` returns `coverageFrom`, `finalizedBefore` and
+`queriedAt`. Collection is automatic for every accepted registered goal and
+starts at the first whole UTC hour after the runtime initializes the store.
+There is no configuration or historical backfill. Existing optional summaries
+below retain their separate occurrence/start-time semantics.
+
+`eye.analytics.summaries.series({ from, to, goalId? })` reads all goals in one
+call, or one goal when filtered. It returns hourly `bucketStart`, `goalId`,
+`events` and signed `totalValue`, with `meta.basis: 'receipt_hour'`.
+Bounds must be whole UTC hours, within coverage and at most 59 days apart.
+Only finalized hours are readable. At 14:10, the 13:00–14:00 bucket becomes
+immutable and readable without a finalizer job, raw SQL, or polling.
+
+Eye stamps first receipt on the server. External occurrence must precede receipt
+by at most 15 seconds; caller-supplied receipt times cannot extend admission.
+Queue retries retain that receipt. Accepted goals update their receipt-hour
+bucket in the same transaction as deduplication. Work processed after the
+bucket's ten-minute closing deadline is omitted from that aggregate permanently;
+raw logging can still succeed. Unregistered/inactive goals do not count.
+Unavailable or pre-rollout ranges are never backfilled or silently read as raw
+SQL. Hourly rows expire after 60 days, with bounded background cleanup.
+
+Experiment learning preserves occurrence-time attribution and closes at
+observation end plus a fixed one minute. This grace is not a setting. Delayed
+internal processing can miss that deadline; closed rewards are never reopened.
+
 ## 비동기 조회와 결과 재사용
 
 운영자 화면의 무거운 조회에는 `analytics.jobs`를 사용한다. 기존 동기 메서드도 그대로 지원한다.

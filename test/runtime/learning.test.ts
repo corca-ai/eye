@@ -7,7 +7,7 @@ import type { AnalyticsRecord } from '../../src/analytics/records.js';
 it('closes durable rewards, retries delivery after eviction and applies arm moments only once without Basin', async () => {
   const siteId = crypto.randomUUID(), site = env.SITES.getByName(siteId);
   const config = await site.createExperiment(siteId, { experimentId: 'exp', arms: ['a', 'b'], settings: {
-    minHoldMs: 0, observationWindowMs: 1000, allowedLatenessMs: 100 } });
+    minHoldMs: 0, observationWindowMs: 1000, } });
   await site.createGoal('pay');
   const at = Date.now();
   const exposure: ExposureEvent = { kind: 'exposure', eventId: 'a-exposure', occurredAt: at,
@@ -24,7 +24,7 @@ it('closes durable rewards, retries delivery after eviction and applies arm mome
       subject: { cid: 'c' }, goalId: 'pay', value: 100 }, exposure];
     expect(await site.consumeLearning(siteId, events)).toEqual([true, true]);
     expect(await site.consumeLearning(siteId, events)).toEqual([true, true]);
-    clock.mockReturnValue(at + 1200);
+    clock.mockReturnValue(at + 61_200);
     exportData.mockRejectedValueOnce(new Error('temporary stream failure'));
     await runInDurableObject(site, async (actor, state) => {
       await actor.alarm();
@@ -54,8 +54,8 @@ it('does not poll or query an idle site just because an experiment exists', asyn
 
 it('reclaims at most one summary expiry page when cleanup and closure share an alarm', async () => {
   const siteId = crypto.randomUUID(), site = env.SITES.getByName(siteId);
-  const config = await site.createExperiment(siteId, { experimentId: 'exp', arms: ['a'], settings: { minHoldMs: 0, observationWindowMs: 1000, allowedLatenessMs: 0 } });
-  const now = Date.now(), at = now - 2000;
+  const config = await site.createExperiment(siteId, { experimentId: 'exp', arms: ['a'], settings: { minHoldMs: 0, observationWindowMs: 1000, } });
+  const now = Date.now(), at = now - 62_000;
   const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
   const send = vi.spyOn(env.ANALYTICS, 'send').mockResolvedValue(undefined);
   try {

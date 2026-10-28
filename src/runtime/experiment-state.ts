@@ -6,7 +6,7 @@ import { ageMoments, emptyMoments, mergeMoments } from '../core/moments.js';
 import type { Moments } from '../core/moments.js';
 import { evaluateUnreservedPolicy } from '../core/policy.js';
 import type { ClosedCohort } from '../core/closed-cohort.js';
-import { id, RETENTION_MS, settings, timestamp } from '../core/validation.js';
+import { id, RETENTION_MS, settings, historicalSettings, timestamp } from '../core/validation.js';
 import type { ArmStatus, CreateExperiment, Experiment, ExperimentSettings } from '../core/types.js';
 import type { LearningSQL } from './incremental.js';
 const storedJson = <T>(text: string): T => JSON.parse(text) as T;
@@ -26,8 +26,10 @@ export class ExperimentState {
       CREATE TABLE IF NOT EXISTS local_policy_outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, data TEXT NOT NULL);`);
   }
   create(input: CreateExperiment): Experiment {
-    const current = this.kv.get<Experiment>('config');
-    const original = this.kv.get<CreateExperiment>('definition');
+    const stored = this.kv.get<Experiment>('config');
+    const current = stored ? this.getConfig() : undefined;
+    const definition = this.kv.get<CreateExperiment>('definition');
+    const original = definition ? { ...definition, settings: historicalSettings(definition.settings) } : undefined;
     const parsed = parseCreateExperiment(input);
     invariant(parsed.experimentId === this.experimentId, 'invalid_input', 'Experiment state mismatch');
     if (current) {
@@ -45,12 +47,17 @@ export class ExperimentState {
   getConfig(): Experiment {
     const config = this.kv.get<Experiment>('config');
     invariant(config, 'not_found', 'Experiment does not exist');
+    if (Object.hasOwn(config.settings, 'allowedLatenessMs')) {
+      const normalized = { ...config, settings: historicalSettings(config.settings) };
+      this.kv.put('config', normalized); this.kv.put('policyDirty', true);
+      return normalized;
+    }
     return config;
   }
   getGeneration(generation: number): ExperimentSettings {
     const result = this.kv.get<ExperimentSettings>(`generation:${generation}`);
     invariant(result, 'not_found', 'Experiment generation does not exist');
-    return result;
+    return historicalSettings(result);
   }
   addArm(armId: string): Experiment {
     id(armId, 'armId');

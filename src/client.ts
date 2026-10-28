@@ -4,7 +4,7 @@ import { decisionRuntime, validateDecisionOptions, type DecisionOptions } from '
 import { collectionLimits, type CollectionLimits } from './collection-limits.js';
 import { EyeError, invariant } from './core/errors.js';
 import type { ErrorCode } from './core/errors.js';
-import { parseCreateExperiment, parseEnvelope } from './core/events.js';
+import { parseCreateExperiment, parseEnvelope, validateEventAge } from './core/events.js';
 import { id, record, RETENTION_MS, subject as parseSubject } from './core/validation.js';
 import type { Attributes, CreateExperiment, EventEnvelope, ExperimentSettings, GoalEvent, IdentityEvent, Subject, TrackEvent } from './core/types.js';
 import type { AssignedDecision, EyeService } from './transport.js';
@@ -87,6 +87,7 @@ export function createEye(options: EyeOptions) {
       const event = build();
       const receivedAt = Date.now();
       const envelope = parseEnvelope({ siteId, receivedAt, event }, receivedAt, limits);
+      validateEventAge(envelope.event, receivedAt);
       const bytes = encodedSize(envelope) + 200;
       invariant(bytes <= MAX_EVENT_BYTES, 'invalid_input', 'Event exceeds the 100 KB encoded envelope limit');
       // Reading host inputs may have synchronously admitted another event.
@@ -142,6 +143,10 @@ export function createEye(options: EyeOptions) {
     flush,
     analytics: {
       summaries: {
+        /** Read automatic receipt-hour coverage and the immutable cutoff. */
+        hours: () => service.hourlyGoalStatus(),
+        /** Read all accepted goals by finalized receipt hour without raw SQL. */
+        series: query => service.hourlyGoals(query),
         /** 관리 경로에서 자주 쓰는 ID만 활성화한다. 설정 변경은 집계를 초기화한다. */
         configure: input => service.configureSummaries(input),
         /** 집계 시작 시각·상태를 확인한다. */

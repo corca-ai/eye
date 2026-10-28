@@ -10,14 +10,14 @@ it('commits closure/moments/export together, rolls all back on SQL failure, acro
   const send = vi.spyOn(env.ANALYTICS, 'send').mockResolvedValue(undefined);
   try {
     const config = await exports.default.createExperiment({ experimentId: 'exp', arms: ['a'], settings: {
-      minHoldMs: 0, observationWindowMs: 1000, allowedLatenessMs: 0 } });
+      minHoldMs: 0, observationWindowMs: 1000, } });
     await site.createGoal('pay');
     const exposure: ExposureEvent = { kind: 'exposure', eventId: 'shown', subject: { cid: 'c' }, occurredAt: at,
       assignment: { assignmentId: 'assignment', experimentId: 'exp', armId: 'a', generation: 1, assignedAt: at,
         policyRevision: 1, probability: 1, settings: config.settings }, sample: { sampleId: 'sample', startAt: at }, attributionWindowMs: 1000 };
     clock.mockReturnValue(at + 10);
     await site.consumeLearning(siteId, [exposure, { kind: 'goal', eventId: 'paid', subject: { cid: 'c' }, occurredAt: at + 10, goalId: 'pay', value: 100 }]);
-    clock.mockReturnValue(at + 2000);
+    clock.mockReturnValue(at + 62_000);
     await runInDurableObject(site, async (actor, state) => {
       state.storage.sql.exec("CREATE TRIGGER fail_moments BEFORE INSERT ON local_arm_moments BEGIN SELECT RAISE(ABORT,'moment failure'); END");
       await actor.alarm();
@@ -43,21 +43,21 @@ it('handles concurrent normal collection and a full close batch without losing z
   const send = vi.spyOn(env.ANALYTICS, 'send').mockImplementation(async rows => { records.push(...rows as AnalyticsRecord[]); });
   try {
     const config = await exports.default.createExperiment({ experimentId: 'exp', arms: ['a'], settings: {
-      minHoldMs: 0, observationWindowMs: 1000, allowedLatenessMs: 0 } });
+      minHoldMs: 0, observationWindowMs: 1000, } });
     const batches = Array.from({ length: 20 }, (_, batch) => Array.from({ length: 25 }, (_, index): ExposureEvent => {
       const key = `${batch}-${index}`; return { kind: 'exposure', eventId: key, subject: { cid: key }, occurredAt: at,
         assignment: { assignmentId: key, experimentId: 'exp', armId: 'a', generation: 1, assignedAt: at,
           policyRevision: 1, probability: 1, settings: config.settings }, sample: { sampleId: key, startAt: at }, attributionWindowMs: 1000 };
     }));
     expect((await Promise.all(batches.map(batch => site.consumeLearning(siteId, batch)))).flat().every(Boolean)).toBe(true);
-    clock.mockReturnValue(at + 2000);
+    clock.mockReturnValue(at + 62_000);
     await runInDurableObject(site, async (actor, state) => {
       for (let i = 0; i < 5 && state.storage.sql.exec('SELECT sample_id FROM learning_samples LIMIT 1').toArray().length; i++) await actor.alarm();
       expect(state.storage.sql.exec('SELECT sample_id FROM learning_samples LIMIT 1').toArray()).toEqual([]);
     });
     const policy = await exports.default.getPolicy('exp');
     expect(policy.arms[0]!.meanReward).toBe(0);
-    expect(policy.arms[0]!.weight).toBeCloseTo(500 * 2 ** (-1000 / config.settings.learningHalfLifeMs), 8);
+    expect(policy.arms[0]!.weight).toBeCloseTo(500 * 2 ** (-61_000 / config.settings.learningHalfLifeMs), 8);
     expect(records.filter(row => row.table_name === 'observations')).toHaveLength(500);
   } finally { clock.mockRestore(); send.mockRestore(); }
 });
@@ -71,7 +71,7 @@ it('keeps experiment and generation evidence separate through settings and arm c
     const ids = ['one', 'two', 'three', 'four'], configs: Experiment[] = [];
     await site.createGoal('pay');
     for (const experimentId of ids) configs.push(await exports.default.createExperiment({
-      experimentId, arms: ['a', 'b'], settings: { minHoldMs: 0, observationWindowMs: 1000, allowedLatenessMs: 0 },
+      experimentId, arms: ['a', 'b'], settings: { minHoldMs: 0, observationWindowMs: 1000, },
     }));
     const collect = async (cycle: number) => {
       const events: EyeEvent[] = [];
@@ -87,7 +87,7 @@ it('keeps experiment and generation evidence separate through settings and arm c
         events.push({ kind: 'goal', eventId: `${key}-goal`, subject, occurredAt: now + 10, goalId: 'pay', value: user % 2 ? 100 : -30 });
       }
       now += 10; expect((await site.consumeLearning(siteId, events)).every(Boolean)).toBe(true);
-      now += 1990; await runInDurableObject(site, async actor => { await actor.alarm(); });
+      now += 61_990; await runInDurableObject(site, async actor => { await actor.alarm(); });
     };
     await collect(0);
     const factor = 2 ** (-10 / configs[0]!.settings.attributionHalfLifeMs);
@@ -100,15 +100,15 @@ it('keeps experiment and generation evidence separate through settings and arm c
     expect((await exports.default.getPolicy('one')).arms.every(arm => arm.weight === 0)).toBe(true);
     await exports.default.setArmStatus('two', 'b', 'paused');
     await exports.default.addArm('three', 'c');
-    now = at + 60_000; await collect(1);
+    now = at + 120_000; await collect(1);
     const policy = await exports.default.getPolicy('one');
     expect(policy.generation).toBe(2);
-    expect(policy.arms.find(arm => arm.armId === 'a')!.weight).toBeCloseTo(5 * 2 ** (-1000 / 300_000), 10);
+    expect(policy.arms.find(arm => arm.armId === 'a')!.weight).toBeCloseTo(5 * 2 ** (-61_000 / 300_000), 10);
     expect((await exports.default.getPolicy('two')).arms.map(arm => arm.armId)).toEqual(['a']);
     await exports.default.setArmStatus('two', 'b', 'active');
     const halfLife = configs[1]!.settings.learningHalfLifeMs;
     expect((await exports.default.getPolicy('two')).arms.find(arm => arm.armId === 'b')!.weight)
-      .toBeCloseTo(5 * (2 ** (-61_000 / halfLife) + 2 ** (-1000 / halfLife)), 10);
+      .toBeCloseTo(5 * (2 ** (-181_000 / halfLife) + 2 ** (-61_000 / halfLife)), 10);
     expect((await exports.default.getPolicy('three')).arms.find(arm => arm.armId === 'c')!.weight).toBe(0);
     await evictDurableObject(site);
     expect(await exports.default.getPolicy('one')).toEqual(policy);

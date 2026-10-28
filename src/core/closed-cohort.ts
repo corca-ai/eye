@@ -1,3 +1,4 @@
+import { OBSERVATION_GRACE_MS } from './validation.js';
 import { compareEvents } from './attribution.js';
 import { finite, invariant } from './errors.js';
 import { IdentityHistory } from './identity-history.js';
@@ -40,7 +41,7 @@ export interface ClosedCohort {
 }
 export interface CohortInput {
   readonly cohortId: string;
-  /** Select samples by their fixed endAt + allowedLatenessMs in [from, until). */
+  /** Select samples by their fixed endAt + fixed one-minute grace in [from, until). */
   readonly from: number;
   readonly until: number;
   /** Moment timestamp for this batch, fixed to the cohort end, not retry time. */
@@ -78,7 +79,7 @@ export function reduceClosedCohort(input: CohortInput): ClosedCohort {
     eventIds.add(event.eventId);
     const assignment = event.assignment;
     const endAt = startAt + assignment.settings.observationWindowMs;
-    const closesAt = endAt + assignment.settings.allowedLatenessMs;
+    const closesAt = endAt + OBSERVATION_GRACE_MS;
     invariant(sampleId.length > 0 && Number.isSafeInteger(startAt) && startAt >= assignment.assignedAt
       && event.occurredAt >= startAt && event.occurredAt < endAt
       && Number.isSafeInteger(closesAt) && Number.isSafeInteger(attributionWindowMs) && attributionWindowMs > 0,

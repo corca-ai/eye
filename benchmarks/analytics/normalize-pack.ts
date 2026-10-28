@@ -16,7 +16,7 @@ assert.ok(baseline, 'Pass the baseline dist directory');
 const load = (file: string) => import(pathToFileURL(resolve(baseline, file)).href);
 const oldQueue = await load('runtime/queue-batch.js'), oldProjection = await load('analytics/projections-sql.js');
 const now = 1_800_000_000_000, start = now - 10000;
-const config = settings({ minHoldMs: 0, observationWindowMs: 1000, allowedLatenessMs: 0 });
+const config = settings({ minHoldMs: 0, observationWindowMs: 1000, });
 function shown(i: number, unique = false, detail = ''): EventEnvelope {
   return { siteId: 'site', receivedAt: now - 10, event: { kind: 'exposure', eventId: `e-${i}`, occurredAt: start,
     subject: { cid: `c-${i}` }, assignment: { assignmentId: `a-${i}`, experimentId: 'exp', armId: 'a', generation: 1,

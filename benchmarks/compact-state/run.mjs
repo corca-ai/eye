@@ -16,7 +16,7 @@ const modulePath = resolve('dist/runtime/incremental.js');
 const { IncrementalLearning } = await import(pathToFileURL(modulePath).href);
 const count = Number(options.events ?? 10000), repeats = Number(options.repeats ?? 5), H = 3_600_000;
 assert.ok(Number.isSafeInteger(count) && count >= 20 && count % 20 === 0 && Number.isSafeInteger(repeats) && repeats > 0);
-const config = settings({ minHoldMs: 0, observationWindowMs: 10000, allowedLatenessMs: 10, attributionHalfLifeMs: 1000, attributionWindowMs: 10000 });
+const config = settings({ minHoldMs: 0, observationWindowMs: 10000, attributionHalfLifeMs: 1000, attributionWindowMs: 10000 });
 const events = [];
 for (let i = 0; i < count / 20; i++) {
   const subject = { cid: 'c' + i, uid: 'u' + i };

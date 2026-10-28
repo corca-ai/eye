@@ -36,3 +36,5 @@ export type { LearningQuery, LearningRow, LearningReport } from './analytics/typ
 export type { BasicReport, ReportScheduleRef, ReportScheduleInput, ReportSchedule } from './analytics/jobs.js';
 
 export type { SummaryConfig, SummaryStatus, SummaryTarget, SummaryQuery, SummaryRow, SummaryReport, SummariesAPI } from './analytics/summaries.js';
+
+export type { HourlyGoalQuery, HourlyGoalReport, HourlyGoalStatus } from './analytics/hourly-goals.js';

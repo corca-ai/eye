@@ -12,7 +12,7 @@ function exposure(id: string, experimentId: string, armId: string, at: number, o
   const assignment: Assignment = { assignmentId: options.assignmentId ?? id, experimentId, armId,
     assignedAt: 0, generation: 1, policyRevision: 1, probability: 0.5,
     settings: settings({ minHoldMs: 0, observationWindowMs: options.window ?? 100,
-      allowedLatenessMs: 10, attributionHalfLifeMs: 100, learningHalfLifeMs: 1000 }) };
+      attributionHalfLifeMs: 100, learningHalfLifeMs: 1000 }) };
   return { event: { kind: 'exposure', eventId: id, occurredAt: at, assignment, subject: options.subject ?? subject },
     sampleId: options.sampleId ?? id, startAt: options.start ?? at, attributionWindowMs: options.lookback ?? 100 };
 }
@@ -20,7 +20,7 @@ const goal = (eventId: string, occurredAt: number, value: number, owner = subjec
   kind: 'goal', eventId, occurredAt, value, subject: owner, goalId: 'purchase',
 });
 const input = (exposures: SampleExposure[], goals: GoalEvent[] = []): CohortInput => ({
-  cohortId: 'site/closing-0/partition-1', from: 0, until: 200, asOf: 200, exposures, goals, identities: [],
+  cohortId: 'site/closing-0/partition-1', from: 0, until: 60_190, asOf: 60_190, exposures, goals, identities: [],
 });
 
 describe('immutable closed-cohort reduction', () => {
@@ -28,7 +28,7 @@ describe('immutable closed-cohort reduction', () => {
     const result = reduceClosedCohort(input([exposure('shown', 'e', 'a', 10)]));
     expect(result.samples).toHaveLength(1);
     expect(result.samples[0]!.reward).toBe(0);
-    expect(result.arms[0]!.moments.weight).toBeCloseTo(2 ** (-90 / 1000), 12);
+    expect(result.arms[0]!.moments.weight).toBeCloseTo(2 ** (-60_080 / 1000), 12);
     expect(reduceClosedCohort(input([])).arms).toEqual([]);
   });
 
@@ -86,8 +86,8 @@ describe('immutable closed-cohort reduction', () => {
 
   it('assigns samples to one half-open closing cohort and retains other-cohort exposures in the split', () => {
     const base = input([exposure('early', 'e1', 'a', 10), exposure('later', 'e2', 'a', 20)], [goal('g', 30, 100)]);
-    const first = reduceClosedCohort({ ...base, until: 130, asOf: 130 });
-    const second = reduceClosedCohort({ ...base, cohortId: 'next', from: 130 });
+    const first = reduceClosedCohort({ ...base, until: 60_120, asOf: 60_120 });
+    const second = reduceClosedCohort({ ...base, cohortId: 'next', from: 60_120 });
     expect(first.samples.map(s => s.sampleId)).toEqual(['early']);
     expect(second.samples.map(s => s.sampleId)).toEqual(['later']);
     expect(first.samples[0]!.reward).toBeCloseTo(50 * 2 ** -0.2, 12);

@@ -8,8 +8,7 @@ import { meanOf, stddevOf } from '../../src/core/moments.js';
 import { settings, RETENTION_MS } from '../../src/core/validation.js';
 import type { EyeEvent, ExposureEvent, GoalEvent, IdentityEvent, Subject } from '../../src/core/types.js';
 
-const config = settings({ minHoldMs: 0, observationWindowMs: 1000, allowedLatenessMs: 10,
-  attributionHalfLifeMs: 100, learningHalfLifeMs: 10000 });
+const config = settings({ minHoldMs: 0, observationWindowMs: 1000, attributionHalfLifeMs: 100, learningHalfLifeMs: 10000 });
 const anon: Subject = { cid: 'browser' };
 function exposure(id: string, at: number, experimentId = 'e', subject = anon, extra: Partial<ExposureEvent> = {}): ExposureEvent {
   return { kind: 'exposure', eventId: id, occurredAt: at, subject,
@@ -33,7 +32,7 @@ it('matches batch rewards and moments for login boundaries, concurrent experimen
     goal('b-goal', 80, 10, b), { kind: 'identify', eventId: 'switch', occurredAt: 90, subject: a },
     goal('a-goal', 100, 40, a), exposure('zero', 200, 'zero', { cid: 'zero' }),
   ];
-  const reference = reduceClosedCohort({ cohortId: 'reference', from: 0, until: 2000, asOf: 2000,
+  const reference = reduceClosedCohort({ cohortId: 'reference', from: 0, until: 62_000, asOf: 62_000,
     exposures: events.filter(e => e.kind === 'exposure').map(event => ({ event, sampleId: event.sample!.sampleId,
       startAt: event.sample!.startAt, attributionWindowMs: event.attributionWindowMs! })),
     goals: events.filter(e => e.kind === 'goal'), identities: events.filter((e): e is IdentityEvent => e.kind === 'identify' || e.kind === 'logout') });
@@ -43,7 +42,7 @@ it('matches batch rewards and moments for login boundaries, concurrent experimen
     state.storage.transactionSync(() => engine.accept([...events].reverse(), 200));
     state.storage.transactionSync(() => engine.accept(events, 201)); // Non-adjacent retries.
     let arms: typeof reference.arms = [];
-    state.storage.transactionSync(() => engine.close('site', 2000, cohort => { arms = cohort.arms; }));
+    state.storage.transactionSync(() => engine.close('site', 62_000, cohort => { arms = cohort.arms; }));
     const outputs = engine.outputs().flatMap(item => item.output.records);
     const samples = outputs.filter(r => r.table_name === 'observations');
     expect(samples).toHaveLength(reference.samples.length);
@@ -68,7 +67,7 @@ it('never regresses latest exposure or identity across batches and never replays
     expect(early.diagnostics.futureExposures).toBe(1);
     accept([goal('accepted', 45, -10, a)], 50);
     accept([goal('earlier-goal', 35, 100, a)], 60);
-    state.storage.transactionSync(() => engine.close('site', 2000, () => {}));
+    state.storage.transactionSync(() => engine.close('site', 62_000, () => {}));
     const observations = engine.outputs().flatMap(item => item.output.records).filter(r => r.table_name === 'observations');
     expect(observations.find(r => r.record_id === 'old')!.value).toBe(0);
     expect(observations.find(r => r.record_id === 'new')!.value).toBeCloseTo(-10 * 2 ** -.05);
@@ -89,7 +88,7 @@ it('does not revive an older longer-horizon exposure', async () => {
     const accept = (events: EyeEvent[], now: number) => state.storage.transactionSync(() => engine.accept(events, now));
     accept([exposure('old', 0), exposure('latest', 10, 'e', anon, { attributionWindowMs: 5 }), exposure('other', 20, 'f')], 20);
     accept([goal('g', 30, 100)], 30);
-    state.storage.transactionSync(() => engine.close('site', 2000, () => {}));
+    state.storage.transactionSync(() => engine.close('site', 62_000, () => {}));
     const rows = engine.outputs().flatMap(item => item.output.records).filter(r => r.table_name === 'observations');
     expect(rows.find(r => r.record_id === 'other')!.value).toBeCloseTo(100 * 2 ** -.1);
     expect(rows.filter(r => r.record_id !== 'other').every(r => r.value === 0)).toBe(true);
@@ -105,7 +104,7 @@ it('keeps a completed observation in the attribution denominator without adding 
     state.storage.transactionSync(() => engine.accept([exposure('open', 10, 'f')], 10));
     state.storage.transactionSync(() => engine.close('site', 20, () => {}));
     state.storage.transactionSync(() => engine.accept([goal('g', 30, 100)], 30));
-    state.storage.transactionSync(() => engine.close('site', 2000, () => {}));
+    state.storage.transactionSync(() => engine.close('site', 62_000, () => {}));
     const rows = engine.outputs().flatMap(item => item.output.records).filter(r => r.table_name === 'observations');
     expect(rows.find(r => r.record_id === 'short')!.value).toBe(0);
     expect(rows.find(r => r.record_id === 'open')!.value).toBeCloseTo(50 * 2 ** -.2);
@@ -118,12 +117,12 @@ it('retains compensated signed sums across batches and ignores goals after a dea
     const accept = (events: EyeEvent[], now: number) => state.storage.transactionSync(() => engine.accept(events, now));
     accept([exposure('shown', 10, 'e', anon, { eventId: 'a-shown' }), goal('g0', 10, 1e308), goal('g1', 10, 1e308)], 10);
     accept([goal('g2', 10, -1e308)], 11);
-    state.storage.transactionSync(() => engine.close('site', 2000, () => {}));
+    state.storage.transactionSync(() => engine.close('site', 62_000, () => {}));
     const before = engine.outputs();
     expect(before.flatMap(item => item.output.records).find(r => r.table_name === 'observations')!.value).toBe(1e308);
-    expect(accept([goal('too-late', 20, 100)], 2001).diagnostics.closedGoals).toBe(1);
-    accept([exposure('late-repeat', 20, 'e', anon, { assignment: exposure('shown', 10).assignment, sample: { sampleId: 'shown', startAt: 10 } })], 2002);
-    expect(state.storage.transactionSync(() => engine.close('site', 3000, () => {}))).toBe(0);
+    expect(accept([goal('too-late', 20, 100)], 62_001).diagnostics.closedGoals).toBe(1);
+    accept([exposure('late-repeat', 20, 'e', anon, { assignment: exposure('shown', 10).assignment, sample: { sampleId: 'shown', startAt: 10 } })], 62_002);
+    expect(state.storage.transactionSync(() => engine.close('site', 63_000, () => {}))).toBe(0);
   });
 });
 
@@ -137,7 +136,7 @@ it('handles more than 10000 related exposures without a raw query or enlarged ob
     })), i * 100 + 99));
     expect(state.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM learning_samples').one().n).toBe(1);
     expect(state.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM learning_last').one().n).toBe(1);
-    expect(state.storage.transactionSync(() => engine.close('site', 200000, () => {}))).toBe(1);
+    expect(state.storage.transactionSync(() => engine.close('site', 62_00000, () => {}))).toBe(1);
   });
 });
 
@@ -147,10 +146,10 @@ it('rolls back dedup and reward writes together and bounds cleanup of expired me
     expect(() => state.storage.transactionSync(() => { engine.accept([e], 20); throw new Error('abort'); })).toThrow('abort');
     expect(state.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM learning_seen').one().n).toBe(0);
     state.storage.transactionSync(() => engine.accept([e], 20));
-    state.storage.transactionSync(() => engine.close('site', 2000, () => {}));
+    state.storage.transactionSync(() => engine.close('site', 62_000, () => {}));
     engine.acknowledge(engine.outputs().map(item => item.id));
-    state.storage.transactionSync(() => engine.prune(RETENTION_MS + 2001));
-    expect(engine.nextWake(RETENTION_MS + 2001)).toBeNull();
+    state.storage.transactionSync(() => engine.prune(RETENTION_MS + 62_001));
+    expect(engine.nextWake(RETENTION_MS + 62_001)).toBeNull();
   });
 });
 
@@ -159,10 +158,10 @@ it('closes large populations in bounded durable batches without losing zero-rewa
     const engine = new IncrementalLearning(state.storage.sql);
     for (let i = 0; i < 7; i++) state.storage.transactionSync(() => engine.accept(Array.from({ length: 100 }, (_, j) =>
       exposure(`sample-${i * 100 + j}`, 0, 'e', { cid: `c-${i * 100 + j}` })), 0));
-    const first = state.storage.transactionSync(() => engine.close('site', 2000, () => {}));
+    const first = state.storage.transactionSync(() => engine.close('site', 62_000, () => {}));
     expect(first).toBeGreaterThan(0); expect(first).toBeLessThanOrEqual(500);
     expect(first).toBeLessThan(700);
-    while (state.storage.transactionSync(() => engine.close('site', 2000, () => {})) > 0) { /* Drain bounded batches. */ }
+    while (state.storage.transactionSync(() => engine.close('site', 62_000, () => {})) > 0) { /* Drain bounded batches. */ }
     const records = engine.outputs().flatMap(item => item.output.records);
     expect(records).toHaveLength(700);
     expect(new Set(records.map(row => row.record_id)).size).toBe(700);
@@ -181,7 +180,7 @@ it('makes identity retries idempotent without a non-goal ledger and retains late
     accept([logout, exposure('old', 10), exposure('late-first', 15, 'other')], 35);
     accept([goal('reward', 40, 10)], 40);
     expect(state.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM learning_seen').one().n).toBe(1);
-    state.storage.transactionSync(() => engine.close('site', 2000, () => {}));
+    state.storage.transactionSync(() => engine.close('site', 62_000, () => {}));
     const rows = engine.outputs().flatMap(o => o.output.records);
     expect(rows.find(r => r.record_id === 'fresh')!.value).toBeCloseTo(10 * 2 ** -.1);
     expect(rows.find(r => r.record_id === 'old')!.value).toBe(0);
@@ -198,7 +197,7 @@ it('reads transfers and deletions inside a combined transaction and forgets over
     expect(() => state.storage.transactionSync(() => { engine.accept(events, 80); throw Error('abort'); })).toThrow('abort');
     // Same engine instance after rollback: all cached reads/writes must be gone.
     state.storage.transactionSync(() => engine.accept(events, 80));
-    state.storage.transactionSync(() => engine.close('site', 2000, () => {}));
+    state.storage.transactionSync(() => engine.close('site', 62_000, () => {}));
     const rows = engine.outputs().flatMap(o => o.output.records);
     expect(rows.find(r => r.record_id === 'first')!.value).toBeCloseTo(10 * 2 ** -.2);
     expect(rows.find(r => r.record_id === 'discard')!.value).toBe(0);
@@ -217,7 +216,7 @@ it('combines a hundred contributions into one sample write without altering comp
     const goals = Array.from({ length: 100 }, (_, i) => goal(`g${String(i).padStart(3, '0')}`, 10, i === 0 ? 1e16 : i === 99 ? -1e16 : 1));
     state.storage.transactionSync(() => engine.accept(goals, 10));
     expect(sampleWrites).toBe(1);
-    state.storage.transactionSync(() => engine.close('site', 2000, () => {}));
+    state.storage.transactionSync(() => engine.close('site', 62_000, () => {}));
     expect(engine.outputs().flatMap(o => o.output.records)[0]!.value).toBeCloseTo(98, 10);
   });
 });
@@ -240,7 +239,7 @@ it('keeps a tiny finite reward after cancelling large rewards across durable bat
     state.storage.transactionSync(() => engine.accept([goal('g1', 10, -1e308)], 11));
     const restarted = new IncrementalLearning(state.storage.sql);
     state.storage.transactionSync(() => restarted.accept([goal('g2', 10, 1e-100)], 12));
-    state.storage.transactionSync(() => restarted.close('site', 2000, () => {}));
+    state.storage.transactionSync(() => restarted.close('site', 62_000, () => {}));
     expect(restarted.outputs().flatMap(o => o.output.records)[0]!.value).toBe(1e-100);
   });
 });
@@ -253,7 +252,7 @@ it('rejects an already-expired conflicting window without extending the pending 
       assignment: { ...original.assignment, settings: { ...config, observationWindowMs: 100 } } };
     const result = state.storage.transactionSync(() => engine.accept([conflict, goal('outside-original-horizon', 115, 10)], 200));
     expect(result.accepted).toEqual([false, true]);
-    state.storage.transactionSync(() => engine.close('site', 2000, () => {}));
+    state.storage.transactionSync(() => engine.close('site', 62_000, () => {}));
     expect(engine.outputs().flatMap(o => o.output.records)[0]!.value).toBe(0);
   });
 });
@@ -262,16 +261,16 @@ it('coalesces normal closes and expiry but drains backlog and outbox promptly wi
   await runInDurableObject(env.SITES.getByName(crypto.randomUUID()), (_actor, state) => {
     const engine = new IncrementalLearning(state.storage.sql);
     state.storage.transactionSync(() => engine.accept([exposure('sample', 10), goal('z-on-time', 10, 7)], 10));
-    expect(engine.nextWake(10)).toBe(60000);
+    expect(engine.nextWake(10)).toBe(120000);
     // Arrival after the true deadline must neither earn reward nor accelerate the flush.
-    state.storage.transactionSync(() => engine.accept([goal('late', 100, 100)], 2000));
-    expect(engine.nextWake(2000)).toBe(60000);
-    expect(engine.nextWake(2000, true)).toBe(3000);
-    state.storage.transactionSync(() => engine.close('site', 60000, () => {}));
+    state.storage.transactionSync(() => engine.accept([goal('late', 100, 100)], 62_000));
+    expect(engine.nextWake(62_000)).toBe(120000);
+    expect(engine.nextWake(62_000, true)).toBe(63_000);
+    state.storage.transactionSync(() => engine.close('site', 120000, () => {}));
     expect(engine.outputs().flatMap(o => o.output.records)[0]!.value).toBe(7);
-    expect(engine.nextWake(60000)).toBe(61000);
+    expect(engine.nextWake(120000)).toBe(121000);
     engine.acknowledge(engine.outputs().map(o => o.id));
-    expect(engine.nextWake(60000)).toBe(Math.ceil((RETENTION_MS + 11) / 60000) * 60000);
+    expect(engine.nextWake(120000)).toBe(Math.ceil((RETENTION_MS + 11) / 60000) * 60000);
   });
 });
 
@@ -281,7 +280,7 @@ it('preserves rewards when a compact sample read is followed by full exposure co
     state.storage.transactionSync(() => engine.accept([first], 10));
     const repeat = { ...first, eventId: 'repeat', occurredAt: 30 };
     state.storage.transactionSync(() => engine.accept([goal('before', 20, 10), repeat, goal('after', 40, 20)], 40));
-    state.storage.transactionSync(() => engine.close('site', 2000, () => {}));
+    state.storage.transactionSync(() => engine.close('site', 62_000, () => {}));
     expect(engine.outputs().flatMap(o => o.output.records)[0]!.value).toBeCloseTo(30 * 2 ** (-10 / config.attributionHalfLifeMs), 10);
   });
 });
@@ -305,7 +304,7 @@ it('point-reads one exposure reference and omits large immutable metadata from r
     state.storage.transactionSync(() => engine.accept([goal('g', 30, 100, first.subject)], 30));
     // A goal needs all 100 references, but none of their large user attributes.
     expect(sampleBytes).toBeLessThan(20000);
-    state.storage.transactionSync(() => engine.close('site', 2000, () => {}));
+    state.storage.transactionSync(() => engine.close('site', 62_000, () => {}));
     expect(engine.outputs().flatMap(o => o.output.records).find(r => r.record_id === 'e0')!.value).toBeCloseTo(2 ** (-10 / config.attributionHalfLifeMs), 10);
   });
 });
