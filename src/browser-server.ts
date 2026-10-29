@@ -61,7 +61,7 @@ export function createEyeBrowserServer(options: BrowserServerOptions) {
     /** 최대 20실험을 준비한다. 필요하면 정책 조회를 기다리며 실패·비활성 실험은 choices에서 제외한다.
      * previous는 실험별 BrowserState이며 검증 후 재사용한다. 실험별 실패는 onError로 보고한다. 잘못된 배치 입력은 reject한다. */
     async prepare(experimentIds: readonly string[], previous: unknown = {}): Promise<BrowserSnapshot> {
-      invariant(experimentIds.length <= 20, 'invalid_input', 'At most 20 experiments per preparation');
+      invariant(Array.isArray(experimentIds) && experimentIds.length <= 20, 'invalid_input', 'Preparation requires an array of at most 20 experiments');
       const states = record(previous, 'states');
       const choices: BrowserSnapshot['choices'] = [];
       for (const experimentId of new Set(experimentIds)) {
@@ -91,7 +91,9 @@ export function createEyeBrowserServer(options: BrowserServerOptions) {
             ...(prepared.decision.localContext?.sample === undefined ? {} : { sample: prepared.decision.localContext.sample }) });
         } catch (error) { try { options.onError?.(error); } catch { /* host hook */ } }
       }
-      return { scope, serverNow: Date.now(), choices };
+      const serverNow = Date.now();
+      // A later policy lookup or receipt seal can outlive an earlier lease.
+      return { scope, serverNow, choices: choices.filter(choice => choice.applyUntil > serverNow) };
     },
     /** 최대 50노출·48KB를 검증하고 Queue 접수를 기다린다. 같은 browserBinding이면 인증 전환 전 증표의 원래 신원을 보존한다.
      * 사건별 거절은 accepted:false, 배치 오류·일시적 미래 시각·Queue 실패는 reject한다. 재시도는 원래 payload를 유지한다. */
