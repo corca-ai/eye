@@ -69,6 +69,14 @@ export interface TimelineRow {
   status: string | null; value: number | null;
   attributes: Record<string, Scalar>; payload: Record<string, unknown>;
 }
+/** 원본 로그 목록의 경량 행. 상세 payload와 실험 내부 문맥은 전송하지 않는다. */
+export interface EventListRow {
+  recordId: string; occurredAt: number; receivedAt: number;
+  name: string; cid: string | null; uid: string | null; goalId: string | null;
+  status: string | null; value: number | null; attributes: Record<string, Scalar>;
+}
+/** events와 동일한 필터·중복 제거·페이지 경계를 사용하는 경량 목록. */
+export interface EventListPage extends AnalyticsPage<EventListRow> { nextCursor: string | null }
 /** 중복 제거된 accepted 원본 골 수·가치 합. 여러 실험의 credit을 다시 합산하지 않는다. */
 export interface GoalRow { goalId: string; events: number; totalValue: number; latestReceivedAt: number }
 /** 골 발생 시각을 묶은 UTC bucket. bucketStart는 Unix ms이며 사건 없는 bucket은 생략한다. */
@@ -115,6 +123,8 @@ export interface AnalyticsAPI {
   timeline(query: TimelineQuery): Promise<TimelinePage>;
   /** 전체 원본 사건만 조회한다. 내부 관측·배정 기록은 포함하지 않는다. */
   events(query: EventsQuery): Promise<TimelinePage>;
+  /** 상세 payload가 필요 없는 로그 목록. events와 cursor를 교환할 수 없다. */
+  eventList(query: EventsQuery): Promise<EventListPage>;
   /** accepted 원본 골 수·가치 합. */
   goals(query: GoalQuery): Promise<AnalyticsPage<GoalRow>>;
   /** 발생 시각 bucket별 골 합계. 빈 bucket은 생략한다. */

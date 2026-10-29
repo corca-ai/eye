@@ -186,6 +186,8 @@ export function createEye(options: EyeOptions) {
       timeline: query => service.analyticsTimeline(query),
       /** 사이트 전체 원본 사건만 필터·커서로 조회한다. uid는 직접 기록된 계정만 찾는다. */
       events: query => service.analyticsEvents(query),
+      /** 상세 payload와 실험 문맥을 제외한 원본 로그 목록. events와 같은 필터를 사용하며 cursor는 전용이다. */
+      eventList: query => service.analyticsEventList(query),
       /** 발생 시각 기준 accepted 원본 goal의 수와 가치 합. filter는 사건 attributes에 적용한다. */
       goals: query => service.analyticsGoals(query),
       /** goal 합계를 UTC bucket별로 반환한다. 사건 없는 bucket은 행을 만들지 않는다. */

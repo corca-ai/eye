@@ -46,6 +46,7 @@ createEye(options: EyeOptions): EyeClient
 - [eye.analytics.arms](#eyeanalyticsarms)
 - [eye.analytics.timeline](#eyeanalyticstimeline)
 - [eye.analytics.events](#eyeanalyticsevents)
+- [eye.analytics.eventList](#eyeanalyticseventlist)
 - [eye.analytics.goals](#eyeanalyticsgoals)
 - [eye.analytics.series](#eyeanalyticsseries)
 - [eye.analytics.attributeValues](#eyeanalyticsattributevalues)
@@ -363,6 +364,16 @@ eye.analytics.events(query: EventsQuery): Promise<TimelinePage>
 ```
 
 타입: [EventsQuery](types.md#eventsquery) · [TimelinePage](types.md#timelinepage)
+
+## eye.analytics.eventList
+
+상세 payload와 실험 문맥을 제외한 원본 로그 목록. events와 같은 필터를 사용하며 cursor는 전용이다.
+
+```ts
+eye.analytics.eventList(query: EventsQuery): Promise<EventListPage>
+```
+
+타입: [EventListPage](types.md#eventlistpage) · [EventsQuery](types.md#eventsquery)
 
 ## eye.analytics.goals
 

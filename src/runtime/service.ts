@@ -71,9 +71,28 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
       items.push({ message, records: rawRecords(envelope, accepted) });
     }
     // Retry-safe learning is separate from lazy, bounded raw projection delivery.
-    try { await sendExportBatches(items.flatMap(item => item.records.map(record => ({ record }))), group => this.env.ANALYTICS.send(group)); }
-    catch (error) { for (const item of items) item.message.retry(); throw error; }
-    for (const message of batch.messages) { if (retries.has(message)) message.retry(); else message.ack(); }
+    const remaining = new Map<Message<unknown>, number>();
+    const acknowledged = new Set<Message<unknown>>();
+    const rows = items.flatMap(({ message, records }) => {
+      remaining.set(message, (remaining.get(message) ?? 0) + records.length);
+      return records.map(record => ({ record, message }));
+    });
+    try {
+      await sendExportBatches(rows, group => this.env.ANALYTICS.send(group), undefined, completed => {
+        for (const { message } of completed) {
+          const count = remaining.get(message)! - 1;
+          remaining.set(message, count);
+          if (count === 0 && !retries.has(message)) { message.ack(); acknowledged.add(message); }
+        }
+      });
+    } catch (error) {
+      for (const message of batch.messages) if (!acknowledged.has(message)) message.retry();
+      throw error;
+    }
+    for (const message of batch.messages) {
+      if (acknowledged.has(message)) continue;
+      if (retries.has(message)) message.retry(); else message.ack();
+    }
   }
   async createExperiment(input: CreateExperiment): Promise<Experiment> {
     return this.site().createExperiment(this.installationId, parseCreateExperiment(input));
@@ -110,6 +129,7 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
   async analyticsLearning(query: Parameters<AnalyticsAPI['learning']>[0]) { return new BasinAnalytics(this.env, this.installationId).learning(query); }
   async analyticsArms(query: Parameters<AnalyticsAPI['arms']>[0]) { return new BasinAnalytics(this.env, this.installationId).arms(query); }
   async analyticsTimeline(query: Parameters<AnalyticsAPI['timeline']>[0]) { return new BasinAnalytics(this.env, this.installationId).timeline(query); }
+  async analyticsEventList(query: Parameters<AnalyticsAPI['eventList']>[0]) { return new BasinAnalytics(this.env, this.installationId).eventList(query); }
   async analyticsEvents(query: Parameters<AnalyticsAPI['events']>[0]) { return new BasinAnalytics(this.env, this.installationId).events(query); }
   async analyticsGoals(query: Parameters<AnalyticsAPI['goals']>[0]) { return new BasinAnalytics(this.env, this.installationId).goals(query); }
   async analyticsSeries(query: Parameters<AnalyticsAPI['series']>[0]) { return new BasinAnalytics(this.env, this.installationId).series(query); }

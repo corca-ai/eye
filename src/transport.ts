@@ -59,6 +59,7 @@ export interface EyeService {
   analyticsLearning(query: Parameters<AnalyticsAPI['learning']>[0]): ReturnType<AnalyticsAPI['learning']>;
   analyticsArms(query: Parameters<AnalyticsAPI['arms']>[0]): ReturnType<AnalyticsAPI['arms']>;
   analyticsTimeline(query: Parameters<AnalyticsAPI['timeline']>[0]): ReturnType<AnalyticsAPI['timeline']>;
+  analyticsEventList(query: Parameters<AnalyticsAPI['eventList']>[0]): ReturnType<AnalyticsAPI['eventList']>;
   analyticsEvents(query: Parameters<AnalyticsAPI['events']>[0]): ReturnType<AnalyticsAPI['events']>;
   analyticsGoals(query: Parameters<AnalyticsAPI['goals']>[0]): ReturnType<AnalyticsAPI['goals']>;
   analyticsSeries(query: Parameters<AnalyticsAPI['series']>[0]): ReturnType<AnalyticsAPI['series']>;

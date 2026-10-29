@@ -260,3 +260,15 @@ Iceberg snapshot이나 수집 완료를 보장하지 않는다. `nextCursor=null
 
 보존 작업은 원본·보조 테이블 모두에 적용한다. 속성 사전은 UTC 날짜 단위이므로
 60일 경계가 걸친 날짜 전체를 남기고, 나머지는 정확한 발생 시각 경계를 사용한다.
+
+## 경량 로그 목록
+
+상세 payload가 필요 없는 목록에는 `analytics.eventList(query)`를 사용한다.
+`events`와 같은 `EventsQuery`를 받고 `recordId`, 발생·수신 시각, 이름, cid/uid,
+goalId, 상태, 값, 속성과 페이지 메타데이터를 반환한다. 이름은 track의 name,
+goalId, 사건 kind 순으로 선택한다. 두 API의 cursor는 서로 교환하지 않는다.
+이 API도 중복 제거 뒤 필터를 적용하고 수신 상한은 ingestion watermark가 아니다.
+
+track/goal의 새 저장 형식은 중복 필드를 생략한다. `events`와 `timeline`은
+기존 형식과 새 형식을 모두 읽어 기존 상세 payload 계약을 유지한다.
+형식과 재시도 비용의 측정 범위는 [증분 비용](INCREMENTAL-COST.md#제품-로그-전용-경로와-부분-전송)을 참고한다.

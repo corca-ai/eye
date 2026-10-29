@@ -146,7 +146,7 @@ it('retries a packed message if one sibling needs goal configuration, even after
   } finally { site.mockRestore(); send.mockRestore(); await waitOnExecutionContext(ctx); }
 });
 
-it.each([false, true])('exports admitted high-cardinality attributes in bounded chunks, retry=%s', async failOnce => {
+it.each([{ failOnce: false, packed: false }, { failOnce: true, packed: false }, { failOnce: true, packed: true }])('exports admitted high-cardinality attributes in bounded chunks, %o', async ({ failOnce, packed }) => {
   const siteId = crypto.randomUUID(), ctx = createExecutionContext(), service = new EyeWorker(ctx, { ...env, EYE_INSTALLATION_ID: siteId });
   const envelopes: EventEnvelope[] = [];
   const ingest = vi.spyOn(service, 'ingest').mockImplementation(async items => { envelopes.push(...items.map(item => ({ ...item, siteId: 'installation' }))); });
@@ -164,12 +164,16 @@ it.each([false, true])('exports admitted high-cardinality attributes in bounded 
     if (++attempts === 2 && failOnce) throw new Error('temporary chunk failure');
     sent.push(records as AnalyticsRecord[]);
   });
-  const batch = () => createMessageBatch('eye-events', envelopes.map((body, i) => ({ id: `message-${i}`, timestamp: Date.now(), attempts: 1, body: { version: 2, events: [{ ...body, siteId }] } })));
+  const groups = packed ? [envelopes] : envelopes.map(envelope => [envelope]);
+  let pending = groups.map((events, i) => ({ id: `message-${i}`, timestamp: Date.now(), attempts: 1, body: { version: 2, events: events.map(body => ({ ...body, siteId })) } }));
+  const batch = () => createMessageBatch('eye-events', pending);
   try {
     if (failOnce) {
       const first = batch();
       await expect(service.queue(first)).rejects.toThrow('temporary chunk failure');
-      expect((await getQueueResult(first, ctx)).retryMessages).toHaveLength(envelopes.length);
+      const retry = (await getQueueResult(first, ctx)).retryMessages.map(message => message.msgId);
+      expect(retry).toEqual(packed ? ['message-0'] : ['message-1', 'message-2']);
+      pending = pending.filter(message => retry.includes(message.id));
       previouslyDelivered.push(...sent.flat());
       sent.length = 0;
     }
@@ -177,7 +181,7 @@ it.each([false, true])('exports admitted high-cardinality attributes in bounded 
     expect((await getQueueResult(complete, ctx)).retryMessages).toHaveLength(0);
     expect(attempts).toBeGreaterThan(1);
     const rows = sent.flat();
-    expect(rows.filter(r => r.table_name === 'events').map(r => r.record_id)).toEqual(['before', 'large', 'after']);
+    expect(rows.filter(r => r.table_name === 'events').map(r => r.record_id)).toEqual(failOnce && !packed ? ['large', 'after'] : ['before', 'large', 'after']);
     expect(new Set([...previouslyDelivered, ...rows].filter(r => r.table_name === 'attribute_keys').map(r => JSON.parse(r.payload_json).key)).size).toBe(10000);
   } finally { send.mockRestore(); await waitOnExecutionContext(ctx); }
 });

@@ -39,7 +39,7 @@ export function* attributeRecords(record: AnalyticsRecord, include: (recordId: s
     const recordId = JSON.stringify([Math.floor(record.occurred_at / 86_400_000), source, key, type]);
     if (!include(recordId)) continue;
     yield {
-      ...record, table_name: 'attribute_keys' as const,
+      ...record, schema_version: 1, table_name: 'attribute_keys' as const,
       record_id: recordId,
       revision: 1, occurred_at: Math.floor(record.occurred_at / 86_400_000) * 86_400_000, cid: null, uid: null, subject_key: '', experiment_id: null, arm_id: null,
       goal_id: null, assignment_id: null, observation_id: null, status: null, value: null, attributes_json: '{}',

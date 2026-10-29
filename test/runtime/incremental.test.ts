@@ -333,3 +333,23 @@ it('persists retention scheduling, avoids repeated expiry scans and rolls back e
     expect(engine.nextWake(now + RETENTION_MS + 2)).toBeNull();
   });
 });
+
+it('skips empty attribution reads until a durable or same-batch exposure exists', async () => {
+  await runInDurableObject(env.SITES.getByName(crypto.randomUUID()), (_actor, state) => {
+    const calls: string[] = [];
+    const sql: LearningSQL = { exec(query, ...bindings) { calls.push(query); return state.storage.sql.exec(query, ...bindings); } };
+    let engine = new IncrementalLearning(sql);
+    calls.length = 0;
+    const goals = Array.from({ length: 100 }, (_, i) => goal(`empty-${i}`, 10, 5, { cid: `c-${i}` }));
+    expect(state.storage.transactionSync(() => engine.accept(goals, 10)).accepted.every(Boolean)).toBe(true);
+    expect(calls.filter(q => q === 'SELECT 1 FROM learning_last LIMIT 1')).toHaveLength(1);
+    expect(calls.filter(q => q.startsWith('SELECT experiment_id, data FROM learning_last'))).toHaveLength(0);
+    // A false result in this transaction cannot hide a later in-memory reference.
+    state.storage.transactionSync(() => engine.accept([goal('before', 20, 9), exposure('shown', 30), goal('after', 40, 8)], 40));
+    engine = new IncrementalLearning(sql); // Simulate a cold instance reading durable references.
+    state.storage.transactionSync(() => engine.accept([goal('cold', 50, 4)], 50));
+    state.storage.transactionSync(() => engine.close('site', 62_000, () => {}));
+    const reward = engine.outputs().flatMap(item => item.output.records).find(row => row.record_id === 'shown')!.value;
+    expect(reward).toBeCloseTo(8 * 2 ** (-10 / 100) + 4 * 2 ** (-20 / 100), 10);
+  });
+});

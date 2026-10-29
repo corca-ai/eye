@@ -85,9 +85,9 @@ export function decodeCursor(raw: string): Cursor {
 export class AnalyticsSQL {
   private readonly namespace: string;
   constructor(namespace: string, private readonly siteId: string, private readonly now = Date.now()) { this.namespace = identifier(namespace); id(siteId, 'siteId'); }
-  private latest(table: AnalyticsTable, alias: string, from: number, to: number, receivedBefore: number, extra = '', reconstruct = true): string {
+  private latest(table: AnalyticsTable, alias: string, from: number, to: number, receivedBefore: number, extra = '', reconstruct = true, columns = recordColumns): string {
     if (reconstruct && (table === 'observations' || table === 'decisions')) return exposureProjection(table, alias, this.namespace, literal(this.siteId), Math.max(0, this.now - RETENTION_MS), from, to, receivedBefore, extra);
-    return `${alias} AS (SELECT * FROM (SELECT ${recordColumns}, ROW_NUMBER() OVER (PARTITION BY record_id ORDER BY revision DESC, received_at ASC) AS _revision_rank
+    return `${alias} AS (SELECT * FROM (SELECT ${columns}, ROW_NUMBER() OVER (PARTITION BY record_id ORDER BY revision DESC, received_at ASC) AS _revision_rank
 FROM ${this.namespace}.${table === 'events' ? 'events' : 'projections'} WHERE table_name = ${literal(table)} AND site_id = ${literal(this.siteId)} AND occurred_at >= ${from} AND occurred_at < ${to} AND received_at <= ${receivedBefore}${extra}) ranked WHERE _revision_rank = 1)`;
   }
   arms(q: ArmQuery, bucketMs?: number): QueryPlan {
@@ -175,21 +175,24 @@ AND (r.${key} = ${value}${linked ? ` OR ${anonymousLink('r', value, 'link_segmen
 ORDER BY r.occurred_at, r.table_name, r.record_id LIMIT ${limit + 1}`;
     return { sql, limit, receivedBefore, fingerprint: fp };
   }
-  events(q: EventsQuery): QueryPlan {
+  events(q: EventsQuery, list = false): QueryPlan {
     const limit = range(q, this.now);
     const conditions = ['name', 'goalId', 'uid', 'cid'].map(key => {
       const value = q[key as 'name' | 'goalId' | 'uid' | 'cid'];
       if (value === undefined) return '';
-      const column = key === 'name' ? "json_get_str(e.payload_json, 'name')" : key === 'goalId' ? 'e.goal_id' : `e.${key}`;
+      const column = key === 'name' ? (list ? 'e.event_name' : "json_get_str(e.payload_json, 'name')") : key === 'goalId' ? 'e.goal_id' : `e.${key}`;
       return ` AND ${column} = ${literal(id(value, key))}`;
     }).join('') + (q.filter === undefined ? '' : ` AND ${compileFilter(q.filter, 'e')}`);
-    const fp = createHash('sha256').update(fingerprint(this.siteId, 'events', { from: q.from, to: q.to, conditions })).digest('hex');
+    const fp = createHash('sha256').update(fingerprint(this.siteId, list ? 'eventList' : 'events', { from: q.from, to: q.to, conditions })).digest('hex');
     const cursor = q.cursor === undefined ? null : decodeCursor(q.cursor);
     invariant(!cursor || (cursor.fingerprint === fp && cursor.table === 'events' && cursor.receivedBefore <= this.now
       && cursor.at >= q.from && cursor.at < q.to), 'invalid_input', 'Cursor does not belong to this query');
     const receivedBefore = cursor?.receivedBefore ?? this.now;
     const after = cursor ? ` AND (e.occurred_at > ${cursor.at} OR (e.occurred_at = ${cursor.at} AND e.record_id > ${literal(cursor.id)}))` : '';
-    return { sql: `WITH ${this.latest('events', 'events_latest', q.from, q.to, receivedBefore)}
+    const columns = list
+      ? "record_id, occurred_at, received_at, cid, uid, goal_id, status, value, attributes_json, json_get_str(payload_json, 'name') AS event_name, json_get_str(payload_json, 'kind') AS event_kind"
+      : recordColumns;
+    return { sql: `WITH ${this.latest('events', 'events_latest', q.from, q.to, receivedBefore, '', true, columns)}
 SELECT e.* FROM events_latest e WHERE TRUE${conditions}${after}
 ORDER BY e.occurred_at, e.record_id LIMIT ${limit + 1}`, limit, receivedBefore, fingerprint: fp };
   }
