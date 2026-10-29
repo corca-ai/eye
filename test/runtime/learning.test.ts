@@ -100,3 +100,35 @@ it('reads each current goal once per transaction and preserves historical status
     });
   } finally { clock.mockRestore(); }
 });
+
+it('rejects unknown exposure references without poisoning other experiments or their alarm', async () => {
+  const siteId = crypto.randomUUID(), site = env.SITES.getByName(siteId), at = Date.now();
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(at);
+  const send = vi.spyOn(env.ANALYTICS, 'send').mockResolvedValue(undefined);
+  try {
+    const config = await site.createExperiment(siteId, { experimentId: 'exp', arms: ['a'], settings: { minHoldMs: 0, observationWindowMs: 1000 } });
+    const make = (key: string, override: Partial<ExposureEvent['assignment']> = {}): ExposureEvent => ({ kind: 'exposure', eventId: key, occurredAt: at,
+      subject: { cid: key }, assignment: { assignmentId: key, experimentId: 'exp', armId: 'a', generation: 1,
+        assignedAt: at, policyRevision: 1, probability: 1, settings: config.settings, ...override },
+      sample: { sampleId: key, startAt: at }, attributionWindowMs: 1000 });
+    const unknownExperiment = make('unknown-experiment', { experimentId: 'missing' });
+    const unknownArm = make('unknown-arm', { armId: 'missing' });
+    const unknownGeneration = make('unknown-generation', { generation: 2 });
+    expect.soft(await site.consumeLearning(siteId, [unknownExperiment, unknownArm, unknownGeneration, make('valid')])).toEqual([false, false, false, true]);
+    await site.updateExperiment(siteId, 'exp', { rewardScale: 2 });
+    await site.setExperimentArmStatus(siteId, 'exp', 'a', 'deleted');
+    await site.setExperimentStatus(siteId, 'exp', 'deleted');
+    expect(await site.consumeLearning(siteId, [make('old-generation')])).toEqual([true]);
+    await evictDurableObject(site);
+    clock.mockReturnValue(at + 62_000);
+    await runInDurableObject(site, async (actor, state) => {
+      await actor.alarm();
+      expect.soft(state.storage.sql.exec('SELECT sample_id FROM learning_samples').toArray()).toEqual([]);
+      expect.soft(state.storage.kv.get('alarmFailures')).toBeUndefined();
+    });
+    await runInDurableObject(site, (_actor, state) => {
+      const row = state.storage.sql.exec<{ data: string }>('SELECT data FROM local_arm_moments WHERE experiment_id=? AND generation=1', 'exp').one();
+      expect(JSON.parse(row.data).weight).toBeGreaterThan(1);
+    });
+  } finally { clock.mockRestore(); send.mockRestore(); }
+});

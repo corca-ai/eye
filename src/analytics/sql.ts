@@ -41,7 +41,7 @@ export function compileFilter(input: unknown, alias: string): string {
       invariant(!('and' in v && 'or' in v), 'invalid_input', 'Ambiguous filter');
       const op = 'and' in v ? 'and' : 'or', children = v[op];
       invariant(Array.isArray(children) && children.length > 0 && children.length <= 64, 'invalid_input', 'Filter group must contain 1–64 children');
-      return `(${children.map(child => visit(child, depth + 1)).join(op === 'and' ? ' AND ' : ' OR ')})`;
+      return `(${Array.from(children, child => visit(child, depth + 1)).join(op === 'and' ? ' AND ' : ' OR ')})`;
     }
     if ('not' in v) return `(NOT ${visit(v.not, depth + 1)})`;
     const f = field(v.field, alias);
@@ -57,7 +57,7 @@ export function compileFilter(input: unknown, alias: string): string {
     if (v.op === 'eq' || v.op === 'ne') { const equal = equality(v.value); return v.op === 'eq' ? equal : `(NOT ${equal})`; }
     if (v.op === 'in') {
       invariant(Array.isArray(v.value) && v.value.length > 0 && v.value.length <= 100, 'invalid_input', 'in requires 1–100 values');
-      return `(${v.value.map(equality).join(' OR ')})`;
+      return `(${Array.from(v.value, equality).join(' OR ')})`;
     }
     invariant(v.op === 'lt' || v.op === 'lte' || v.op === 'gt' || v.op === 'gte', 'invalid_input', 'Invalid filter operator');
     invariant(f.type === 'number' && typeof v.value === 'number', 'invalid_input', 'Ordered comparison requires a number');
@@ -96,7 +96,7 @@ FROM ${this.namespace}.${table === 'events' ? 'events' : 'projections'} WHERE ta
     invariant(q.generation === undefined || (Number.isSafeInteger(q.generation) && q.generation >= 1), 'invalid_input', 'generation must be a positive integer');
     const groups = q.groupBy ?? [];
     invariant(Array.isArray(groups) && groups.length <= 3, 'invalid_input', 'At most 3 groupBy fields are supported');
-    const fields = groups.map((f, i) => `${field(f, 'o').sql} AS group_${i}`);
+    const fields = Array.from(groups, (f, i) => `${field(f, 'o').sql} AS group_${i}`);
     const dimensions = [...(bucketMs === undefined ? [] : ['bucket_start']), 'arm_id', 'generation', 'window_ms', ...groups.map((_, i) => `group_${i}`)];
     const ctes = [this.latest('observations', 'observations_latest', q.from, q.to, this.now, ` AND experiment_id = ${experiment}${q.armId === undefined ? '' : ` AND arm_id = ${literal(id(q.armId, 'armId'))}`}${q.generation === undefined ? '' : ` AND json_get_int(payload_json, 'generation') = ${q.generation}`}`)];
     ctes.push(...attributionCTEs(this.namespace, literal(this.siteId), Math.max(0, this.now - RETENTION_MS), q.from, this.now + 1, this.now, undefined, experiment));

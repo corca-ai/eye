@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest';
 import { canonicalJSON, jobCacheIdentity, validateJobRequest } from '../../src/analytics/job-query.js';
-import { compileFilter } from '../../src/analytics/sql.js';
+import { parseCreateExperiment } from '../../src/core/events.js';
+import { AnalyticsSQL, compileFilter } from '../../src/analytics/sql.js';
 import { database } from '../helpers/analytics-db.js';
 import type { Filter } from '../../src/analytics/types.js';
 import type { AnalyticsRequest } from '../../src/analytics/jobs.js';
@@ -78,4 +79,16 @@ it('leaves ignored hasEvent fields untouched on query kinds that do not support 
       expect(jobCacheIdentity(admitted)).toBe(admitted);
     }
   }
+});
+
+it('rejects sparse arrays before generating invalid JSON or SQL', () => {
+  const missing = Array(2);
+  expect.soft(() => canonicalJSON(missing)).toThrow();
+  expect.soft(() => compileFilter({ and: missing }, 'e')).toThrow();
+  expect.soft(() => compileFilter({ field: { key: 'x', type: 'number' }, op: 'in', value: missing }, 'e')).toThrow();
+});
+
+it('rejects sparse arm and group definitions instead of persisting or querying missing identifiers', () => {
+  expect(() => parseCreateExperiment({ experimentId: 'e', arms: Array<string>(1), settings: { minHoldMs: 0 } })).toThrow('identifier');
+  expect(() => new AnalyticsSQL('eye', 'site', now).arms({ ...range, experimentId: 'e', groupBy: Array(1) })).toThrow('attribute field');
 });

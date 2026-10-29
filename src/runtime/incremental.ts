@@ -191,7 +191,7 @@ export class IncrementalLearning {
     this.summaries = new IncrementalSummaries(sql);
     this.hourlyGoals = new HourlyGoals(sql);
   }
-  accept(events: readonly EyeEvent[], now: number, goalActive: (goal: GoalEvent) => boolean = () => true, receivedAt?: readonly number[]): LearningReceipt {
+  accept(events: readonly EyeEvent[], now: number, goalActive: (goal: GoalEvent) => boolean = () => true, receivedAt?: readonly number[], exposureValid: (event: ExposureEvent) => boolean = () => true): LearningReceipt {
     const diagnostics: LearningDiagnostics = { staleExposures: 0, staleIdentities: 0, futureExposures: 0, closedGoals: 0 };
     const accepted = events.map(() => true);
     const batch = new LearningBatch(this.sql), summaries = this.summaries.batch(now);
@@ -209,7 +209,7 @@ export class IncrementalLearning {
         accepted[index] = status;
         if (status) { this.goal(batch, event, now, diagnostics); summaries.goal(event); (hourly ??= this.hourlyGoals.batch(now)).add(event, receivedAt?.[index] ?? now); }
       } else if (event.kind === 'identify' || event.kind === 'logout') this.identity(batch, event, diagnostics);
-      else if (event.kind === 'exposure') accepted[index] = this.exposure(batch, event, now, diagnostics);
+      else if (event.kind === 'exposure') accepted[index] = exposureValid(event) && this.exposure(batch, event, now, diagnostics);
     }
     batch.flush(); summaries.flush(); hourly?.flush();
     const retained = events.filter(event => event.kind !== 'track');

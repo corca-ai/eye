@@ -88,3 +88,15 @@ describe('optimistic policy for completed evidence', () => {
     counts.forEach((n, i) => expect(n / totals[i]!).toBeGreaterThan(0.8));
   });
 });
+
+it('does not overflow an intermediate bonus when the final scaled score is finite', () => {
+  const variable = addSample(addSample(emptyMoments(0), -1, 500_000), 1, 500_000);
+  const policy = evaluateUnreservedPolicy([
+    { armId: 'variable', moments: variable }, { armId: 'constant', moments: observed(100_000_000, 0) },
+  ], { ...config, rewardScale: 0.01, bonusMultiplier: Number.MAX_VALUE }, 0);
+  const score = policy.arms.find(arm => arm.armId === 'variable')!.score;
+  expect(Number.isFinite(score)).toBe(true);
+  const expected = Number.MAX_VALUE * (Math.sqrt(101) * Math.sqrt(Math.log(101_000_002) / 1_000_000));
+  expect(score / expected).toBeCloseTo(1, 12);
+  expect(JSON.parse(JSON.stringify(policy)).arms.every((arm: { score: unknown }) => typeof arm.score === 'number')).toBe(true);
+});

@@ -159,12 +159,18 @@ export class SiteControl extends StoredObject {
       // This synchronous transaction observes one definition per goal. Older
       // events still use history; no cache survives an administrative change.
       const definitions = new Map<string, GoalDefinition | null>();
+      const assignments = new Map<string, boolean>();
       const { accepted, diagnostics } = this.learning.accept(events, now,
         goal => {
           if (!definitions.has(goal.goalId)) definitions.set(goal.goalId, this.getGoal(goal.goalId));
           const current = definitions.get(goal.goalId)!;
           return current !== null && (goal.occurredAt >= current.changedAt ? current.status : this.goalStatusAt(goal.goalId, goal.occurredAt)) === 'active';
-        }, receivedAt);
+        }, receivedAt, event => {
+          const a = event.assignment, key = JSON.stringify([a.experimentId, a.armId, a.generation]);
+          let valid = assignments.get(key);
+          if (valid === undefined) { valid = this.state(a.experimentId).knowsAssignment(a); assignments.set(key, valid); }
+          return valid;
+        });
       if (previousSiteId === undefined) this.kv.put('siteId', siteId);
       const rejectedExposures = events.filter((event, i) => event.kind === 'exposure' && !accepted[i]).length;
       if (rejectedExposures) console.warn(JSON.stringify({ component: 'eye', operation: 'learning_rejected_exposures', siteId, count: rejectedExposures, code: 'conflict' }));

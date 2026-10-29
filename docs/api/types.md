@@ -2185,7 +2185,7 @@ export interface TrafficRow {
 
 보조 타입: 공개 API의 입력·반환형에 포함되지만 패키지에서 직접 export하지 않는다.
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/policy.ts#L62)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/policy.ts#L67)
 
 ```ts
 export type UnreservedPolicyEvaluation = Omit<PolicyEvaluation, 'arms'> & {
