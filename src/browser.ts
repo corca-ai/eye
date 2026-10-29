@@ -93,8 +93,10 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
   function install(snapshot: BrowserSnapshot, safetyMs = 0) {
     if (!snapshot || snapshot.scope !== scope || !Number.isFinite(snapshot.serverNow) || !Array.isArray(snapshot.choices)) return;
     const received = performance.now();
-    for (const choice of snapshot.choices) {
-      if (!validChoice(choice, snapshot.serverNow)) continue;
+    for (const supplied of snapshot.choices) {
+      if (!validChoice(supplied, snapshot.serverNow)) continue;
+      // Exposure updates belong to this client, not the host's snapshot/cache.
+      const choice = { ...supplied };
       if (!states.has(choice.experimentId) && states.size >= 1000) { report(new Error('Eye choice cache full')); continue; }
       if (choice.assignmentId && choice.sample) samples.set(choice.assignmentId, choice.sample);
       while (samples.size > 1000) samples.delete(samples.keys().next().value!);
@@ -136,8 +138,8 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
           if (states.get(id) !== previous[id]) retry.add(id);
           else ready.delete(id);
         }
-        if (snapshot && Array.isArray(snapshot.choices)) snapshot.choices = snapshot.choices.filter(choice => ids.includes(choice.experimentId) && !retry.has(choice.experimentId));
-        install(snapshot, Math.max(0, performance.now() - started));
+        install({ ...snapshot, choices: snapshot.choices.filter(choice => ids.includes(choice.experimentId) && !retry.has(choice.experimentId)) },
+          Math.max(0, performance.now() - started));
       }
     } catch (error) { report(error); }
     finally {

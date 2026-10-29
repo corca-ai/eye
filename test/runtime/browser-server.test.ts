@@ -130,6 +130,35 @@ it('does not publish a receipt that its own receiver rejects for size', async ()
   await waitOnExecutionContext(f.options.ctx);
 });
 
+it('omits choices that expire while later experiments are being prepared', async () => {
+  const start = Date.now(), clock = vi.spyOn(Date, 'now').mockReturnValue(start);
+  try {
+    const f = await fixture();
+    await createEye(f.options).experiments.create({ experimentId: 'later', arms: ['compact'], settings: { minHoldMs: 0 } });
+    const service = new Proxy(f.options.service, { get(target, property) {
+      if (property !== 'getPublishedPolicy') return Reflect.get(target, property);
+      return async (experimentId: string, maxAgeMs?: number) => {
+        if (experimentId === 'later') clock.mockReturnValue(start + 1000);
+        return target.getPublishedPolicy(experimentId, maxAgeMs);
+      };
+    } });
+    const server = createEyeBrowserServer({ ...f.options, service, decisions: { secret, maxAgeMs: 1000 } });
+    const prepared = await server.prepare(['checkout', 'later']);
+    expect(prepared.serverNow).toBe(start + 1000);
+    expect(prepared.choices.map(choice => choice.experimentId)).toEqual(['later']);
+    expect(await server.receive([{ eventId: 'still-usable', receipt: prepared.choices[0]!.receipt, occurredAt: prepared.serverNow }]))
+      .toEqual([{ eventId: 'still-usable', accepted: true }]);
+    await waitOnExecutionContext(f.options.ctx);
+  } finally { clock.mockRestore(); }
+});
+
+it('rejects a non-array preparation batch instead of iterating a string as experiment IDs', async () => {
+  const f = await fixture();
+  // @ts-expect-error Exercise unvalidated JSON at the public boundary.
+  await expect(createEyeBrowserServer(f.options).prepare('checkout')).rejects.toMatchObject({ code: 'invalid_input' });
+  await waitOnExecutionContext(f.options.ctx);
+});
+
 it('receives large valid attribute receipts without corrupting the original attributes', async () => {
   const f = await fixture(), segment = 'x'.repeat(14000);
   const server = createEyeBrowserServer({ ...f.options, userAttributes: { segment } });

@@ -6,6 +6,32 @@ function snapshot(scope = 'a'): BrowserSnapshot {
   return { scope, serverNow: Date.now(), choices: [{ experimentId: 'checkout', armId: 'compact', receipt: 'opaque', applyUntil: Date.now() + 300_000 }] };
 }
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+it.each(['initial', 'prepare'])('keeps immutable %s snapshots separate from local sample state', async source => {
+  vi.useFakeTimers();
+  const supplied = snapshot();
+  Object.assign(supplied.choices[0]!, { assignmentId: 'assignment', observationWindowMs: 86400000 });
+  const original = structuredClone(supplied);
+  Object.freeze(supplied.choices[0]); Object.freeze(supplied.choices); Object.freeze(supplied);
+  const events: BrowserExposure[] = [], onError = vi.fn();
+  const client = createEyeBrowser({ scope: 'a', onError,
+    ...(source === 'initial' ? { initial: supplied } : { prepare: async () => supplied }),
+    send: async batch => { events.push(...batch); return batch.map(e => ({ eventId: e.eventId, accepted: true })); },
+  });
+  try {
+    if (source === 'prepare') {
+      expect(client.beginView().variant(definition).armId).toBeNull();
+      await vi.advanceTimersByTimeAsync(1);
+    }
+    expect(client.beginView().variant(definition).expose()).toBe(true);
+    expect(client.beginView().variant(definition).expose()).toBe(true);
+    await client.flush();
+    expect(events).toHaveLength(2);
+    expect(events[0]!.sample).toEqual(events[1]!.sample);
+    expect(events[0]!.sample?.sampleId).toEqual(expect.any(String));
+    expect(supplied).toEqual(original);
+    expect(onError).not.toHaveBeenCalled();
+  } finally { client.dispose(); }
+});
 it('renders fallback immediately while preparation hangs and never changes an existing view', async () => {
   vi.useFakeTimers();
   let complete!: (value: BrowserSnapshot) => void;
