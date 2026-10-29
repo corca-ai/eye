@@ -5,7 +5,7 @@ import { attributeRecords, STORED_TABLES, type AnalyticsRecord } from './records
 export const EXPORT_BATCH_BYTES = 4_500_000;
 const encoder = new TextEncoder();
 export function validateExport(record: AnalyticsRecord): void {
-  invariant(record.schema_version === 1 && STORED_TABLES.some(table => table === record.table_name), 'invalid_input', 'Unknown analytics schema');
+  invariant((record.schema_version === 1 || (record.schema_version === 2 && record.table_name === 'events')) && STORED_TABLES.some(table => table === record.table_name), 'invalid_input', 'Unknown analytics schema');
   for (const key of ['site_id', 'record_id', 'subject_key', 'attributes_json', 'payload_json'] as const) {
     invariant(typeof record[key] === 'string', 'invalid_input', `Invalid analytics field: ${key}`);
   }
@@ -34,10 +34,11 @@ export class DictionaryCache {
 }
 const dictionaryCache = new DictionaryCache();
 /** Cache is shared only within this isolate. Concurrent misses may safely emit duplicates. */
-export async function sendExportBatches(rows: readonly { record: AnalyticsRecord }[], send: (batch: AnalyticsRecord[]) => Promise<unknown>, cache = dictionaryCache): Promise<void> {
-  for (const batch of exportBatches(rows, cache)) {
-    await send(batch);
-    cache.acknowledge(batch);
+export async function sendExportBatches<T extends { record: AnalyticsRecord }>(rows: readonly T[], send: (batch: AnalyticsRecord[]) => Promise<unknown>, cache = dictionaryCache, acknowledge?: (rows: readonly T[]) => void): Promise<void> {
+  for (const { records, completed } of exportChunks(rows, cache)) {
+    await send(records);
+    cache.acknowledge(records);
+    acknowledge?.(completed);
   }
 }
 
@@ -50,7 +51,12 @@ function* expanded(record: AnalyticsRecord, include: (recordId: string) => boole
  * Yield wire records directly so callers never expand an already-sized batch.
  */
 export function* exportBatches(rows: readonly { record: AnalyticsRecord }[], cache?: DictionaryCache): Generator<AnalyticsRecord[]> {
-  let batch: AnalyticsRecord[] = [], bytes = 2;
+  for (const chunk of exportChunks(rows, cache)) yield chunk.records;
+}
+
+/** A row is completed only after its raw record and every dictionary entry were sent. */
+function* exportChunks<T extends { record: AnalyticsRecord }>(rows: readonly T[], cache?: DictionaryCache): Generator<{ records: AnalyticsRecord[]; completed: T[] }> {
+  let batch: AnalyticsRecord[] = [], completed: T[] = [], bytes = 2;
   const keys = new Set<string>();
   for (const row of rows) {
     const include = (recordId: string) => {
@@ -63,13 +69,14 @@ export function* exportBatches(rows: readonly { record: AnalyticsRecord }[], cac
       const size = encoder.encode(JSON.stringify(record)).byteLength;
       invariant(size + 2 <= EXPORT_BATCH_BYTES, 'invalid_input', 'Analytics record exceeds the Stream request limit');
       if (bytes + size + (batch.length ? 1 : 0) > EXPORT_BATCH_BYTES) {
-        yield batch; batch = []; bytes = 2; keys.clear();
+        yield { records: batch, completed }; batch = []; completed = []; bytes = 2; keys.clear();
       }
       bytes += size + (batch.length ? 1 : 0); batch.push(record);
       if (key !== null) keys.add(key);
     }
+    completed.push(row);
   }
-  if (batch.length > 0) yield batch;
+  if (batch.length > 0) yield { records: batch, completed };
 }
 
 export function exportRecords(rows: readonly { record: AnalyticsRecord }[]): AnalyticsRecord[] {

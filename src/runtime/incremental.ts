@@ -45,6 +45,10 @@ function lastReference(event: SampledExposureEvent): Last {
 class LearningBatch {
   private readonly identities = new Map<string, IdentityRow | null>();
   private readonly dirtyIdentities = new Set<string>();
+  private referencesExist: boolean | undefined;
+  hasReferences(): boolean {
+    return this.referencesExist ??= this.sql.exec('SELECT 1 FROM learning_last LIMIT 1').toArray().length > 0;
+  }
   private readonly owners = new Map<string, OwnerState>();
   private readonly samples = new Map<string, SampleState | null>();
   constructor(private readonly sql: LearningSQL) {}
@@ -84,6 +88,7 @@ class LearningBatch {
     return state.values.get(experimentId);
   }
   setLast(owner: string, experimentId: string, value: Last): void {
+    this.referencesExist = true;
     const state = this.owner(owner);
     state.values.set(experimentId, value); state.loaded.add(experimentId); state.dirty.add(experimentId);
   }
@@ -273,6 +278,7 @@ export class IncrementalLearning {
     batch.setLast(owner, experimentId, event);
   }
   private goal(batch: LearningBatch, goal: GoalEvent, now: number, diagnostics: LearningDiagnostics): void {
+    if (!batch.hasReferences()) return;
     const owner = goal.subject.uid === undefined ? ownerKey('cid', goal.subject.cid) : ownerKey('uid', goal.subject.uid);
     const eligible: Last[] = [];
     for (const event of batch.last(owner).values()) {

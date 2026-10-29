@@ -20,6 +20,15 @@ export function rawRecords({ siteId, receivedAt, event }: EventEnvelope, accepte
     { ...event, ...(event.kind === 'exposure' ? { projectionSubjectKey: context.subjectKey, sampleId: event.sample!.sampleId, startAt: event.sample!.startAt, endAt: observationEndAt(event.sample!.startAt, event.assignment.settings.observationWindowMs), closeAt: observationCloseAt(event.sample!.startAt, event.assignment.settings.observationWindowMs) } : {}), processingStatus: accepted ? 'accepted' : 'inactive' }, { ...fields, status: accepted ? 'accepted' : 'inactive' }, event.attributes)];
   if (event.kind === 'identify' || event.kind === 'logout') result.push(analyticsRecord(context, 'identity_links', event.eventId, 1,
     event.occurredAt, receivedAt, event, { status: event.kind }));
+  // Version 2 stores track/goal fields once in their typed columns. Keep eventId
+  // in JSON because raw-attribution SQL needs its already-escaped JSON spelling.
+  if (event.kind === 'track' || event.kind === 'goal') {
+    const payload: Record<string, unknown> = { kind: event.kind, eventId: event.eventId,
+      ...(event.kind === 'track' ? { name: event.name } : {}),
+      ...(event.attributes === undefined ? {} : { attributes: true }) };
+    result[0]!.schema_version = 2;
+    result[0]!.payload_json = JSON.stringify(payload);
+  }
   // Pending observations and selected decisions are reconstructed from these
   // durable receipts. Learning still exports one finalized observation.
   return result;

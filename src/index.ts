@@ -14,7 +14,7 @@ export type { CollectionLimits } from './collection-limits.js';
 export type { EyeService, PolicySnapshot, AssignedDecision, GoalDefinition } from './transport.js';
 export type {
   Scalar, AttributeField, Filter, QueryRange, ArmQuery, TimelineQuery, EventsQuery, GoalQuery, SeriesQuery, AttributeValuesQuery,
-  AnalyticsAPI, AnalyticsMeta, AnalyticsPage, ArmRow, ArmReport, TimelineRow, TimelinePage, GoalRow, SeriesRow, AttributeValueRow,
+  AnalyticsAPI, AnalyticsMeta, AnalyticsPage, ArmRow, ArmReport, TimelineRow, TimelinePage, EventListRow, EventListPage, GoalRow, SeriesRow, AttributeValueRow,
 } from './analytics/types.js';
 
 export { DecisionCache } from './decisions.js';

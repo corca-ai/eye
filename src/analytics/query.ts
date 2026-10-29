@@ -2,7 +2,7 @@ import { EyeError, invariant } from '../core/errors.js';
 import { AnalyticsSQL, TABLES } from './sql.js';
 import type { Cursor, QueryPlan } from './sql.js';
 import type { AnalyticsTable } from './records.js';
-import type { AnalyticsAPI, AnalyticsMeta, AnalyticsPage, ArmQuery, ArmReport, AttributeValuesQuery, AttributeValueRow, GoalQuery, GoalRow, Scalar, SeriesQuery, SeriesRow, EventsQuery, TimelinePage, TimelineQuery, TimelineRow } from './types.js';
+import type { EventListPage, AnalyticsAPI, AnalyticsMeta, AnalyticsPage, ArmQuery, ArmReport, AttributeValuesQuery, AttributeValueRow, GoalQuery, GoalRow, Scalar, SeriesQuery, SeriesRow, EventsQuery, TimelinePage, TimelineQuery, TimelineRow } from './types.js';
 
 /** Internal signal for retrying a smaller result partition, not a transient outage. */
 export class AnalyticsCapacityError extends EyeError {
@@ -57,6 +57,17 @@ async function readResponse(response: Response): Promise<unknown> {
 function goalRow(row: Row): GoalRow {
   return { goalId: text(row, 'goal_id'), events: numeric(row, 'events'), totalValue: numeric(row, 'total_value'), latestReceivedAt: numeric(row, 'latest_received_at') };
 }
+function eventPayload(row: Row): Row {
+  const payload = jsonObject(row, 'payload_json');
+  if (row.schema_version !== 2 || row.table_name !== 'events') return payload;
+  invariant(payload.kind === 'track' || payload.kind === 'goal', 'unavailable', 'Invalid compact event kind');
+  const { attributes: hasAttributes, ...details } = payload;
+  return { ...details, occurredAt: numeric(row, 'occurred_at'),
+    subject: { cid: text(row, 'cid'), ...(row.uid === null ? {} : { uid: text(row, 'uid') }) },
+    ...(hasAttributes === true ? { attributes: jsonObject(row, 'attributes_json') } : {}),
+    ...(payload.kind === 'goal' ? { goalId: text(row, 'goal_id'), value: numeric(row, 'value') } : {}),
+    processingStatus: text(row, 'status') };
+}
 function timelineRow(row: Row): TimelineRow {
   const table = text(row, 'table_name');
   invariant(table === 'events' || table === 'observations' || table === 'credits' || table === 'decisions' || table === 'identity_links', 'unavailable', 'Unknown analytics table');
@@ -67,7 +78,7 @@ function timelineRow(row: Row): TimelineRow {
     experimentId: nullableText(row, 'experiment_id'), armId: nullableText(row, 'arm_id'), goalId: nullableText(row, 'goal_id'),
     status: nullableText(row, 'status'), value: row.value === null ? null : numeric(row, 'value'),
     attributes: Object.fromEntries(Object.entries(jsonObject(row, 'attributes_json')).map(([key, value]) => [key, scalar(value)])),
-    payload: jsonObject(row, 'payload_json'),
+    payload: eventPayload(row),
   };
 }
 
@@ -167,6 +178,20 @@ export class BasinAnalytics implements AnalyticsAPI {
     return this.eventPage(this.sql().timeline(query));
   }
   async events(query: EventsQuery): Promise<TimelinePage> { return this.eventPage(this.sql().events(query)); }
+  async eventList(query: EventsQuery): Promise<EventListPage> {
+    const plan = this.sql().events(query, true), result = await this.execute(plan);
+    const rows = result.rows.map(row => ({ recordId: text(row, 'record_id'),
+      occurredAt: numeric(row, 'occurred_at'), receivedAt: numeric(row, 'received_at'),
+      name: nullableText(row, 'event_name') ?? nullableText(row, 'goal_id') ?? nullableText(row, 'event_kind') ?? 'event',
+      cid: nullableText(row, 'cid'), uid: nullableText(row, 'uid'), goalId: nullableText(row, 'goal_id'),
+      status: nullableText(row, 'status'), value: row.value === null ? null : numeric(row, 'value'),
+      attributes: Object.fromEntries(Object.entries(jsonObject(row, 'attributes_json')).map(([key, value]) => [key, scalar(value)])),
+    }));
+    const last = rows.at(-1);
+    const cursor: Cursor | null = result.meta.truncated && last ? { fingerprint: plan.fingerprint,
+      receivedBefore: plan.receivedBefore, at: last.occurredAt, table: 'events', id: last.recordId } : null;
+    return { rows, meta: result.meta, nextCursor: cursor ? JSON.stringify(cursor) : null };
+  }
   private async eventPage(plan: QueryPlan): Promise<TimelinePage> {
     const result = await this.execute(plan), rows = result.rows.map(timelineRow), last = rows.at(-1);
     const cursor: Cursor | null = result.meta.truncated && last ? { fingerprint: plan.fingerprint, receivedBefore: plan.receivedBefore, at: last.occurredAt, table: last.table, id: last.recordId } : null;

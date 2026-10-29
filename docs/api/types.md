@@ -54,6 +54,8 @@
 - [EventBase](#eventbase)
 - [EventEnvelope](#eventenvelope)
 - [EventInput](#eventinput)
+- [EventListPage](#eventlistpage)
+- [EventListRow](#eventlistrow)
 - [EventsQuery](#eventsquery)
 - [Experiment](#experiment)
 - [ExperimentSettings](#experimentsettings)
@@ -116,7 +118,7 @@
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L101)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L109)
 
 ```ts
 /** 원본 저장소 조회 API. 집계 결과는 최종 일관성이며 실패는 Promise reject로 전달한다. */
@@ -137,6 +139,8 @@ export interface AnalyticsAPI {
     timeline(query: TimelineQuery): Promise<TimelinePage>;
     /** 전체 원본 사건만 조회한다. 내부 관측·배정 기록은 포함하지 않는다. */
     events(query: EventsQuery): Promise<TimelinePage>;
+    /** 상세 payload가 필요 없는 로그 목록. events와 cursor를 교환할 수 없다. */
+    eventList(query: EventsQuery): Promise<EventListPage>;
     /** accepted 원본 골 수·가치 합. */
     goals(query: GoalQuery): Promise<AnalyticsPage<GoalRow>>;
     /** 발생 시각 bucket별 골 합계. 빈 bucket은 생략한다. */
@@ -146,7 +150,7 @@ export interface AnalyticsAPI {
 }
 ```
 
-타입: [AnalyticsAPI](types.md#analyticsapi) · [AnalyticsPage](types.md#analyticspage) · [ArmQuery](types.md#armquery) · [ArmReport](types.md#armreport) · [ArmSeriesQuery](types.md#armseriesquery) · [ArmSeriesRow](types.md#armseriesrow) · [AttributeKeyReport](types.md#attributekeyreport) · [AttributeValueRow](types.md#attributevaluerow) · [AttributeValuesQuery](types.md#attributevaluesquery) · [EventsQuery](types.md#eventsquery) · [GoalQuery](types.md#goalquery) · [GoalRow](types.md#goalrow) · [LearningQuery](types.md#learningquery) · [LearningReport](types.md#learningreport) · [PolicyHistoryRow](types.md#policyhistoryrow) · [PolicyQuery](types.md#policyquery) · [QueryRange](types.md#queryrange) · [SeriesQuery](types.md#seriesquery) · [SeriesRow](types.md#seriesrow) · [TimelinePage](types.md#timelinepage) · [TimelineQuery](types.md#timelinequery) · [TrafficQuery](types.md#trafficquery) · [TrafficRow](types.md#trafficrow)
+타입: [AnalyticsAPI](types.md#analyticsapi) · [AnalyticsPage](types.md#analyticspage) · [ArmQuery](types.md#armquery) · [ArmReport](types.md#armreport) · [ArmSeriesQuery](types.md#armseriesquery) · [ArmSeriesRow](types.md#armseriesrow) · [AttributeKeyReport](types.md#attributekeyreport) · [AttributeValueRow](types.md#attributevaluerow) · [AttributeValuesQuery](types.md#attributevaluesquery) · [EventListPage](types.md#eventlistpage) · [EventsQuery](types.md#eventsquery) · [GoalQuery](types.md#goalquery) · [GoalRow](types.md#goalrow) · [LearningQuery](types.md#learningquery) · [LearningReport](types.md#learningreport) · [PolicyHistoryRow](types.md#policyhistoryrow) · [PolicyQuery](types.md#policyquery) · [QueryRange](types.md#queryrange) · [SeriesQuery](types.md#seriesquery) · [SeriesRow](types.md#seriesrow) · [TimelinePage](types.md#timelinepage) · [TimelineQuery](types.md#timelinequery) · [TrafficQuery](types.md#trafficquery) · [TrafficRow](types.md#trafficrow)
 
 ## AnalyticsJob
 
@@ -294,7 +298,7 @@ export interface AnalyticsMeta {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L79)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L87)
 
 ```ts
 /** rows는 집계 결과. meta.truncated이면 범위·조건을 좁힌다. 일반 집계에는 다음 페이지 cursor가 없다. */
@@ -399,7 +403,7 @@ export interface ArmQuery extends QueryRange {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L81)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L89)
 
 ```ts
 /** 관측 시작 기간의 원본 재귀속 성과. 확정 학습 보상과 차이가 날 수 있다. */
@@ -445,7 +449,7 @@ export interface ArmRow {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L85)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L93)
 
 ```ts
 /** ArmQuery를 관측 시작 시각의 UTC bucket으로 나눈다. bucketMs는 양의 정수 ms다. */
@@ -460,7 +464,7 @@ export interface ArmSeriesQuery extends ArmQuery {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L87)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L95)
 
 ```ts
 /** 관측 시작 bucket별 arm 성과. 분모·필터 의미는 ArmRow와 같다. */
@@ -488,7 +492,7 @@ export type ArmStatus = 'active' | 'paused' | 'deleted';
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L68)
+[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L69)
 
 ```ts
 /** 실제 적용·노출 가능한 결정. decide/prepare의 status를 확인해 좁히고 원본 객체를 expose에 전달한다. */
@@ -541,7 +545,7 @@ export interface AttributeField {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L99)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L107)
 
 ```ts
 /** 요청이 걸친 UTC 날짜 전체의 속성 목록. coverage가 실제 조회 범위다. */
@@ -560,7 +564,7 @@ export interface AttributeKeyReport extends AnalyticsPage<AttributeKeyRow> {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L97)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L105)
 
 ```ts
 /** 발견한 속성 키·타입·출처. event는 사건 속성, user는 노출의 사용자군 속성이다. */
@@ -591,7 +595,7 @@ export type Attributes = Readonly<Record<string, string | number | boolean | nul
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L77)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L85)
 
 ```ts
 /** 지정 속성 값의 원본 사건 빈도. latestReceivedAt은 관측한 수신 시각의 최댓값이다. */
@@ -1053,6 +1057,45 @@ export type EventInput<T> = Omit<T, 'kind' | 'eventId' | 'occurredAt'> & {
 
 타입: [EventInput](types.md#eventinput)
 
+## EventListPage
+
+임포트: `@eye/workers`
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L79)
+
+```ts
+/** events와 동일한 필터·중복 제거·페이지 경계를 사용하는 경량 목록. */
+export interface EventListPage extends AnalyticsPage<EventListRow> {
+    nextCursor: string | null;
+}
+```
+
+타입: [AnalyticsPage](types.md#analyticspage) · [EventListPage](types.md#eventlistpage) · [EventListRow](types.md#eventlistrow)
+
+## EventListRow
+
+임포트: `@eye/workers`
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L73)
+
+```ts
+/** 원본 로그 목록의 경량 행. 상세 payload와 실험 내부 문맥은 전송하지 않는다. */
+export interface EventListRow {
+    recordId: string;
+    occurredAt: number;
+    receivedAt: number;
+    name: string;
+    cid: string | null;
+    uid: string | null;
+    goalId: string | null;
+    status: string | null;
+    value: number | null;
+    attributes: Record<string, Scalar>;
+}
+```
+
+타입: [EventListRow](types.md#eventlistrow) · [Scalar](types.md#scalar)
+
 ## EventsQuery
 
 임포트: `@eye/workers`
@@ -1337,6 +1380,7 @@ export interface EyeService {
     analyticsLearning(query: Parameters<AnalyticsAPI['learning']>[0]): ReturnType<AnalyticsAPI['learning']>;
     analyticsArms(query: Parameters<AnalyticsAPI['arms']>[0]): ReturnType<AnalyticsAPI['arms']>;
     analyticsTimeline(query: Parameters<AnalyticsAPI['timeline']>[0]): ReturnType<AnalyticsAPI['timeline']>;
+    analyticsEventList(query: Parameters<AnalyticsAPI['eventList']>[0]): ReturnType<AnalyticsAPI['eventList']>;
     analyticsEvents(query: Parameters<AnalyticsAPI['events']>[0]): ReturnType<AnalyticsAPI['events']>;
     analyticsGoals(query: Parameters<AnalyticsAPI['goals']>[0]): ReturnType<AnalyticsAPI['goals']>;
     analyticsSeries(query: Parameters<AnalyticsAPI['series']>[0]): ReturnType<AnalyticsAPI['series']>;
@@ -1436,7 +1480,7 @@ export interface GoalQuery extends QueryRange {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L73)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L81)
 
 ```ts
 /** 중복 제거된 accepted 원본 골 수·가치 합. 여러 실험의 credit을 다시 합산하지 않는다. */
@@ -1539,7 +1583,7 @@ export type IdentityEvent = EventBase & {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L127)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L137)
 
 ```ts
 /** 확정된 관측 결과만 집계한다. 기간은 관측 시작 시각이며 실험을 생략하면 사이트 전체를 조회한다. */
@@ -1554,7 +1598,7 @@ export interface LearningQuery extends QueryRange {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L134)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L144)
 
 ```ts
 /** 감쇠된 정책 점수와 다르다. 확정된 표본 보상의 합계·평균이며 늦은 골로 재계산하지 않는다. */
@@ -1570,7 +1614,7 @@ export interface LearningReport extends AnalyticsPage<LearningRow> {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L129)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L139)
 
 ```ts
 /** 완료 표본만의 비감쇠 합계·평균. meanValue는 learningValue/completed이며 0 보상도 분모에 포함한다. */
@@ -1622,7 +1666,7 @@ export interface PolicyEvaluation {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L95)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L103)
 
 ```ts
 /** 발행 당시 신규 선택 확률·원래 단위의 평균·scoreScale 단위의 점수. 실제 노출 비율과 다르다. */
@@ -1646,7 +1690,7 @@ export interface PolicyHistoryRow {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L93)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L101)
 
 ```ts
 /** 기간 내 발행 정책 이력. 현재 정책은 experiments.policy로 조회한다. */
@@ -1822,7 +1866,7 @@ export interface SeriesQuery extends GoalQuery {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L75)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L83)
 
 ```ts
 /** 골 발생 시각을 묶은 UTC bucket. bucketStart는 Unix ms이며 사건 없는 bucket은 생략한다. */
@@ -2020,7 +2064,7 @@ export type SummaryTarget = {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L83)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L91)
 
 ```ts
 /** 원본 타임라인 페이지. nextCursor=null이면 다음 페이지가 없다. */
@@ -2104,7 +2148,7 @@ export type TrackEvent = EventBase & {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L89)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L97)
 
 ```ts
 /** 실제 노출된 배정·노출의 시계열. bucketMs는 양의 정수 ms다. */
@@ -2120,7 +2164,7 @@ export interface TrafficQuery extends QueryRange {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L91)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/types.ts#L99)
 
 ```ts
 /** bucket·arm·세대별 배정/노출 수와 비율. 미노출 선택·fallback은 포함하지 않는다. */
