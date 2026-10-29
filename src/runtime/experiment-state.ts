@@ -7,7 +7,7 @@ import type { Moments } from '../core/moments.js';
 import { evaluateUnreservedPolicy } from '../core/policy.js';
 import type { ClosedCohort } from '../core/closed-cohort.js';
 import { id, RETENTION_MS, settings, historicalSettings, timestamp } from '../core/validation.js';
-import type { ArmStatus, CreateExperiment, Experiment, ExperimentSettings } from '../core/types.js';
+import type { ArmStatus, Assignment, CreateExperiment, Experiment, ExperimentSettings } from '../core/types.js';
 import type { LearningSQL } from './incremental.js';
 const storedJson = <T>(text: string): T => JSON.parse(text) as T;
 
@@ -53,6 +53,12 @@ export class ExperimentState {
       return normalized;
     }
     return config;
+  }
+  /** Status changes do not invalidate receipts issued by an earlier policy. */
+  knowsAssignment(assignment: Assignment): boolean {
+    const config = this.kv.get<Experiment>('config');
+    return config !== undefined && config.arms.some(arm => arm.armId === assignment.armId)
+      && this.kv.get(`generation:${assignment.generation}`) !== undefined;
   }
   getGeneration(generation: number): ExperimentSettings {
     const result = this.kv.get<ExperimentSettings>(`generation:${generation}`);

@@ -60,7 +60,7 @@ export function parseEnvelope(value: unknown, now: number, limits?: CollectionLi
 export function parseCreateExperiment(value: unknown): CreateExperiment & { settings: ReturnType<typeof settings> } {
   const v = record(value, 'experiment');
   invariant(Array.isArray(v.arms) && v.arms.length > 0, 'invalid_input', 'At least one arm is required');
-  const arms = v.arms.map((a: unknown) => id(a, 'armId'));
+  const arms = Array.from(v.arms, (a: unknown) => id(a, 'armId'));
   invariant(new Set(arms).size === arms.length, 'invalid_input', 'Arm IDs must be unique');
   return { experimentId: id(v.experimentId, 'experimentId'), arms, settings: settings(v.settings) };
 }

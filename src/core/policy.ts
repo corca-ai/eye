@@ -43,10 +43,15 @@ function scoreArms(arms: readonly PolicyArm[], settings: ScoreSettings, now: num
     const sd = a.moments.weight > 1e-12 ? stddevOf(a.moments) : scale;
     const armScale = Math.max(sd, 0.25 * scale);
     const mean = means[i]!;
+    // Balance three positive factors before multiplying. A large bonus times
+    // armScale can overflow before uncertainty reduces it; multiplying the
+    // two smallest factors first can instead underflow unnecessarily.
+    const factors = [settings.bonusMultiplier, armScale / scoreScale,
+      Math.sqrt(logMass / Math.max(a.moments.weight, 1))].sort((a, b) => a - b);
+    const bonus = (factors[0]! * factors[2]!) * factors[1]!;
     return {
       armId: a.armId, weight: a.moments.weight, meanReward: mean,
-      score: mean / scoreScale + settings.bonusMultiplier * (armScale / scoreScale)
-        * Math.sqrt(logMass / Math.max(a.moments.weight, 1)),
+      score: mean / scoreScale + bonus,
     };
   });
   return { scored, scoreScale };

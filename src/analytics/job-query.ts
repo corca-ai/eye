@@ -11,7 +11,7 @@ export function canonicalJSON(value: unknown, depth = 0): string {
   invariant(depth <= 16, 'invalid_input', 'Query nesting is too deep');
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
   if (typeof value === 'number') { invariant(Number.isFinite(value), 'invalid_input', 'Invalid query number'); return JSON.stringify(value); }
-  if (Array.isArray(value)) return `[${value.map(v => canonicalJSON(v, depth + 1)).join(',')}]`;
+  if (Array.isArray(value)) return `[${Array.from(value, v => canonicalJSON(v, depth + 1)).join(',')}]`;
   invariant(typeof value === 'object' && value !== null && Object.getPrototypeOf(value) === Object.prototype,
     'invalid_input', 'Query must contain plain JSON values');
   return `{${Object.entries(value).filter(([, v]) => v !== undefined).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)

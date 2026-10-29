@@ -172,3 +172,14 @@ it('preserves tiny goal totals after merging a cancelled large bucket with later
     expect(result.rows[0]!.mean / 1e-100).toBeCloseTo(1 / 3, 14);
   });
 });
+
+it('rejects sparse configuration arrays without resetting existing summary coverage', async () => {
+  await runInDurableObject(env.SITES.getByName(crypto.randomUUID()), (_actor, ctx) => {
+    const summaries = new IncrementalLearning(ctx.storage.sql).summaries;
+    const before = ctx.storage.transactionSync(() => summaries.configure({ goalIds: ['pay'], experimentIds: [] }, start));
+    for (const input of [{ goalIds: Array<string>(1), experimentIds: [] }, { goalIds: [], experimentIds: Array<string>(1) }]) {
+      expect(() => ctx.storage.transactionSync(() => summaries.configure(input, start + H))).toThrow('identifier');
+      expect(summaries.status(start + H)).toEqual(before);
+    }
+  });
+});

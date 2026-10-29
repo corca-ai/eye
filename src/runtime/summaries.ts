@@ -41,8 +41,8 @@ export class IncrementalSummaries {
     invariant(Object.keys(obj).every(key => key === 'goalIds' || key === 'experimentIds'), 'invalid_input', 'Unsupported summary configuration');
     invariant(Array.isArray(obj.goalIds) && Array.isArray(obj.experimentIds) && obj.goalIds.length + obj.experimentIds.length <= 32,
       'invalid_input', 'Summaries support at most 32 configured IDs');
-    const config: SummaryConfig = { goalIds: [...new Set(obj.goalIds.map(value => id(value, 'goalId')))].sort(),
-      experimentIds: [...new Set(obj.experimentIds.map(value => id(value, 'experimentId')))].sort() };
+    const config: SummaryConfig = { goalIds: [...new Set(Array.from(obj.goalIds, value => id(value, 'goalId')))].sort(),
+      experimentIds: [...new Set(Array.from(obj.experimentIds, value => id(value, 'experimentId')))].sort() };
     const previous = readState(this.sql);
     if (JSON.stringify(previous.config) === JSON.stringify(config)) return publicStatus(previous, now);
     const enabled = config.goalIds.length + config.experimentIds.length > 0;

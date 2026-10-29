@@ -328,3 +328,27 @@ it('does not attach a job to a deleted and recreated schedule during async regis
     });
   } finally { release(); paused.mockRestore(); query.mockRestore(); }
 });
+
+it('recovers a committed R2 write whose acknowledgement was lost without rerunning SQL', async () => {
+  const site = crypto.randomUUID(), actor = env.REPORTS.getByName(site), request = input();
+  const query = vi.spyOn(BasinAnalytics.prototype, 'goals').mockResolvedValue(result());
+  const put = env.REPORT_RESULTS.put.bind(env.REPORT_RESULTS);
+  const write = vi.spyOn(env.REPORT_RESULTS, 'put').mockImplementationOnce(async (...args) => {
+    await put(...args); throw new Error('Connection lost after durable write');
+  });
+  try {
+    const jobs = await Promise.all(Array.from({ length: 4 }, () => actor.create(site, request)));
+    expect(new Set(jobs.map(job => job.jobId)).size).toBe(1);
+    const ref = { scope: request.scope, jobId: jobs[0]!.jobId };
+    await runInDurableObject(actor, a => a.alarm());
+    expect((await actor.status(ref)).status).toBe('queued');
+    await evictDurableObject(actor);
+    await runInDurableObject(actor, async (a, state) => {
+      state.storage.sql.exec('UPDATE report_jobs SET next_at=0'); await a.alarm();
+    });
+    expect((await actor.status(ref)).status).toBe('complete');
+    expect((JSON.parse(await actor.page(ref)) as AnalyticsJobPage).result.data.rows).toHaveLength(3);
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(write).toHaveBeenCalledTimes(1);
+  } finally { query.mockRestore(); write.mockRestore(); }
+});
