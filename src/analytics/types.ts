@@ -28,6 +28,14 @@ export interface TimelineQuery extends QueryRange {
 export interface EventsQuery extends QueryRange {
   name?: string; goalId?: string; uid?: string; cid?: string; filter?: Filter; cursor?: string;
 }
+/** 로그 목록과 같은 필터·중복 제거를 사용하는 사건 건수 시계열. cursor는 지원하지 않는다. */
+export interface EventSeriesQuery extends Omit<EventsQuery, 'cursor'> { bucketMs: number }
+/** 사건 없는 bucket은 생략한다. bucket은 UTC epoch 경계이며 가장자리 bucket은 요청 기간만 포함한다. */
+export interface EventSeriesRow { bucketStart: number; events: number; latestReceivedAt: number }
+/** cacheHit은 실제 SQL 실행 없이 공유 결과를 반환했는지 나타낸다. queriedAt/bytesScanned는 원래 실행 기준이다. */
+export interface EventSeriesPage extends AnalyticsPage<EventSeriesRow> {
+  meta: AnalyticsMeta & { cacheHit: boolean; cacheExpiresAt: number };
+}
 /** 발생 시각 기준 accepted 원본 골 합계. filter는 사건 attributes에 적용한다. */
 export interface GoalQuery extends QueryRange { goalId?: string; filter?: Filter }
 /** bucketMs는 양의 정수 밀리초이며 Unix epoch 기준 UTC 경계로 묶는다. */
@@ -125,6 +133,8 @@ export interface AnalyticsAPI {
   events(query: EventsQuery): Promise<TimelinePage>;
   /** 상세 payload가 필요 없는 로그 목록. events와 cursor를 교환할 수 없다. */
   eventList(query: EventsQuery): Promise<EventListPage>;
+  /** 전체 조회 기간의 사건 건수. 런타임은 같은 조회를 최대 2분 공유하며 실패는 캐시하지 않는다. */
+  eventSeries(query: EventSeriesQuery): Promise<EventSeriesPage>;
   /** accepted 원본 골 수·가치 합. */
   goals(query: GoalQuery): Promise<AnalyticsPage<GoalRow>>;
   /** 발생 시각 bucket별 골 합계. 빈 bucket은 생략한다. */

@@ -47,6 +47,7 @@ createEye(options: EyeOptions): EyeClient
 - [eye.analytics.timeline](#eyeanalyticstimeline)
 - [eye.analytics.events](#eyeanalyticsevents)
 - [eye.analytics.eventList](#eyeanalyticseventlist)
+- [eye.analytics.eventSeries](#eyeanalyticseventseries)
 - [eye.analytics.goals](#eyeanalyticsgoals)
 - [eye.analytics.series](#eyeanalyticsseries)
 - [eye.analytics.attributeValues](#eyeanalyticsattributevalues)
@@ -374,6 +375,16 @@ eye.analytics.eventList(query: EventsQuery): Promise<EventListPage>
 ```
 
 타입: [EventListPage](types.md#eventlistpage) · [EventsQuery](types.md#eventsquery)
+
+## eye.analytics.eventSeries
+
+로그와 같은 필터로 전체 기간의 사건 수를 UTC bucket별 집계한다. 동일 설치·조회는 최대 2분 공유한다.
+
+```ts
+eye.analytics.eventSeries(query: EventSeriesQuery): Promise<EventSeriesPage>
+```
+
+타입: [EventSeriesPage](types.md#eventseriespage) · [EventSeriesQuery](types.md#eventseriesquery)
 
 ## eye.analytics.goals
 

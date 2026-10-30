@@ -33,6 +33,7 @@ export function validateJobRequest(siteId: string, input: AnalyticsRequest, now:
     case 'timeline': sql.timeline(input.query); break;
     case 'events': sql.events(input.query); break;
     case 'eventList': sql.events(input.query, true); break;
+    case 'eventSeries': sql.eventSeries(input.query); break;
     case 'goals': sql.goals(input.query); break;
     case 'series': sql.series(input.query); break;
     case 'attributeValues': sql.attributeValues(input.query); break;
@@ -81,6 +82,7 @@ export async function runJobQuery(api: BasinAnalytics, input: Exclude<AnalyticsR
     case 'timeline': return { kind: input.kind, data: await api.timeline(input.query) };
     case 'events': return { kind: input.kind, data: await api.events(input.query) };
     case 'eventList': return { kind: input.kind, data: await api.eventList(input.query) };
+    case 'eventSeries': return { kind: input.kind, data: await api.eventSeries(input.query) };
     case 'goals': return { kind: input.kind, data: await api.goals(input.query) };
     case 'series': return { kind: input.kind, data: await api.series(input.query) };
     case 'attributeValues': return { kind: input.kind, data: await api.attributeValues(input.query) };
