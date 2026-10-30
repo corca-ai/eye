@@ -1,3 +1,4 @@
+import { AnalyticsSQL } from '../analytics/sql.js';
 import type { SummariesAPI } from '../analytics/summaries.js';
 import type { AnalyticsJobsAPI } from '../analytics/jobs.js';
 import { compareEvents } from '../core/attribution.js';
@@ -129,6 +130,10 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
   async analyticsLearning(query: Parameters<AnalyticsAPI['learning']>[0]) { return new BasinAnalytics(this.env, this.installationId).learning(query); }
   async analyticsArms(query: Parameters<AnalyticsAPI['arms']>[0]) { return new BasinAnalytics(this.env, this.installationId).arms(query); }
   async analyticsTimeline(query: Parameters<AnalyticsAPI['timeline']>[0]) { return new BasinAnalytics(this.env, this.installationId).timeline(query); }
+  async analyticsEventSeries(query: Parameters<AnalyticsAPI['eventSeries']>[0]): ReturnType<AnalyticsAPI['eventSeries']> {
+    new AnalyticsSQL(this.env.EYE_ANALYTICS_NAMESPACE ?? 'eye', this.installationId).eventSeries(query);
+    return await this.site().eventSeries(query);
+  }
   async analyticsEventList(query: Parameters<AnalyticsAPI['eventList']>[0]) { return new BasinAnalytics(this.env, this.installationId).eventList(query); }
   async analyticsEvents(query: Parameters<AnalyticsAPI['events']>[0]) { return new BasinAnalytics(this.env, this.installationId).events(query); }
   async analyticsGoals(query: Parameters<AnalyticsAPI['goals']>[0]) { return new BasinAnalytics(this.env, this.installationId).goals(query); }

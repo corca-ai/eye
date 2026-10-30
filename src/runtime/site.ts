@@ -1,3 +1,7 @@
+import { EventSeriesCache } from '../analytics/event-series-cache.js';
+import { AnalyticsSQL } from '../analytics/sql.js';
+import { BasinAnalytics, type AnalyticsEnv } from '../analytics/query.js';
+import type { EventSeriesQuery, EventSeriesPage } from '../analytics/types.js';
 import type { HourlyGoalQuery } from '../analytics/hourly-goals.js';
 import type { SummaryConfig, SummaryQuery, SummaryReport, SummaryStatus } from '../analytics/summaries.js';
 import type { RuntimeEnv as Env } from './environment.generated.js';
@@ -17,6 +21,7 @@ import type { EyeEvent } from '../core/types.js';
 export interface GoalDefinition { goalId: string; status: GoalStatus; createdAt: number; changedAt: number; revision: number }
 export class SiteControl extends StoredObject {
   private readonly learning: IncrementalLearning;
+  private readonly eventSeriesCache = new EventSeriesCache();
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.sql.exec(`
@@ -34,6 +39,13 @@ export class SiteControl extends StoredObject {
     this.learning = this.atomic(() => new IncrementalLearning(this.sql));
     if (this.learning.migratedDeadlines) void this.ctx.blockConcurrencyWhile(() => this.scheduleLearning(Date.now()));
     ExperimentState.initialize(this.sql);
+  }
+  async eventSeries(query: EventSeriesQuery): Promise<EventSeriesPage> {
+    const siteId = id(this.env.EYE_INSTALLATION_ID, 'installationId');
+    this.checkSite(siteId);
+    const env = this.env as Env & AnalyticsEnv;
+    const plan = new AnalyticsSQL(env.EYE_ANALYTICS_NAMESPACE ?? 'eye', siteId).eventSeries(query);
+    return this.eventSeriesCache.read(plan.fingerprint, () => new BasinAnalytics(env, siteId).eventSeries(query));
   }
   private state(experimentId: string): ExperimentState { return new ExperimentState(this.sql, this.kv, id(experimentId, 'experimentId')); }
   private checkSite(siteId: string): void {

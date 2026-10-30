@@ -272,3 +272,26 @@ goalId, 사건 kind 순으로 선택한다. 두 API의 cursor는 서로 교환�
 track/goal의 새 저장 형식은 중복 필드를 생략한다. `events`와 `timeline`은
 기존 형식과 새 형식을 모두 읽어 기존 상세 payload 계약을 유지한다.
 형식과 재시도 비용의 측정 범위는 [증분 비용](INCREMENTAL-COST.md#제품-로그-전용-경로와-부분-전송)을 참고한다.
+
+## 필터 가능한 로그 활동 그래프
+
+`analytics.eventSeries({ from, to, bucketMs, name?, goalId?, uid?, cid?, filter?, limit? })`는
+`eventList`와 같은 사건 집합과 revision 중복 제거 규칙으로 건수를 집계한다. inactive 사건도
+로그 목록과 마찬가지로 포함한다. 골의 accepted 건수·가치 합계는 기존 `series`를 사용한다.
+프로젝트 등의 속성은 typed `filter`로 제한한다. UID는 직접 기록된 값이며 익명 이력을 합치지 않는다.
+
+bucket은 UTC epoch 경계이고, 양끝의 부분 bucket은 요청 [from,to)만 포함한다. 빈 bucket은
+생략하며 화면이 0을 채울 수 있다. cursor는 받지 않는다. 전체 기간의 bucket 수가 limit
+(기본 100, 최대 1000)을 넘으면 실행 전에 거절하므로 잘린 그래프를 정상 결과로 제공하지 않는다.
+쿼리는 32KB 이내여야 한다. 목록의 첫 페이지 50개나 표본에서 그래프를 만들지 않는다.
+SQL은 필터에 필요한 열만 읽고 상세 payload/value를 가져오지 않는다.
+
+직접 SDK 호출은 설치별 SiteControl의 메모리 캐시에서 같은 정확한 기간·필터·bucket·limit을
+공유한다. 유효기간은 성공 후 2분이며 64개 결과와 16개 실행 중 조회로 제한한다. 동시 중복은
+한 SQL을 기다린다. 다른 설치는 공유하지 않으며 실패는 캐시하지 않는다. eviction/배포로
+메모리가 사라지면 다시 조회한다. 저장 쓰기·집계용 alarm·수집 경로 작업은 추가하지 않는다.
+시간 범위가 바뀐 rolling 조회는 별개다. `jobs`에서는 기존 작업 캐시 규칙을 따른다.
+
+`meta.cacheHit`, `cacheExpiresAt`으로 재사용 여부를 확인한다. `queriedAt`, `receivedBefore`,
+`bytesScanned`는 최초 SQL 실행의 값이며 cache hit의 새로운 스캔 비용을 뜻하지 않는다.
+실제 스캔 비용은 원격 저장소에서 확인해야 하며 작은 응답이 작은 스캔을 보장하지 않는다.

@@ -175,14 +175,17 @@ AND (r.${key} = ${value}${linked ? ` OR ${anonymousLink('r', value, 'link_segmen
 ORDER BY r.occurred_at, r.table_name, r.record_id LIMIT ${limit + 1}`;
     return { sql, limit, receivedBefore, fingerprint: fp };
   }
-  events(q: EventsQuery, list = false): QueryPlan {
-    const limit = range(q, this.now);
-    const conditions = ['name', 'goalId', 'uid', 'cid'].map(key => {
+  private eventConditions(q: EventsQuery, list: boolean): string {
+    return ['name', 'goalId', 'uid', 'cid'].map(key => {
       const value = q[key as 'name' | 'goalId' | 'uid' | 'cid'];
       if (value === undefined) return '';
       const column = key === 'name' ? (list ? 'e.event_name' : "json_get_str(e.payload_json, 'name')") : key === 'goalId' ? 'e.goal_id' : `e.${key}`;
       return ` AND ${column} = ${literal(id(value, key))}`;
     }).join('') + (q.filter === undefined ? '' : ` AND ${compileFilter(q.filter, 'e')}`);
+  }
+  events(q: EventsQuery, list = false): QueryPlan {
+    const limit = range(q, this.now);
+    const conditions = this.eventConditions(q, list);
     const fp = createHash('sha256').update(fingerprint(this.siteId, list ? 'eventList' : 'events', { from: q.from, to: q.to, conditions })).digest('hex');
     const cursor = q.cursor === undefined ? null : decodeCursor(q.cursor);
     invariant(!cursor || (cursor.fingerprint === fp && cursor.table === 'events' && cursor.receivedBefore <= this.now
@@ -195,6 +198,28 @@ ORDER BY r.occurred_at, r.table_name, r.record_id LIMIT ${limit + 1}`;
     return { sql: `WITH ${this.latest('events', 'events_latest', q.from, q.to, receivedBefore, '', true, columns)}
 SELECT e.* FROM events_latest e WHERE TRUE${conditions}${after}
 ORDER BY e.occurred_at, e.record_id LIMIT ${limit + 1}`, limit, receivedBefore, fingerprint: fp };
+  }
+  eventSeries(q: import('./types.js').EventSeriesQuery): QueryPlan {
+    const limit = range(q, this.now);
+    invariant(!('cursor' in q), 'invalid_input', 'Event series does not support cursors');
+    invariant(Number.isSafeInteger(q.bucketMs) && q.bucketMs > 0, 'invalid_input', 'bucketMs must be positive integer milliseconds');
+    invariant(Math.floor((q.to - 1) / q.bucketMs) - Math.floor(q.from / q.bucketMs) + 1 <= limit,
+      'invalid_input', 'Choose larger buckets or a higher limit to cover the full interval');
+    let encoded: string;
+    try { encoded = JSON.stringify(q); } catch { invariant(false, 'invalid_input', 'Event series query must be JSON'); }
+    invariant(new TextEncoder().encode(encoded).length <= 32_000, 'invalid_input', 'Event series query exceeds 32KB');
+    const conditions = this.eventConditions(q, true);
+    // Prune payload/value/identity columns unless a requested predicate needs them.
+    const columns = ['record_id', 'occurred_at', 'received_at',
+      ...(q.name === undefined ? [] : ["json_get_str(payload_json, 'name') AS event_name"]),
+      ...(q.goalId === undefined ? [] : ['goal_id']), ...(q.uid === undefined ? [] : ['uid']),
+      ...(q.cid === undefined ? [] : ['cid']), ...(q.filter === undefined ? [] : ['attributes_json'])].join(', ');
+    return { sql: `WITH ${this.latest('events', 'events_latest', q.from, q.to, this.now, '', true, columns)}
+SELECT CAST(FLOOR(e.occurred_at / ${q.bucketMs}.0) * ${q.bucketMs} AS BIGINT) AS bucket_start,
+COUNT(*) AS events, MAX(e.received_at) AS latest_received_at FROM events_latest e
+WHERE TRUE${conditions} GROUP BY bucket_start ORDER BY bucket_start LIMIT ${limit + 1}`,
+      limit, receivedBefore: this.now,
+      fingerprint: fingerprint(this.siteId, 'eventSeries', { from: q.from, to: q.to, bucketMs: q.bucketMs, limit, conditions }) };
   }
   goals(q: GoalQuery): QueryPlan { return this.goalAggregate(q); }
   series(q: SeriesQuery): QueryPlan {

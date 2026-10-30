@@ -200,6 +200,13 @@ export class BasinAnalytics implements AnalyticsAPI {
   async goals(query: GoalQuery): Promise<AnalyticsPage<GoalRow>> {
     const result = await this.execute(this.sql().goals(query)); return { meta: result.meta, rows: result.rows.map(goalRow) };
   }
+  async eventSeries(query: import('./types.js').EventSeriesQuery): Promise<import('./types.js').EventSeriesPage> {
+    const result = await this.execute(this.sql().eventSeries(query));
+    invariant(!result.meta.truncated, 'unavailable', 'Event series exceeded its bucket budget');
+    return { meta: { ...result.meta, cacheHit: false, cacheExpiresAt: result.meta.queriedAt },
+      rows: result.rows.map(row => ({ bucketStart: numeric(row, 'bucket_start'), events: numeric(row, 'events'),
+        latestReceivedAt: numeric(row, 'latest_received_at') })) };
+  }
   async series(query: SeriesQuery): Promise<AnalyticsPage<SeriesRow>> {
     const result = await this.execute(this.sql().series(query)); return { meta: result.meta, rows: result.rows.map(row => ({ ...goalRow(row), bucketStart: numeric(row, 'bucket_start') })) };
   }
