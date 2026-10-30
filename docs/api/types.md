@@ -1124,12 +1124,12 @@ export interface EventsQuery extends QueryRange {
 [소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L45)
 
 ```ts
-/** 현재 실험 정의. 상태 변경은 이력을 보존하며 설정 변경은 새 generation으로 학습한다. */
+/** 현재 실험 정의. 배정 전략 변경은 학습을 유지하며 관측·귀속·학습 반감기·유지 기간 변경은 새 generation으로 학습한다. */
 export interface Experiment {
     /** 실험 전체의 선택 허용 상태. */
     readonly status: ExperimentStatus;
     readonly experimentId: string;
-    /** 설정 변경으로 구분되는 학습 세대. */
+    /** 보상·학습 의미가 호환되는 설정끼리 공유하는 학습 세대. */
     readonly generation: number;
     /** 정의 변경 버전. 정책 발행 sequence와 별개다. */
     readonly revision: number;
@@ -1156,7 +1156,7 @@ export interface Experiment {
 export interface ExperimentSettings {
     /** 기본 7일. 마지막 실제 노출의 유한한 귀속 기간(ms). */
     readonly attributionWindowMs?: number;
-    /** 기본 0.2, 0 초과 1 미만. 충분한 최근 표본이 없는 arm들의 초기 탐색 예산. */
+    /** 기본 0.2, 0 초과 1 미만. warm arm이 있을 때 cold arm 전체의 신규 선택 확률 상한(탐색 하한이 우선). 증거에 따라 보호 배정은 줄어든다. */
     readonly bootstrapShare?: number;
     /** 필수. 배정 시각부터 같은 arm을 유지할 최소 시간(ms), 0 이상. 실제 재배정은 진행 중인 관측 종료도 기다린다. */
     readonly minHoldMs: number;

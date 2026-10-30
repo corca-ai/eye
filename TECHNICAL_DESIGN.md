@@ -63,7 +63,7 @@ outbox는 한 alarm당 최대 20개를 묶어 전달한다. 정상 관측 마감
 
 학습은 과거 원본을 다운로드하지 않으므로 원본 사건 수에 따른 다운로드 한도에 걸리지 않는다. 공개 분석 API의 30초·16 MiB 응답 한도와 실제 스캔 비용은 별개다. 원본 보존의 60일 조회 계약은 물리 삭제 정책이 아니며 설치 스크립트는 자동 삭제를 설정하지 않는다.
 
-새 설정은 새 generation을 만든다. 기존 배정·관측은 원래 설정으로 끝나고 현 정책은 새 generation 통계를 사용한다. arm 추가·중지·재개는 generation을 바꾸지 않는다. 따라서 장기 실험에서 arm만 바꾸면 최근 학습을 유지한다.
+`explorationFloor`, `bonusMultiplier`, `rewardScale`, `bootstrapShare`, `bootstrapQuota` 변경은 revision만 증가시키고 generation과 학습을 유지한다. 관측·귀속 기간, 귀속·학습 반감기, 최소 유지 기간 변경은 새 generation을 만든다. 혼합 변경은 새 generation 하나를 만들며 값이 같은 재요청은 버전을 바꾸지 않는다. 기존 배정·관측은 원래 설정으로 끝나고 해당 generation으로 학습한다. generation에 저장한 학습 설정은 불변이며 현재의 전체 정책 설정과 다를 수 있다. 새 정책 발행은 revision으로 캐시를 무효화하고 sequence를 증가시킨다. arm 추가·중지·재개는 generation을 바꾸지 않는다. 따라서 장기 실험에서 arm만 바꾸면 최근 학습을 유지한다.
 
 ## 설치 구조
 

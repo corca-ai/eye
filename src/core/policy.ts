@@ -61,7 +61,7 @@ function scoreArms(arms: readonly PolicyArm[], settings: ScoreSettings, now: num
 export type UnreservedPolicySettings = Pick<ExperimentSettings,
   'learningHalfLifeMs' | 'rewardScale' | 'bonusMultiplier' | 'explorationFloor' | 'bootstrapQuota'> & {
     /** Maximum total initial allocation to arms without enough recent completed evidence.
-     * The exploration floor still applies. When every arm is cold, allocation is uniform. */
+     * The exploration floor still applies. All-cold allocation blends uniform and scored selection. */
     readonly bootstrapShare: number;
   };
 export type UnreservedPolicyEvaluation = Omit<PolicyEvaluation, 'arms'> & {
@@ -93,19 +93,40 @@ export function evaluateUnreservedPolicy(
   const { scored, scoreScale } = scoreArms(ordered, settings, now);
   const cold = scored.filter(a => a.weight < settings.bootstrapQuota);
   const warm = scored.filter(a => a.weight >= settings.bootstrapQuota);
-  if (warm.length === 0) return { scoreScale, asOf: now,
-    arms: scored.map((a) => ({ ...a, probability: 1 / scored.length })) };
   const floor = settings.explorationFloor / scored.length;
+  if (warm.length === 0) {
+    // A low-rate stream may never accumulate quota units before decay. Admit
+    // relative evidence gradually, while empty initialization remains uniform.
+    const alpha = Math.min(1, Math.max(...scored.map(a => a.weight)) / settings.bootstrapQuota);
+    const best = Math.max(...scored.map(a => a.score));
+    const winners = scored.filter(a => a.score === best);
+    return { scoreScale, asOf: now, arms: scored.map(a => ({ ...a,
+      probability: (1 - alpha) / scored.length + alpha * (floor
+        + (a.score === best ? (1 - settings.explorationFloor) / winners.length : 0)),
+    })) };
+  }
   // Cold arms share one budget, even if many arms are added at once. The floor is
   // explicit: a configured 100% exploration rate necessarily overrides this cap.
   const coldMass = cold.length === 0 ? 0
     : Math.max(floor * cold.length, Math.min(settings.bootstrapShare, cold.length / scored.length));
-  const best = Math.max(...warm.map(a => a.score));
-  const winners = warm.filter(a => a.score === best);
-  const surplus = Math.max(0, 1 - coldMass - floor * warm.length);
+  // Protection tapers with completed evidence. It is not a statistical rejection
+  // of losing arms: decay restores protection, and every arm retains its floor.
+  const protection = (weight: number) => floor + (coldMass / cold.length - floor)
+    * (1 - weight / settings.bootstrapQuota);
+  const protectedMass = cold.reduce((sum, a) => sum + protection(a.weight), 0);
+  const warmBest = Math.max(...warm.map(a => a.score));
+  const coldBest = Math.max(...cold.map(a => a.score));
+  const warmWinners = warm.filter(a => a.score === warmBest);
+  const coldWinners = cold.filter(a => a.score === coldBest);
+  const surplus = Math.max(0, 1 - protectedMass - floor * warm.length);
+  // Compete for unprotected mass, splitting ties equally until the collective
+  // cold cap binds. Warm winners then own the remaining mass.
+  const coldExtra = coldBest < warmBest ? 0 : Math.min(Math.max(0, coldMass - protectedMass),
+    coldBest === warmBest ? surplus * (coldWinners.length / (coldWinners.length + warmWinners.length)) : surplus);
   return { scoreScale, asOf: now, arms: scored.map((a) => ({ ...a,
-    probability: a.weight < settings.bootstrapQuota ? coldMass / cold.length
-      : floor + (a.score === best ? surplus / winners.length : 0),
+    probability: a.weight < settings.bootstrapQuota
+      ? protection(a.weight) + (a.score === coldBest ? coldExtra / coldWinners.length : 0)
+      : floor + (a.score === warmBest ? (surplus - coldExtra) / warmWinners.length : 0),
   })) };
 }
 

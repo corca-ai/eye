@@ -33,7 +33,8 @@ describe('optimistic policy for completed evidence', () => {
     const now = 100 * dayMs;
     const after = evaluateUnreservedPolicy([arms[0]!, { armId: 'recent', moments: observed(100, 2, now) }], config, now);
     expect(after.arms.find(a => a.armId === 'stale')!.weight).toBeLessThan(config.bootstrapQuota);
-    expect(after.arms.find(a => a.armId === 'stale')!.probability).toBe(0.2);
+    expect(after.arms.find(a => a.armId === 'stale')!.probability).toBeGreaterThan(0.17);
+    expect(after.arms.find(a => a.armId === 'stale')!.probability).toBeLessThanOrEqual(0.2);
     expect(before.arms.find(a => a.armId === 'stale')!.probability).toBeLessThan(0.2);
   });
 
@@ -99,4 +100,57 @@ it('does not overflow an intermediate bonus when the final scaled score is finit
   const expected = Number.MAX_VALUE * (Math.sqrt(101) * Math.sqrt(Math.log(101_000_002) / 1_000_000));
   expect(score / expected).toBeCloseTo(1, 12);
   expect(JSON.parse(JSON.stringify(policy)).arms.every((arm: { score: unknown }) => typeof arm.score === 'number')).toBe(true);
+});
+
+it('uses sparse relative evidence even when no arm can ever reach the bootstrap quota', () => {
+  let arms = [{ armId: 'bad', moments: emptyMoments(0) }, { armId: 'good', moments: emptyMoments(0) }];
+  for (let day = 1; day <= 1000; day++) {
+    arms = arms.map(a => ({ ...a, moments: ageMoments(a.moments, day * dayMs, config.learningHalfLifeMs) }));
+    if (day % 4 === 0) arms = arms.map((a, i) => ({ ...a, moments: addSample(a.moments, i * 100) }));
+  }
+  const policy = evaluateUnreservedPolicy(arms, config, 1000 * dayMs);
+  expect(policy.arms.every(a => a.weight < config.bootstrapQuota)).toBe(true);
+  expect(policy.arms.find(a => a.armId === 'good')!.probability).toBeGreaterThan(0.8);
+  const first = evaluateUnreservedPolicy([{ armId: 'a', moments: observed(1, 1000) },
+    { armId: 'b', moments: emptyMoments(0) }], config, 0);
+  expect(Math.max(...first.arms.map(a => a.probability))).toBeLessThan(0.6);
+  const stale = evaluateUnreservedPolicy(arms, config, 1100 * dayMs);
+  expect(Math.max(...stale.arms.map(a => a.probability))).toBeLessThan(0.51);
+});
+
+it('returns unused bootstrap protection to warm winners, while allowing promising cold contenders', () => {
+  const warm = { armId: 'warm', moments: observed(1000, 100) };
+  const bad = evaluateUnreservedPolicy([warm, { armId: 'cold', moments: observed(7, -100) }], config, 0);
+  expect(bad.arms.find(a => a.armId === 'cold')!.probability).toBeCloseTo(0.03375, 12);
+  expect(bad.arms.find(a => a.armId === 'warm')!.probability).toBeCloseTo(0.96625, 12);
+  const good = evaluateUnreservedPolicy([warm, { armId: 'cold', moments: observed(7, 1000) }], config, 0);
+  expect(good.arms.find(a => a.armId === 'cold')!.probability).toBeCloseTo(0.2, 12);
+  const unseen = evaluateUnreservedPolicy([warm, { armId: 'cold', moments: emptyMoments(0) }], config, 0);
+  expect(unseen.arms.find(a => a.armId === 'cold')!.probability).toBeCloseTo(0.2, 12);
+});
+
+it('handles quota boundaries, shared score ties and an exploration floor above the nominal cold cap', () => {
+  for (const weight of [0, 1, 7.999999, 8, 8.000001]) {
+    for (const floor of [0.02, 0.8, 1]) {
+      const policy = evaluateUnreservedPolicy([
+        { armId: 'a', moments: observed(weight, -1) }, { armId: 'b', moments: observed(7.9, 1) },
+        { armId: 'c', moments: emptyMoments(0) },
+      ], { ...config, explorationFloor: floor }, 0);
+      expect(policy.arms.reduce((sum, a) => sum + a.probability, 0)).toBeCloseTo(1, 12);
+      for (const a of policy.arms) expect(a.probability).toBeGreaterThanOrEqual(floor / 3 - 1e-15);
+      if (weight >= 8) {
+        const cap = Math.max(floor * 2 / 3, config.bootstrapShare);
+        expect(policy.arms.filter(a => a.weight < 8).reduce((sum, a) => sum + a.probability, 0)).toBeLessThanOrEqual(cap + 1e-15);
+      }
+    }
+  }
+  // A negligible bonus gives exact equal scores across warm/cold groups.
+  const ties = evaluateUnreservedPolicy([
+    { armId: 'warm', moments: observed(1000, 100) },
+    { armId: 'cold-a', moments: observed(7, 100) }, { armId: 'cold-b', moments: observed(7, 100) },
+  ], { ...config, bonusMultiplier: Number.MIN_VALUE }, 0);
+  expect(ties.arms.every(a => a.score === 1)).toBe(true);
+  expect(ties.arms.find(a => a.armId === 'warm')!.probability).toBeCloseTo(.8, 12);
+  expect(ties.arms.find(a => a.armId === 'cold-a')!.probability).toBeCloseTo(.1, 12);
+  expect(ties.arms.find(a => a.armId === 'cold-b')!.probability).toBeCloseTo(.1, 12);
 });
