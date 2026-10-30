@@ -72,16 +72,16 @@
       "closedGoals": 0
     },
     "bShares": [
-      0.88125,
-      0.46125,
-      0.44375,
-      0.31625,
-      0.39375,
-      0.58,
-      0.7525,
-      0.77125
+      0.7825,
+      0.435,
+      0.44125,
+      0.34,
+      0.09625,
+      0.67,
+      0.50375,
+      0.16875
     ],
-    "averageBShare": 0.575,
+    "averageBShare": 0.42968750000000006,
     "allowedMeanRange": [
       0.35,
       0.65
@@ -93,24 +93,24 @@
       2
     ],
     "visits": 4000,
-    "events": 33770,
+    "events": 33782,
     "duplicateDeliveries": 1027,
     "delayedEvents": 659,
-    "zeroSamples": 2094,
-    "refunds": 173,
+    "zeroSamples": 2082,
+    "refunds": 174,
     "diagnostics": {
-      "staleExposures": 82,
+      "staleExposures": 88,
       "staleIdentities": 0,
       "futureExposures": 0,
       "closedGoals": 0
     },
     "bShares": [
-      0.9645,
-      0.972
+      0.978,
+      0.976
     ],
     "lateWinnerShares": [
-      0.98,
-      0.976
+      0.982,
+      0.978
     ],
     "minimumMeanWinnerShare": 0.65
   },
@@ -120,28 +120,28 @@
       2
     ],
     "visits": 6400,
-    "events": 53872,
+    "events": 53897,
     "duplicateDeliveries": 1633,
     "delayedEvents": 1055,
-    "zeroSamples": 3479,
-    "refunds": 270,
+    "zeroSamples": 3451,
+    "refunds": 271,
     "diagnostics": {
-      "staleExposures": 162,
+      "staleExposures": 168,
       "staleIdentities": 0,
       "futureExposures": 0,
       "closedGoals": 0
     },
     "bShares": [
-      0.5303125,
-      0.5275
+      0.5409375,
+      0.511875
     ],
     "beforeWinnerShares": [
-      0.96125,
-      0.9675
+      0.975,
+      0.97375
     ],
     "afterWinnerShares": [
       0.965,
-      0.95625
+      0.9625
     ],
     "minimumMeanWinnerShare": 0.65
   },
@@ -150,11 +150,11 @@
       17
     ],
     "visits": 240,
-    "events": 2002,
+    "events": 2009,
     "duplicateDeliveries": 0,
     "delayedEvents": 0,
-    "zeroSamples": 139,
-    "refunds": 11,
+    "zeroSamples": 133,
+    "refunds": 12,
     "diagnostics": {
       "staleExposures": 0,
       "staleIdentities": 0,
@@ -162,7 +162,7 @@
       "closedGoals": 0
     },
     "bShares": [
-      0.875
+      0.9208333333333333
     ],
     "matchedSamples": 240,
     "chunkSizes": [
@@ -176,10 +176,10 @@
       31
     ],
     "visits": 1200,
-    "events": 10072,
+    "events": 10068,
     "duplicateDeliveries": 0,
     "delayedEvents": 0,
-    "zeroSamples": 640,
+    "zeroSamples": 644,
     "refunds": 50,
     "diagnostics": {
       "staleExposures": 0,
@@ -188,8 +188,8 @@
       "closedGoals": 0
     },
     "bShares": [
-      0.9316666666666666,
-      0.9316666666666666
+      0.945,
+      0.945
     ],
     "visitsPerRun": 600,
     "multiplier": 1000,

@@ -11,6 +11,14 @@ import type { ArmStatus, Assignment, CreateExperiment, Experiment, ExperimentSet
 import type { LearningSQL } from './incremental.js';
 const storedJson = <T>(text: string): T => JSON.parse(text) as T;
 
+// Exhaustive so a new setting requires an explicit evidence-compatibility decision.
+const startsGeneration = {
+  bootstrapShare: false, bootstrapQuota: false, explorationFloor: false,
+  rewardScale: false, bonusMultiplier: false,
+  minHoldMs: true, observationWindowMs: true, attributionWindowMs: true,
+  attributionHalfLifeMs: true, learningHalfLifeMs: true,
+} satisfies Record<keyof ExperimentSettings, boolean>;
+
 /** Synchronous experiment state owned by SiteControl's transaction. No RPC or independent alarm. */
 export class ExperimentState {
   private readonly kv: Pick<SyncKvStorage, 'get' | 'put' | 'delete'>;
@@ -102,9 +110,12 @@ export class ExperimentState {
     invariant(config.status !== 'deleted', 'conflict', 'Experiment is deleted');
     const nextSettings = settings({ ...config.settings, ...input });
     if (JSON.stringify(config.settings) === JSON.stringify(nextSettings)) return config;
-    // Any policy-setting change starts a generation: no old half-life is reinterpreted.
-    const next = { ...config, settings: nextSettings, generation: config.generation + 1, revision: config.revision + 1 };
-    this.kv.put('config', next); this.kv.put(`generation:${next.generation}`, nextSettings);
+    const reset = (Object.keys(startsGeneration) as (keyof ExperimentSettings)[]).some(key =>
+      startsGeneration[key] && config.settings[key] !== nextSettings[key]);
+    const next = { ...config, settings: nextSettings, generation: config.generation + Number(reset), revision: config.revision + 1 };
+    this.kv.put('config', next);
+    // Generation learning semantics stay immutable, including for in-flight receipts.
+    if (reset) this.kv.put(`generation:${next.generation}`, nextSettings);
     return next;
   }
   getPolicy() {

@@ -1,0 +1,98 @@
+{
+  "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32
+  ],
+  "scenarios": {
+    "sparse": {
+      "current": {
+        "expectedFraction": 0.7425781250000002,
+        "realizedFraction": 0.7424821196208069,
+        "lateBestShare": 0.7487499999999999
+      },
+      "baseline": {
+        "expectedFraction": 0.49875,
+        "realizedFraction": 0.4984874619982874,
+        "lateBestShare": 0.48218750000000016
+      }
+    },
+    "poor-newcomer": {
+      "current": {
+        "expectedFraction": 0.8628515624999998,
+        "realizedFraction": 0.8628543963763954,
+        "lateBestShare": 0.9317187499999998
+      },
+      "baseline": {
+        "expectedFraction": 0.7933203124999999,
+        "realizedFraction": 0.7933212222558864,
+        "lateBestShare": 0.9006249999999998
+      }
+    },
+    "jackpot": {
+      "current": {
+        "expectedFraction": 0.9296093749999997,
+        "realizedFraction": 0.9102042810766704,
+        "lateBestShare": 0.9282031250000001
+      },
+      "baseline": {
+        "expectedFraction": 0.9294238281249999,
+        "realizedFraction": 0.9158678627878188,
+        "lateBestShare": 0.8974218749999999
+      }
+    },
+    "delayed": {
+      "current": {
+        "expectedFraction": 0.9108203125000002,
+        "realizedFraction": 0.9108818360454473,
+        "lateBestShare": 0.9312499999999997
+      },
+      "baseline": {
+        "expectedFraction": 0.8785937500000001,
+        "realizedFraction": 0.878695000368789,
+        "lateBestShare": 0.9008593749999999
+      }
+    },
+    "reversal": {
+      "current": {
+        "expectedFraction": 0.8764453125,
+        "realizedFraction": 0.876675370541125,
+        "lateBestShare": 0.9305468750000001
+      },
+      "baseline": {
+        "expectedFraction": 0.8557617187500001,
+        "realizedFraction": 0.856082021391546,
+        "lateBestShare": 0.8965624999999997
+      }
+    }
+  }
+}

@@ -435,7 +435,7 @@ eye.experiments.list(options?: { after?: string; limit?: number; }): Promise<str
 
 ## eye.experiments.update
 
-설정 patch를 반영하고 변경 시 새 학습 세대를 시작한다. 기존 배정의 설정·최소 유지 기간은 보존한다.
+설정 patch를 반영한다. 배정 전략 변경은 학습을 유지하고 관측·귀속·학습 반감기·유지 기간 변경은 새 학습 세대를 시작한다. 기존 배정의 설정·최소 유지 기간은 보존한다.
 
 ```ts
 eye.experiments.update(experimentId: string, input: Partial<ExperimentSettings>): Promise<Experiment>

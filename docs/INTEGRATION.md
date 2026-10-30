@@ -60,7 +60,7 @@ await eye.experiments.create({
 
 `minHoldMs`만 필수다. 기본 관측 기간은 7일이므로 위 설정이 매일 재배정을 의미하지는 않는다. 첫 실제 노출로 관측이 시작하고, 일반 재배정은 최소 유지·관측 종료 조건이 모두 충족된 뒤 가능하다. 구매 주기와 변화 속도에 맞춰 관측 기간, 귀속 반감기, 학습 반감기를 설정한다. [전체 설정·기본값·제약](api/types.md#experimentsettings)을 참고한다.
 
-같은 최초 실험 정의의 재등록은 안전하지만 다른 정의로 덮어쓰지는 않는다. 변경에는 `experiments.update()`를 사용한다. 설정이 바뀌면 새 학습 세대를 시작하고 기존 배정 설정은 보존한다.
+같은 최초 실험 정의의 재등록은 안전하지만 다른 정의로 덮어쓰지는 않는다. 변경에는 `experiments.update()`를 사용한다. `explorationFloor`, `bonusMultiplier`, `rewardScale`, `bootstrapShare`, `bootstrapQuota` 변경은 학습을 유지한다. 관측·귀속·학습 반감기·최소 유지 기간 변경은 새 학습 세대를 시작한다. 기존 배정 설정은 항상 보존한다.
 
 ## 3. cid·uid와 서버 세션 연결
 
