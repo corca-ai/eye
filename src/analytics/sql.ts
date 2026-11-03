@@ -82,6 +82,11 @@ export function decodeCursor(raw: string): Cursor {
   invariant(typeof c.fingerprint === 'string' && typeof c.table === 'string' && TABLES.some(t => t === c.table) && typeof c.id === 'string', 'invalid_input', 'Invalid timeline cursor');
   return { fingerprint: c.fingerprint, receivedBefore: timestamp(c.receivedBefore, 'cursor receivedBefore'), at: timestamp(c.at, 'cursor at'), table: c.table, id: c.id };
 }
+const allocationSQL = (payload = 'payload_json') => `COALESCE(json_get_str(COALESCE(json_get_json(${payload}, 'assignment'), '{}'), 'allocation'), 'policy')`;
+function allocationFilter(mode: unknown, payload = 'payload_json') {
+  invariant(mode === undefined || mode === 'policy' || mode === 'default', 'invalid_input', 'Invalid allocation mode');
+  return mode === undefined ? '' : ` AND ${allocationSQL(payload)} = '${mode}'`;
+}
 export class AnalyticsSQL {
   private readonly namespace: string;
   constructor(namespace: string, private readonly siteId: string, private readonly now = Date.now()) { this.namespace = identifier(namespace); id(siteId, 'siteId'); }
@@ -97,7 +102,7 @@ FROM ${this.namespace}.${table === 'events' ? 'events' : 'projections'} WHERE ta
     const groups = q.groupBy ?? [];
     invariant(Array.isArray(groups) && groups.length <= 3, 'invalid_input', 'At most 3 groupBy fields are supported');
     const fields = Array.from(groups, (f, i) => `${field(f, 'o').sql} AS group_${i}`);
-    const dimensions = [...(bucketMs === undefined ? [] : ['bucket_start']), 'arm_id', 'generation', 'window_ms', ...groups.map((_, i) => `group_${i}`)];
+    const dimensions = [...(bucketMs === undefined ? [] : ['bucket_start']), 'allocation_mode', 'arm_id', 'generation', 'window_ms', ...groups.map((_, i) => `group_${i}`)];
     const ctes = [this.latest('observations', 'observations_latest', q.from, q.to, this.now, ` AND experiment_id = ${experiment}${q.armId === undefined ? '' : ` AND arm_id = ${literal(id(q.armId, 'armId'))}`}${q.generation === undefined ? '' : ` AND json_get_int(payload_json, 'generation') = ${q.generation}`}`)];
     ctes.push(...attributionCTEs(this.namespace, literal(this.siteId), Math.max(0, this.now - RETENTION_MS), q.from, this.now + 1, this.now, undefined, experiment));
     ctes.push(`goal_reward_values AS (SELECT observation_id, value,
@@ -114,17 +119,17 @@ COALESCE(SUM(value / NULLIF(reward_scale, 0)) * MAX(reward_scale), 0) AS reward 
         event.filter === undefined ? '' : ` AND ${compileFilter(event.filter, 'e')}`));
       hasEvent = ' AND o.observation_id IN (SELECT observation_id FROM matching_event_observations)';
     }
-    ctes.push(`cohort AS (SELECT ${bucketMs === undefined ? '' : `CAST(FLOOR(o.occurred_at / ${bucketMs}.0) * ${bucketMs} AS BIGINT) AS bucket_start, `}o.arm_id, json_get_int(o.payload_json, 'generation') AS generation,
+    ctes.push(`cohort AS (SELECT ${bucketMs === undefined ? '' : `CAST(FLOOR(o.occurred_at / ${bucketMs}.0) * ${bucketMs} AS BIGINT) AS bucket_start, `}${allocationSQL('o.payload_json')} AS allocation_mode, o.arm_id, json_get_int(o.payload_json, 'generation') AS generation,
 json_get_int(o.payload_json, 'endAt') - o.occurred_at AS window_ms, o.status, o.subject_key AS subject_key, o.received_at, o.value AS learning_reward,
 CASE WHEN o.status = 'complete' THEN ${reward} ELSE 0 END AS reward${fields.length ? `, ${fields.join(', ')}` : ''}
-FROM observations_latest o${join} WHERE TRUE${q.filter === undefined ? '' : ` AND ${compileFilter(q.filter, 'o')}`}${hasEvent})`);
+FROM observations_latest o${join} WHERE TRUE${allocationFilter(q.allocationMode, 'o.payload_json')}${q.filter === undefined ? '' : ` AND ${compileFilter(q.filter, 'o')}`}${hasEvent})`);
     ctes.push(`cohort_scaled AS (SELECT *, MAX(ABS(reward)) OVER (PARTITION BY ${dimensions.join(', ')}) AS reward_scale,
 MAX(ABS(learning_reward)) OVER (PARTITION BY ${dimensions.join(', ')}) AS learning_scale FROM cohort)`);
     const sql = `WITH ${ctes.join(',\n')}
 SELECT ${dimensions.join(', ')}, SUM(CASE WHEN status = 'complete' THEN 1 ELSE 0 END) AS completed,
 SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
 COUNT(DISTINCT subject_key) AS subjects, COALESCE(SUM(reward / NULLIF(reward_scale, 0)) * MAX(reward_scale), 0) AS total_value,
-COALESCE(SUM(CASE WHEN status = 'complete' THEN learning_reward / NULLIF(learning_scale, 0) ELSE 0 END) * MAX(learning_scale), 0) AS learning_value,
+CASE WHEN allocation_mode = 'default' THEN NULL ELSE COALESCE(SUM(CASE WHEN status = 'complete' THEN learning_reward / NULLIF(learning_scale, 0) ELSE 0 END) * MAX(learning_scale), 0) END AS learning_value,
 CASE WHEN SUM(CASE WHEN status = 'complete' THEN 1 ELSE 0 END) = 0 THEN NULL
 ELSE COALESCE(AVG(CASE WHEN status = 'complete' THEN reward / NULLIF(reward_scale, 0) ELSE NULL END) * MAX(reward_scale), 0) END AS mean_value,
 MAX(received_at) AS latest_received_at
@@ -139,7 +144,7 @@ FROM cohort_scaled GROUP BY ${dimensions.join(', ')} ORDER BY ${dimensions.join(
     return { sql: `WITH ${latest}, closed AS (
 SELECT experiment_id, arm_id, json_get_int(payload_json, 'generation') AS generation,
 json_get_int(payload_json, 'endAt') - occurred_at AS window_ms, value, received_at
-FROM closed_latest WHERE status = 'complete'), scaled AS (
+FROM closed_latest WHERE status = 'complete' AND ${allocationSQL()} = 'policy'), scaled AS (
 SELECT *, MAX(ABS(value)) OVER (PARTITION BY ${dimensions}) AS scale FROM closed)
 SELECT ${dimensions}, COUNT(*) AS completed,
 COALESCE(SUM(value / NULLIF(scale, 0)) * MAX(scale), 0) AS learning_value,
@@ -241,14 +246,14 @@ FROM goal_values e GROUP BY ${dimensions} ORDER BY ${bucketMs === undefined ? 'e
     invariant(Number.isSafeInteger(q.bucketMs) && q.bucketMs > 0, 'invalid_input', 'bucketMs must be positive integer milliseconds');
     const ctes = [this.latest('events', 'events_latest', q.from, q.to, this.now, ` AND experiment_id = ${experiment}`),
       this.latest('decisions', 'decisions_latest', q.from, q.to, this.now, ` AND experiment_id = ${experiment}`)];
-    const dimension = `CAST(FLOOR(occurred_at / ${q.bucketMs}.0) * ${q.bucketMs} AS BIGINT) AS bucket_start, arm_id, json_get_int(json_get_json(payload_json, 'assignment'), 'generation') AS generation`;
+    const dimension = `CAST(FLOOR(occurred_at / ${q.bucketMs}.0) * ${q.bucketMs} AS BIGINT) AS bucket_start, arm_id, json_get_int(json_get_json(payload_json, 'assignment'), 'generation') AS generation, ${allocationSQL()} AS allocation_mode`;
     const sql = `WITH ${ctes.join(',')}, traffic AS (
-SELECT ${dimension}, 1 AS assignments, 0 AS exposures FROM decisions_latest WHERE json_get_str(payload_json, 'reason') = 'selected'
-UNION ALL SELECT ${dimension}, 0 AS assignments, 1 AS exposures FROM events_latest WHERE json_get_str(payload_json, 'kind') = 'exposure'
-), totals AS (SELECT bucket_start, arm_id, generation, SUM(assignments) AS assignments, SUM(exposures) AS exposures FROM traffic GROUP BY bucket_start, arm_id, generation)
-SELECT *, assignments * 1.0 / NULLIF(SUM(assignments) OVER (PARTITION BY bucket_start, generation), 0) AS assignment_share,
-exposures * 1.0 / NULLIF(SUM(exposures) OVER (PARTITION BY bucket_start, generation), 0) AS exposure_share
-FROM totals ORDER BY bucket_start, generation, arm_id LIMIT ${limit + 1}`;
+SELECT ${dimension}, 1 AS assignments, 0 AS exposures FROM decisions_latest WHERE json_get_str(payload_json, 'reason') = 'selected'${allocationFilter(q.allocationMode)}
+UNION ALL SELECT ${dimension}, 0 AS assignments, 1 AS exposures FROM events_latest WHERE json_get_str(payload_json, 'kind') = 'exposure'${allocationFilter(q.allocationMode)}
+), totals AS (SELECT bucket_start, arm_id, generation, allocation_mode, SUM(assignments) AS assignments, SUM(exposures) AS exposures FROM traffic GROUP BY bucket_start, arm_id, generation, allocation_mode)
+SELECT *, assignments * 1.0 / NULLIF(SUM(assignments) OVER (PARTITION BY bucket_start, generation, allocation_mode), 0) AS assignment_share,
+exposures * 1.0 / NULLIF(SUM(exposures) OVER (PARTITION BY bucket_start, generation, allocation_mode), 0) AS exposure_share
+FROM totals ORDER BY bucket_start, generation, allocation_mode, arm_id LIMIT ${limit + 1}`;
     return { sql, limit, receivedBefore: this.now, fingerprint: fingerprint(this.siteId, 'traffic', q) };
   }
   policies(q: import('./types.js').PolicyQuery): QueryPlan {

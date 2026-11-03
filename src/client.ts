@@ -121,7 +121,7 @@ export function createEye(options: EyeOptions) {
     /** 사이트가 확정한 골을 전달한다. goalId는 먼저 등록한다. value는 모든 골에서 같은 단위의 유한한 값이며 음수·0도 허용한다. */
     goal: (input: EventInput<GoalEvent>): Submission => submit(() => ({ ...base(input), kind: 'goal' })),
     /** arm을 실제 적용한 뒤 assigned decision을 그대로 전달한다. userAttributes는 첫 노출 때 관측 속성으로 고정하고, attributes는 개별 노출 사건 속성으로 보관한다. */
-    expose: (input: { subject: Subject; decision: AssignedDecision; eventId?: string; occurredAt?: number; userAttributes?: Attributes; attributes?: Attributes }): Submission => {
+    expose: (input: { subject: Subject; decision: AssignedDecision; eventId?: string; occurredAt?: number; userAttributes?: Attributes; attributes?: Attributes; defaultReason?: import('./core/types.js').DefaultReason }): Submission => {
       let commit: (() => void) | undefined;
       return submit(() => {
         const { decision, ...rest } = input;
@@ -138,7 +138,11 @@ export function createEye(options: EyeOptions) {
     /** uid 없이 현재 cid를 기록해 새 익명 구간을 시작한다. 호스트가 이전 배정 토큰을 비우고 새 신원으로 요청 클라이언트를 만든다. */
     logout: (input: EventInput<IdentityEvent>): Submission => submit(() => ({ ...base(input), kind: 'logout' })),
     /** 유효한 로컬 정책으로 선택·재사용한다. 서명 검증은 기다리지만 원격 조회는 기다리지 않는다. assigned가 아니면 기본 화면을 사용하고 expose하지 않는다. */
-    decide: (input: { subject: Subject; experimentId: string }) => decisions().decide(parseSubject(input.subject), id(input.experimentId, 'experimentId')),
+    decide: (input: { subject: Subject; experimentId: string; context?: import('./core/local-assignment.js').LocalAssignmentContext }) => decisions().decide(parseSubject(input.subject), id(input.experimentId, 'experimentId'), input.context),
+    /** Select a declared default using valid local authority; never waits for a policy RPC. */
+    decideDefault: (input: { subject: Subject; experimentId: string; defaultArm: string; context?: import('./core/local-assignment.js').LocalAssignmentContext }) => decisions().decideDefault(parseSubject(input.subject), id(input.experimentId, 'experimentId'), id(input.defaultArm, 'defaultArm'), input.context),
+    /** Signed default observation state, persisted independently of policy holds. */
+    defaultState: (): Promise<Record<string, string>> => decisions().defaultState(),
     /** 대기 중인 사건의 Queue 접수를 기다린다. 실패하면 reject하며 SDK가 자동 재전송하지 않는다. 학습·분석 반영 완료는 보장하지 않는다. 일반 요청은 waitUntil 전송으로 충분하다. */
     flush,
     analytics: {

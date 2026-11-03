@@ -155,7 +155,7 @@ it('retains preparation state across reloads without requiring browser storage',
   const prepare = vi.fn(async () => snapshot());
   const next = createEyeBrowser({ scope: 'a', storage, prepare });
   next.beginView().variant(definition); await vi.advanceTimersByTimeAsync(1);
-  expect(prepare.mock.calls[0]).toEqual([['checkout'], expect.objectContaining({ checkout: expect.objectContaining({ sample: expect.objectContaining({ sampleId: expect.any(String) }) }) })]);
+  expect(prepare.mock.calls[0]).toEqual([['checkout'], expect.objectContaining({ checkout: expect.objectContaining({ sample: expect.objectContaining({ sampleId: expect.any(String) }) }) }), {}]);
   next.dispose();
 });
 it('refreshes long-lived choices on the next view without waiting for hard expiry or replacing mounted views', async () => {
@@ -223,7 +223,7 @@ it('an older mounted view updates the latest receipt state when both share an as
     await vi.advanceTimersByTimeAsync(5001);
     expect(prepare.mock.calls[1]).toEqual([['checkout'], { checkout: {
       receipt: 'latest-receipt', sample: { sampleId: expect.any(String), startAt: expect.any(Number) },
-    } }]);
+    } }, {}]);
   } finally { client.dispose(); }
 });
 

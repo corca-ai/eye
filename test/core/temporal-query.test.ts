@@ -75,8 +75,8 @@ it('preserves arm reports, competing experiments and hasEvent evidence with UID 
     for (const experimentId of ['exp', 'other', 'absent']) for (const hasEvent of [undefined, { name: 'view' }]) {
       const query = { from: QUERY_NOW - 3 * QUERY_DAY, to: QUERY_NOW, experimentId,
         ...(hasEvent ? { hasEvent } : {}), groupBy: [{ key: 'locale', type: 'string' as const }] };
-      expect(db.run(next.arms(query).sql)).toEqual(db.run(old.arms(query).sql));
-      expect(db.run(next.arms(query, QUERY_DAY).sql)).toEqual(db.run(old.arms(query, QUERY_DAY).sql));
+      expect(db.run(next.arms(query).sql)).toEqual(db.run(old.arms(query).sql).map(row => ({ allocation_mode: 'policy', ...row })));
+      expect(db.run(next.arms(query, QUERY_DAY).sql)).toEqual(db.run(old.arms(query, QUERY_DAY).sql).map(row => ({ allocation_mode: 'policy', ...row })));
     }
   } finally { db.close(); }
 });

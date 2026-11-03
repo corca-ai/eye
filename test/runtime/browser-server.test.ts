@@ -173,3 +173,57 @@ it('receives large valid attribute receipts without corrupting the original attr
 });
 
 afterEach(async () => { vi.restoreAllMocks(); await reset(); });
+
+it('issues counted default authority locally and renews the original default observation independently', async () => {
+  const f = await fixture(1000);
+  const policy = await f.options.service.getPublishedPolicy('checkout');
+  const policyRead = vi.fn(() => { throw new Error('Unexpected policy lookup'); });
+  const installRead = vi.fn(() => { throw new Error('Unexpected installation lookup'); });
+  const service = new Proxy(f.options.service, { get(target, property) {
+    if (property === 'getPublishedPolicy') return policyRead;
+    if (property === 'getInstallationId') return installRead;
+    return Reflect.get(target, property);
+  } });
+  const options = { ...f.options, service, defaultArms: { checkout: 'compact' }, decisions: { secret, initialPolicies: [policy] } };
+  const server = createEyeBrowserServer(options), snapshot = await server.snapshot(['checkout']);
+  expect(snapshot.defaults).toHaveLength(1);
+  expect(policyRead).not.toHaveBeenCalled(); expect(installRead).not.toHaveBeenCalled();
+  const choice = snapshot.defaults![0]!;
+  const sample = { sampleId: 'same-default-observation', startAt: snapshot.serverNow };
+  const event = { eventId: 'default-visible', receipt: choice.receipt, occurredAt: snapshot.serverNow, sample, defaultReason: 'resource_unready' };
+  expect(await server.receive([event])).toEqual([{ eventId: event.eventId, accepted: true }]);
+  expect(f.events[0]!.event).toMatchObject({ kind: 'exposure', defaultReason: 'resource_unready',
+    assignment: { allocation: 'default', probability: null, policyRevision: null }, sample });
+  const renewed = await createEyeBrowserServer(options).snapshot(['checkout'], {}, { checkout: { receipt: choice.receipt, sample } });
+  expect(renewed.defaults![0]!.assignmentId).toBe(choice.assignmentId);
+  expect(renewed.defaults![0]!.sample).toEqual(sample);
+  const wrong = createEyeBrowserServer({ ...options, browserBinding: 'other-browser' });
+  expect((await wrong.receive([{ ...event, eventId: 'wrong-binding' }]))[0]!.accepted).toBe(false);
+  expect(policyRead).not.toHaveBeenCalled(); expect(installRead).not.toHaveBeenCalled();
+  await waitOnExecutionContext(f.options.ctx);
+});
+
+it('server replacement cannot count an unsupported policy arm as a performance default', async () => {
+  const f = await fixture();
+  await createEye(f.options).experiments.addArm('checkout', 'unsupported');
+  const original = await f.options.service.getPublishedPolicy('checkout');
+  const policy = { ...original, arms: original.arms.map(arm => ({ ...arm, probability: arm.armId === 'unsupported' ? 1 : 0 })) };
+  const { createEyeRequest } = await import('../../src/request.js');
+  const eye = createEyeRequest({ ...f.options, decisions: { secret, initialPolicies: [policy] } });
+  const selected = await eye.variant({ experimentId: 'checkout', defaultArm: 'compact', variants: { compact: 'a', alternative: 'b' } });
+  expect(selected.armId).toBeNull(); expect((await selected.useDefault('resource_unready')).armId).toBeNull();
+  expect((await selected.useDefault('resource_unready')).expose()).toBeNull();
+  await waitOnExecutionContext(f.options.ctx);
+});
+
+it('collection rejection does not allow an applied server action to be retried through default', async () => {
+  const f = await fixture();
+  const policy = await f.options.service.getPublishedPolicy('checkout');
+  const { createEyeRequest } = await import('../../src/request.js');
+  const eye = createEyeRequest({ ...f.options, collectionLimits: { maxEvents: 1 }, decisions: { secret, initialPolicies: [policy] } });
+  const selected = await eye.variant({ experimentId: 'checkout', defaultArm: 'compact', variants: { compact: 'a' } });
+  expect(eye.track({ name: 'budget-consumed' }).accepted).toBe(true);
+  expect(selected.expose()).toMatchObject({ accepted: false });
+  await expect(selected.useDefault('resource_unready')).rejects.toThrow('applied');
+  await waitOnExecutionContext(f.options.ctx);
+});

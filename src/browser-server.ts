@@ -14,6 +14,8 @@ import type { BrowserSnapshot, BrowserEventResult } from './browser-types.js';
 export interface BrowserServerOptions extends EyeOptions {
   /** 호스트 인증에서 확정한다. 브라우저가 보낸 subject를 그대로 신뢰하지 않는다. */
   subject: Subject;
+  /** Server-owned allowlist of performance defaults. Never accept this map from request JSON. */
+  defaultArms?: Readonly<Record<string, string>>;
   /** Host-authenticated browser binding, stable across login/logout, never taken from request JSON. */
   browserBinding: string;
   /** 브라우저와 공유하는 비밀이 아닌 인증 세대. 로그인·로그아웃·계정 변경마다 바꾼다. */
@@ -33,7 +35,10 @@ export function createEyeBrowserServer(options: BrowserServerOptions) {
   const eye = createEye(options), subject = parseSubject(options.subject);
   const userAttributes = attributes(options.userAttributes ?? {}, collectionLimits(options.collectionLimits));
   const binding = id(options.browserBinding, 'browserBinding'), scope = id(options.scope, 'scope');
-  let installation: Promise<string> | undefined;
+  const seededInstallations = new Set(options.decisions?.initialPolicies?.map(p => p.installationId));
+  invariant(seededInstallations.size <= 1, 'invalid_input', 'Initial policies must belong to one installation');
+  const seededInstallation = [...seededInstallations][0];
+  let installation: Promise<string> | undefined = seededInstallation === undefined ? undefined : Promise.resolve(seededInstallation);
   const installationId = () => installation ??= options.service.getInstallationId();
   const audience = (id: string) => encoder.encode(`eye/browser-exposure/v1/${id}`);
   let importedKey: Promise<CryptoKey> | undefined;
@@ -57,44 +62,79 @@ export function createEyeBrowserServer(options: BrowserServerOptions) {
     return value;
   };
   const withSample = (context: LocalAssignmentContext, sample: unknown) => sample === undefined ? context : parseLocalContext({ ...context, sample });
-  return {
-    /** 최대 20실험을 준비한다. 필요하면 정책 조회를 기다리며 실패·비활성 실험은 choices에서 제외한다.
-     * previous는 실험별 BrowserState이며 검증 후 재사용한다. 실험별 실패는 onError로 보고한다. 잘못된 배치 입력은 reject한다. */
-    async prepare(experimentIds: readonly string[], previous: unknown = {}): Promise<BrowserSnapshot> {
-      invariant(Array.isArray(experimentIds) && experimentIds.length <= 20, 'invalid_input', 'Preparation requires an array of at most 20 experiments');
-      const states = record(previous, 'states');
-      const choices: BrowserSnapshot['choices'] = [];
-      for (const experimentId of new Set(experimentIds)) {
-        try {
-          let context: LocalAssignmentContext | undefined;
-          if (Object.hasOwn(states, experimentId)) {
-            try {
-              const state = record(states[experimentId], 'browser state'), receipt = await openReceipt(state.receipt);
-              invariant(receipt.scope === scope, 'invalid_input', 'Previous authentication scope');
-              const prior = record(receipt.decision, 'decision');
-              context = withSample(parseLocalContext(prior.localContext), state.sample);
-              invariant(context.subject.cid === subject.cid && context.subject.uid === subject.uid
-                && context.assignment.experimentId === experimentId && (context.sample?.startAt ?? 0) <= Date.now(), 'invalid_input', 'Previous state mismatch');
-            } catch (error) { context = undefined; try { options.onError?.(error); } catch { /* host hook */ } }
+  async function snapshot(experimentIds: readonly string[], previous: unknown, previousDefaults: unknown, waitPolicy: boolean): Promise<BrowserSnapshot> {
+    invariant(Array.isArray(experimentIds) && experimentIds.length <= 20, 'invalid_input', 'Preparation requires an array of at most 20 experiments');
+    const states = record(previous, 'states'), defaultStates = record(previousDefaults, 'default states');
+    const choices: BrowserSnapshot['choices'] = [], defaults: NonNullable<BrowserSnapshot['defaults']> = [];
+    const statuses: NonNullable<BrowserSnapshot['statuses']> = {};
+    async function restoreContext(states: Record<string, unknown>, experimentId: string, mode: 'policy' | 'default') {
+      if (!Object.hasOwn(states, experimentId)) return undefined;
+      try {
+        const state = record(states[experimentId], 'browser state'), receipt = await openReceipt(state.receipt);
+        invariant(receipt.scope === scope, 'invalid_input', 'Previous authentication scope');
+        const prior = record(receipt.decision, 'decision');
+        const context = withSample(parseLocalContext(prior.localContext), state.sample);
+        invariant(context.subject.cid === subject.cid && context.subject.uid === subject.uid
+          && context.assignment.experimentId === experimentId && (context.sample?.startAt ?? 0) <= Date.now()
+          && (context.assignment.allocation === 'default') === (mode === 'default'), 'invalid_input', 'Previous state mismatch');
+        return context;
+      } catch (error) { try { options.onError?.(error); } catch {} return undefined; }
+    }
+    async function choice(decision: AssignedDecision): Promise<import('./browser-types.js').BrowserChoice | undefined> {
+      const issuedAt = Date.now(), applyUntil = decision.applyUntil!;
+      if (applyUntil <= issuedAt) return undefined;
+      const receipt = await seal({ binding, scope, subject, decision, issuedAt, applyUntil, userAttributes }, decision.localContext!.siteId);
+      invariant(receipt.length <= 24_000, 'invalid_input', 'Exposure receipt exceeds 24 KB');
+      const a = decision.assignment;
+      const contextKey = a.allocation === 'default' ? encode(new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(JSON.stringify([
+        decision.localContext!.siteId, subject, a.experimentId, a.generation, a.armId,
+        a.settings.minHoldMs, a.settings.observationWindowMs, a.settings.attributionHalfLifeMs,
+        a.settings.learningHalfLifeMs, a.settings.attributionWindowMs,
+      ]))))) : undefined;
+      return { ...(contextKey === undefined ? {} : { contextKey }), experimentId: decision.assignment.experimentId, armId: decision.assignment.armId, applyUntil, receipt,
+        refreshAfter: Math.min(applyUntil, issuedAt + policyFreshMs(options.decisions)),
+        allocation: decision.assignment.allocation ?? 'policy', assignmentId: decision.assignment.assignmentId,
+        observationWindowMs: decision.assignment.settings.observationWindowMs,
+        ...(decision.localContext?.sample === undefined ? {} : { sample: decision.localContext.sample }) };
+    }
+    for (const experimentId of new Set(experimentIds)) {
+      id(experimentId, 'experimentId');
+      try {
+        const defaultArm = options.defaultArms?.[experimentId];
+        // This path is independent of policy preparation: snapshot() never waits for a policy RPC.
+        if (defaultArm !== undefined) {
+          const context = await restoreContext(defaultStates, experimentId, 'default');
+          const decision = await eye.decideDefault({ subject, experimentId, defaultArm, ...(context ? { context } : {}) });
+          if (decision.status === 'assigned') { const value = await choice(decision); if (value) defaults.push(value); }
+        }
+        const context = await restoreContext(states, experimentId, 'policy');
+        const decision = waitPolicy
+          ? (await eye.prepare({ subject, experimentId, ...(context ? { context } : {}) })).decision
+          : await eye.decide({ subject, experimentId, ...(context ? { context } : {}) });
+        statuses[experimentId] = decision.status === 'assigned' ? 'assigned' : decision.status === 'no_active_arm' ? 'inactive' : 'unavailable';
+        if (decision.status === 'assigned') { const value = await choice(decision); if (value) choices.push(value); }
+        // A newly fetched policy can also authorize/renew a default capability.
+        if (waitPolicy && defaultArm !== undefined) {
+          const context = await restoreContext(defaultStates, experimentId, 'default');
+          const decision = await eye.decideDefault({ subject, experimentId, defaultArm, ...(context ? { context } : {}) });
+          if (decision.status === 'assigned') {
+            const value = await choice(decision);
+            const index = defaults.findIndex(c => c.experimentId === experimentId);
+            if (index >= 0) defaults.splice(index, 1);
+            if (value) defaults.push(value);
           }
-          const prepared = await eye.prepare({ subject, experimentId, ...(context === undefined ? {} : { context }) });
-          if (prepared.decision.status !== 'assigned') continue;
-          const issuedAt = Date.now();
-          const applyUntil = Math.min(prepared.reuseUntil, prepared.policy.publishedAt + (options.decisions?.maxAgeMs ?? DEFAULT_POLICY_MAX_AGE_MS));
-          if (applyUntil <= issuedAt || !prepared.policy.activeArms.includes(prepared.decision.assignment.armId) || prepared.policy.status !== 'active') continue;
-          const receipt = await seal({ binding, scope, subject, decision: prepared.decision, issuedAt, applyUntil,
-            userAttributes }, prepared.policy.installationId);
-          invariant(receipt.length <= 24_000, 'invalid_input', 'Exposure receipt exceeds 24 KB');
-          choices.push({ experimentId, armId: prepared.decision.assignment.armId, applyUntil, receipt,
-            refreshAfter: Math.min(applyUntil, issuedAt + policyFreshMs(options.decisions)),
-            assignmentId: prepared.decision.assignment.assignmentId, observationWindowMs: prepared.decision.assignment.settings.observationWindowMs,
-            ...(prepared.decision.localContext?.sample === undefined ? {} : { sample: prepared.decision.localContext.sample }) });
-        } catch (error) { try { options.onError?.(error); } catch { /* host hook */ } }
-      }
-      const serverNow = Date.now();
-      // A later policy lookup or receipt seal can outlive an earlier lease.
-      return { scope, serverNow, choices: choices.filter(choice => choice.applyUntil > serverNow) };
-    },
+        }
+      } catch (error) { statuses[experimentId] = 'unavailable'; try { options.onError?.(error); } catch {} }
+    }
+    const serverNow = Date.now();
+    return { scope, serverNow, choices: choices.filter(c => c.applyUntil > serverNow),
+      defaults: defaults.filter(c => c.applyUntil > serverNow && statuses[c.experimentId] !== 'inactive'), statuses };
+  }
+  return {
+    /** Prepare policies explicitly; existing states and independent default observations survive renewal. */
+    prepare: (experimentIds: readonly string[], previous: unknown = {}, previousDefaults: unknown = {}) => snapshot(experimentIds, previous, previousDefaults, true),
+    /** Navigation bootstrap from trusted local authority and local crypto only; no awaited policy lookup. */
+    snapshot: (experimentIds: readonly string[], previous: unknown = {}, previousDefaults: unknown = {}) => snapshot(experimentIds, previous, previousDefaults, false),
     /** 최대 50노출·48KB를 검증하고 Queue 접수를 기다린다. 같은 browserBinding이면 인증 전환 전 증표의 원래 신원을 보존한다.
      * 사건별 거절은 accepted:false, 배치 오류·일시적 미래 시각·Queue 실패는 reject한다. 재시도는 원래 payload를 유지한다. */
     async receive(input: unknown): Promise<BrowserEventResult[]> {
@@ -117,7 +157,8 @@ export function createEyeBrowserServer(options: BrowserServerOptions) {
           const localContext = withSample(parseLocalContext(decision.localContext), event.sample);
           const assigned: AssignedDecision = { status: 'assigned', reason: 'held', assignment: parseAssignment(decision.assignment), localContext, applyUntil: until };
           pending.push({ index: results.length, input: { subject: parseSubject(receipt.subject), decision: assigned,
-            eventId, occurredAt: at, userAttributes: attributes(receipt.userAttributes) } });
+            eventId, occurredAt: at, userAttributes: attributes(receipt.userAttributes),
+            ...(event.defaultReason === undefined ? {} : { defaultReason: event.defaultReason as import('./core/types.js').DefaultReason }) } });
           results.push({ eventId, accepted: false });
         } catch (error) {
           try { options.onError?.(error); } catch { /* host hook */ }

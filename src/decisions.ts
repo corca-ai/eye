@@ -1,6 +1,6 @@
 import { policyFreshMs, DEFAULT_POLICY_MAX_AGE_MS } from './policy-timing.js';
 import { invariant } from './core/errors.js';
-import { selectLocal, exposeLocal } from './core/local-assignment.js';
+import { selectLocal, selectDefault, exposeLocal } from './core/local-assignment.js';
 import type { LocalAssignmentContext, LocalSelection } from './core/local-assignment.js';
 import { parseAssignment } from './core/events.js';
 import { record, timestamp, id, subject as parseSubject, sampleId } from './core/validation.js';
@@ -17,6 +17,12 @@ export interface DecisionMetric {
 export interface DecisionOptions {
   /** Host secret, at least 32 UTF-8 bytes; never send it to browsers. */
   secret: string;
+  /** Trusted published snapshots for a cold isolate. Original publication expiry is preserved. */
+  initialPolicies?: readonly PublishedPolicy[];
+  /** Independent signed default observation contexts; never overwrite policy holds. */
+  defaultTokens?: Readonly<Record<string, string>>;
+  /** Persist a default context independently of normal decision tokens. */
+  onDefaultPrepared?: (experimentId: string, token: string) => Promise<void> | void;
   /** 실험 ID별 서명 토큰. 호스트 세션/쿠키에서 읽고 로그인·로그아웃·계정 변경 시 호스트가 비운다. */
   tokens?: Readonly<Record<string, string>>;
   /** 서비스 바인딩별 모듈 범위 캐시. 생략하면 바인딩 객체 기준 내부 캐시를 사용한다. */
@@ -48,10 +54,10 @@ export class DecisionCache {
     return true;
   }
   /** SDK 갱신용. 더 오래된 sequence는 무시한다. 채택한 정책은 확인 시각을 기록한다. */
-  put(key: string, policy: PublishedPolicy): void {
+  put(key: string, policy: PublishedPolicy, checkedAt = Date.now()): void {
     const old = this.entries.get(key);
     if (old?.policy && old.policy.sequence > policy.sequence) return;
-    this.entries.set(key, { policy: old?.policy?.sequence === policy.sequence ? old.policy : policy, retryAt: 0, checkedAt: Date.now() });
+    this.entries.set(key, { policy: old?.policy?.sequence === policy.sequence ? old.policy : policy, retryAt: 0, checkedAt });
     while (this.entries.size > this.capacity) this.entries.delete(this.entries.keys().next().value!);
   }
 }
@@ -98,6 +104,18 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
   let bindingKey = bindingKeys.get(service);
   if (bindingKey === undefined) { bindingKey = ++nextBindingKey; bindingKeys.set(service, bindingKey); }
   const key = (experimentId: string) => JSON.stringify([bindingKey, experimentId]);
+  const defaultKey = (experimentId: string) => `\0${experimentId}`;
+  const isDefaultKey = (slot: string) => slot.startsWith('\0');
+  const experimentFor = (slot: string) => isDefaultKey(slot) ? slot.slice(1) : slot;
+  for (const supplied of options?.initialPolicies ?? []) {
+    const policy = structuredClone(supplied);
+    id(policy.installationId, 'installationId'); id(policy.experimentId, 'experimentId');
+    invariant(Number.isSafeInteger(policy.publishedAt) && policy.publishedAt >= 0 && Number.isSafeInteger(policy.sequence)
+      && policy.sequence >= 0 && policy.activeArms.length === policy.arms.length
+      && policy.activeArms.every(arm => policy.arms.some(a => a.armId === arm)), 'invalid_input', 'Invalid initial policy');
+    if (!cache.read(key(policy.experimentId)) || cache.read(key(policy.experimentId))!.sequence < policy.sequence)
+      cache.put(key(policy.experimentId), policy, policy.publishedAt);
+  }
   const background = (work: Promise<unknown>) => ctx.waitUntil(work.catch(report));
   const fetchPolicy = (experimentId: string, force = false): Promise<PublishedPolicy> => {
     let loads = policyLoads.get(cache);
@@ -138,7 +156,8 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
     // Remote host persistence is ordered, but never gates the next local seal or state().
     const notification = (session.notification ?? Promise.resolve()).catch(() => {}).then(async () => {
       const token = await work;
-      await options?.onPrepared?.(experimentId, token);
+      const notify = isDefaultKey(experimentId) ? options?.onDefaultPrepared : options?.onPrepared;
+      await notify?.(experimentFor(experimentId), token);
     });
     session.notification = notification; background(notification);
   };
@@ -149,7 +168,7 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
     return session.restoration = load(experimentId, session);
   };
   const load = async (experimentId: string, session: ExperimentSession) => {
-    const token = options?.tokens?.[experimentId];
+    const token = (isDefaultKey(experimentId) ? options?.defaultTokens : options?.tokens)?.[experimentFor(experimentId)];
     if (!token) return;
     try {
       invariant(token.length <= 16_384, 'invalid_input', 'Oversized state');
@@ -158,7 +177,8 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
       const value = record(JSON.parse(new TextDecoder().decode(unb64(payload))), 'state');
       invariant(value.version === 2, 'invalid_input', 'Unsupported state version');
       const context = parseLocalContext(value.context);
-      invariant(context.assignment.experimentId === experimentId, 'invalid_input', 'State scope mismatch');
+      invariant(context.assignment.experimentId === experimentFor(experimentId)
+        && (context.assignment.allocation === 'default') === isDefaultKey(experimentId), 'invalid_input', 'State scope mismatch');
       // Signature verification yields: a receipt may have opened a newer sample
       // while restoration was in flight. Local updates take precedence.
       if (!session.context) { session.context = context; session.token = token; }
@@ -182,9 +202,15 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
       reason: !policy ? 'cold' : now >= policy.publishedAt + maxAge ? 'expired' : selection.status === 'no_active_arm' ? 'inactive' : selection.refreshPolicy ? 'stale' : 'fresh', authenticated: subject.uid !== undefined, at: now }); } catch (error) { report(error); }
     return { decision, selection };
   };
-  const decide = async (subject: Subject, experimentId: string): Promise<Decision> => {
+  const decide = async (subject: Subject, experimentId: string, supplied?: LocalAssignmentContext): Promise<Decision> => {
     if (!options) { refresh(experimentId); return { status: 'unavailable', experimentId }; }
     await restore(experimentId);
+    if (supplied) {
+      const context = parseLocalContext(supplied);
+      invariant(context.assignment.allocation !== 'default' && context.assignment.experimentId === experimentId
+        && context.subject.cid === subject.cid && context.subject.uid === subject.uid, 'invalid_input', 'Policy context mismatch');
+      sessionFor(experimentId).context = context;
+    }
     return choose(subject, experimentId, cache.read(key(experimentId))).decision;
   };
   const prepare = async (subject: Subject, experimentId: string, context?: LocalAssignmentContext, forceRefresh = false): Promise<PreparedDecision & { token: string | null }> => {
@@ -205,17 +231,43 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
     return { decision: result.decision, policy, token: result.decision.status === 'assigned' ? sessions.get(experimentId)?.token ?? null : null,
       reuseUntil: result.selection.status === 'assigned' ? result.selection.applyUntil : Date.now() };
   };
+  const decideDefault = async (subject: Subject, experimentId: string, defaultArm: string, supplied?: LocalAssignmentContext): Promise<Decision> => {
+    invariant(options, 'invalid_input', 'Configure decisions.secret');
+    const slot = defaultKey(experimentId);
+    await restore(slot);
+    if (supplied) {
+      const context = parseLocalContext(supplied);
+      invariant(context.assignment.allocation === 'default' && context.assignment.experimentId === experimentId
+        && context.subject.cid === subject.cid && context.subject.uid === subject.uid, 'invalid_input', 'Default context mismatch');
+      sessionFor(slot).context = context;
+    }
+    const policy = cache.read(key(experimentId));
+    const previous = sessions.get(slot)?.context;
+    const selection = selectDefault({ siteId: policy?.installationId ?? 'unprepared', experimentId, subject,
+      now: Date.now(), defaultArm, newId: () => crypto.randomUUID(),
+      ...(previous ? { previous } : {}), ...(policy ? { policy: {
+        ...policy, siteId: policy.installationId, active: policy.status === 'active',
+        freshUntil: (cache.checkedAt(key(experimentId)) ?? policy.publishedAt) + fresh,
+        usableUntil: policy.publishedAt + maxAge, attributionWindowMs: policy.settings.attributionWindowMs ?? 7 * 86_400_000,
+      } } : {}) });
+    if (selection.refreshPolicy) refresh(experimentId);
+    if (selection.status !== 'assigned') return { status: selection.status, experimentId };
+    if (selection.context !== previous || supplied) persist(slot, selection.context);
+    return { status: 'assigned', reason: selection.reason, assignment: selection.context.assignment,
+      localContext: selection.context, applyUntil: selection.applyUntil };
+  };
   const stageExposure = (decision: Extract<Decision, { status: 'assigned' }>, occurredAt: number, eventId: string) => {
     const policy = cache.read(key(decision.assignment.experimentId));
     invariant(decision.localContext && (!policy || decision.localContext.siteId === policy.installationId) && decision.applyUntil !== undefined, 'invalid_input', 'Expected a local decision from this SDK');
-    const latest = sessions.get(decision.assignment.experimentId)?.context;
+    const slot = decision.assignment.allocation === 'default' ? defaultKey(decision.assignment.experimentId) : decision.assignment.experimentId;
+    const latest = sessions.get(slot)?.context;
     const context = latest?.assignment.assignmentId === decision.assignment.assignmentId
       && (latest.sample?.startAt ?? 0) <= occurredAt
       && (!decision.localContext.sample || (latest.sample !== undefined
         && latest.sample.startAt > decision.localContext.sample.startAt)) ? latest : decision.localContext;
     const result = exposeLocal({ status: 'assigned', refreshPolicy: false, reason: decision.reason === 'selected' ? 'selected' : 'held', context, applyUntil: decision.applyUntil }, occurredAt, eventId);
     return { exposure: result.exposure, commit: () => {
-      const current = sessions.get(decision.assignment.experimentId)?.context;
+      const current = sessions.get(slot)?.context;
       // A delayed receipt still describes its original exposure. It cannot
       // rewind an assignment or sample, but a newer external decision can advance it.
       if (current) {
@@ -230,17 +282,20 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
           if (!newer) return;
         }
       }
-      if (current !== result.context) persist(decision.assignment.experimentId, result.context);
+      if (current !== result.context) persist(slot, result.context);
     } };
   };
   const expose = (...args: Parameters<typeof stageExposure>) => {
     const staged = stageExposure(...args); staged.commit(); return staged.exposure;
   };
-  return { decide, prepare, expose, stageExposure, async state() {
-    await Promise.all(Object.keys(options?.tokens ?? {}).map(restore));
-    await Promise.all([...sessions.values()].map(session => session.write));
-    return Object.fromEntries([...sessions].flatMap(([id, session]) => session.token === undefined ? [] : [[id, session.token]]));
-  } };
+  const state = async (defaults = false) => {
+    const tokens = defaults ? options?.defaultTokens : options?.tokens;
+    await Promise.all(Object.keys(tokens ?? {}).map(id => restore(defaults ? defaultKey(id) : id)));
+    const entries = [...sessions].filter(([id]) => isDefaultKey(id) === defaults);
+    await Promise.all(entries.map(([, session]) => session.write));
+    return Object.fromEntries(entries.flatMap(([id, session]) => session.token === undefined ? [] : [[experimentFor(id), session.token]]));
+  };
+  return { decide, decideDefault, prepare, expose, stageExposure, state, defaultState: () => state(true) };
 }
 
 export function parseLocalContext(value: unknown): LocalAssignmentContext {

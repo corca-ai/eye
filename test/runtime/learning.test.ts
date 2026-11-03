@@ -107,7 +107,7 @@ it('rejects unknown exposure references without poisoning other experiments or t
   const send = vi.spyOn(env.ANALYTICS, 'send').mockResolvedValue(undefined);
   try {
     const config = await site.createExperiment(siteId, { experimentId: 'exp', arms: ['a'], settings: { minHoldMs: 0, observationWindowMs: 1000 } });
-    const make = (key: string, override: Partial<ExposureEvent['assignment']> = {}): ExposureEvent => ({ kind: 'exposure', eventId: key, occurredAt: at,
+    const make = (key: string, override: Partial<Extract<ExposureEvent['assignment'], { probability: number }>> = {}): ExposureEvent => ({ kind: 'exposure', eventId: key, occurredAt: at,
       subject: { cid: key }, assignment: { assignmentId: key, experimentId: 'exp', armId: 'a', generation: 1,
         assignedAt: at, policyRevision: 1, probability: 1, settings: config.settings, ...override },
       sample: { sampleId: key, startAt: at }, attributionWindowMs: 1000 });

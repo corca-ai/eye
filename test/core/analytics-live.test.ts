@@ -171,7 +171,7 @@ it.each([false, true])('arm reports preserve cancelling large rewards within and
     for (const report of [await f.api.arms({ from: start, to: now, experimentId: 'exp' }),
       await f.api.armSeries({ from: start, to: now, experimentId: 'exp', bucketMs: 60000 })]) {
       expect(report.rows[0]!.totalValue / 1e308).toBeCloseTo(1);
-      expect(report.rows[0]!.learningValue / 1e308).toBeCloseTo(1);
+      expect(report.rows[0]!.learningValue! / 1e308).toBeCloseTo(1);
       expect(report.rows[0]!.meanValue! / 1e308).toBeCloseTo(separateSamples ? 1 / 3 : 1);
     }
   } finally { f.db.close(); }
