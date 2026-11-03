@@ -71,3 +71,11 @@ it('records the host default instead of a rejected data arm and honors disabled 
   expect(f.events[0]!.event).toMatchObject({ kind: 'exposure', defaultReason: 'invalid_data', assignment: { armId: 'control', allocation: 'default' } });
   const disabled = await createEyeRequest({ ...f.options, experimentsEnabled: false }).data(definition); expect(disabled.armId).toBeNull(); expect(disabled.expose()).toBeNull();
 });
+it('preserves explicit undefined server variant values and parser results', async () => {
+  const f = await fixture(), request = createEyeRequest(f.options);
+  const code = await request.variant<string | undefined>({ experimentId: 'copy', variants: { b: undefined }, fallback: 'fallback' });
+  expect(code.armId).toBe('b'); expect(code.value).toBeUndefined();
+  const data = await request.data<typeof baseline | undefined>({ ...definition, parse: () => undefined });
+  expect(data.armId).toBe('b'); expect(data.value).toBeUndefined();
+  await waitOnExecutionContext(f.options.ctx);
+});

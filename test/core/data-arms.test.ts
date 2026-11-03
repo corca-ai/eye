@@ -68,3 +68,12 @@ it('bounds data preparation, freezes the occurrence and preserves cached payload
     const disposed = eye.beginView(); disposed.dispose(); expect(disposed.data(definition).value).toBe(baseline);
   } finally { eye.dispose(); }
 });
+it('preserves explicit undefined values from code variants and data parsers', () => {
+  vi.useFakeTimers({ now }); const eye = createEyeBrowser({ scope: 'anon', initial: snapshot() });
+  try {
+    const code = eye.beginView().variant<string | undefined>({ experimentId: 'copy', variants: { b: undefined }, fallback: 'fallback' });
+    expect(code.armId).toBe('b'); expect(code.value).toBeUndefined();
+    const data = eye.beginView().data<typeof baseline | undefined>({ ...definition, parse: () => undefined });
+    expect(data.armId).toBe('b'); expect(data.value).toBeUndefined();
+  } finally { eye.dispose(); }
+});
