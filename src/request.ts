@@ -87,10 +87,10 @@ export function createEyeRequest(options: EyeRequestOptions): EyeRequest {
     let owner = 0;
     let replacement: Promise<VariantSelection<T>> | undefined;
     let replaced = false;
-    const make = (decision?: import('./transport.js').AssignedDecision, reason?: import('./core/types.js').DefaultReason, value = fallback): VariantSelection<T> => {
+    const make = (decision?: import('./transport.js').AssignedDecision, reason?: import('./core/types.js').DefaultReason, resolved?: { value: T }): VariantSelection<T> => {
       const handleOwner = owner;
       let result: Submission | undefined;
-      return { value,
+      return { value: resolved === undefined ? fallback : resolved.value,
         armId: decision?.assignment.armId ?? null,
         useDefault(defaultReason) {
           if (applied) return Promise.reject(new EyeError('conflict', 'An applied occurrence cannot switch arms'));
@@ -128,7 +128,7 @@ export function createEyeRequest(options: EyeRequestOptions): EyeRequest {
       }
       if (decision.status === 'assigned') {
         const value = selectionValue(definition, decision.assignment.armId, decision.data);
-        if (value.supported) return make(decision, undefined, value.value);
+        if (value.supported) return make(decision, undefined, value);
         report(new EyeError('invalid_input', `Unsupported arm or invalid data for experiment ${definition.experimentId}: ${decision.assignment.armId}`));
         if (isDataDefinition(definition)) {
           const next = await eye.decideDefault({ subject, experimentId: definition.experimentId, defaultArm: definition.defaultArm });

@@ -321,10 +321,10 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
         const owner = Symbol(); owners.set(key, owner);
         let emitted = false;
         let replacement: BrowserSelection<T> | undefined;
-        function make(cached?: NonNullable<ReturnType<typeof ready.get>>, reason?: import('./core/types.js').DefaultReason, value = fallback): BrowserSelection<T> {
+        function make(cached?: NonNullable<ReturnType<typeof ready.get>>, reason?: import('./core/types.js').DefaultReason, resolved?: { value: T }): BrowserSelection<T> {
           const myOwner = owners.get(key);
           let accepted = false;
-          return { value, armId: cached?.choice.armId ?? null,
+          return { value: resolved === undefined ? fallback : resolved.value, armId: cached?.choice.armId ?? null,
             useDefault(defaultReason) {
               if (emitted) throw new Error('An applied occurrence cannot switch arms');
               if (replacement) return replacement;
@@ -382,7 +382,7 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
         }
         if (cached && (currentTime(cached) + cached.safetyMs >= (cached.choice.refreshAfter ?? cached.serverNow + DEFAULT_POLICY_FRESH_MS)
           || cached.choice.applyUntil - currentTime(cached) < 60_000)) { wanted.add(definition.experimentId); schedulePrepare(); }
-        const selected = make(live() ? cached : undefined, reason, live() && cached && !unsupported && value?.supported ? value.value : fallback);
+        const selected = make(live() ? cached : undefined, reason, live() && cached && !unsupported && value?.supported ? value : undefined);
         selections.set(key, selected); return selected;
       }
       async function variantAsync<T>(definition: SelectionDefinition<T>, wait: { maxWaitMs: number }, placement = 'default') {
