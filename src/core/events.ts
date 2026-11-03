@@ -1,4 +1,4 @@
-import { canonicalArm, checkExperimentData, parseArm } from './arm-data.js';
+import { canonicalArm, checkExperimentData, initialStatus, parseArm } from './arm-data.js';
 import { EyeError, invariant } from './errors.js';
 import { observationEndAt } from './sample-context.js';
 import { EVENT_MAX_AGE_MS, historicalSettings, attributes, id, number, record, RETENTION_MS, settings, subject, timestamp, sampleId } from './validation.js';
@@ -75,7 +75,8 @@ export function parseCreateExperiment(value: unknown): CreateExperiment & { sett
   const arms = Array.from(v.arms, (a: unknown) => canonicalArm(a));
   checkExperimentData(arms.map(parseArm));
   invariant(new Set(arms.map(a => parseArm(a).armId)).size === arms.length, 'invalid_input', 'Arm IDs must be unique');
-  return { experimentId: id(v.experimentId, 'experimentId'), arms, settings: settings(v.settings) };
+  const status = initialStatus(v);
+  return { experimentId: id(v.experimentId, 'experimentId'), arms, settings: settings(v.settings), ...(status === undefined ? {} : { initialStatus: status }) };
 }
 
 /** External admission only. Queue retries preserve their original server receipt. */

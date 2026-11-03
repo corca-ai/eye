@@ -79,3 +79,20 @@ it('preserves explicit undefined server variant values and parser results', asyn
   expect(data.armId).toBe('b'); expect(data.value).toBeUndefined();
   await waitOnExecutionContext(f.options.ctx);
 });
+it('creates paused experiments and arms without ever publishing an active preparation', async () => {
+  const ctx = createExecutionContext(), admin = createEye({ service: exports.default, ctx });
+  const input = { experimentId: 'draft', initialStatus: 'paused' as const, arms: ['control'], settings: { minHoldMs: 0 } };
+  expect((await admin.experiments.create(input)).status).toBe('paused');
+  expect((await exports.default.getPublishedPolicy('draft')).status).toBe('paused');
+  await admin.experiments.resume('draft');
+  // A retry of the original create must not undo an operator's later start.
+  expect((await admin.experiments.create(input)).status).toBe('active');
+  const arm = { armId: 'candidate', initialStatus: 'paused' as const, data: { en: 'Candidate' } };
+  expect((await admin.experiments.addArm('draft', arm)).arms.find(a => a.armId === 'candidate')?.status).toBe('paused');
+  expect((await exports.default.getPublishedPolicy('draft')).activeArms).toEqual(['control']);
+  await admin.experiments.resumeArm('draft', 'candidate');
+  expect((await admin.experiments.addArm('draft', arm)).arms.find(a => a.armId === 'candidate')?.status).toBe('active');
+  expect(() => admin.experiments.create({ ...input, experimentId: 'bad', initialStatus: 'deleted' as 'paused' })).toThrow('initial status');
+  expect(() => admin.experiments.addArm('draft', { ...arm, armId: 'bad', initialStatus: 'deleted' as 'paused' })).toThrow('initial status');
+  await waitOnExecutionContext(ctx);
+});

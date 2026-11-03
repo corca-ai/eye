@@ -7,7 +7,7 @@ export type JsonValue = null | boolean | number | string | JsonArray | JsonObjec
 /** Arm identity and optional immutable remote content; host defaults need only an ID. */
 export interface ArmDefinition { readonly armId: string; readonly data?: JsonValue }
 /** Existing ID-only arms remain supported. Data is immutable for an arm ID. */
-export type ArmInput = string | ArmDefinition;
+export type ArmInput = string | (ArmDefinition & { readonly initialStatus?: 'active' | 'paused' });
 /** 최상위 키 → 유한한 숫자·문자열·boolean·null. 중첩 객체와 배열은 지원하지 않는다. */
 export type Attributes = Readonly<Record<string, string | number | boolean | null>>;
 /** 수집·배정에는 cid가 항상 필요하고 uid가 있으면 우선한다. 빈 uid 대신 속성을 생략한다. */
@@ -47,6 +47,8 @@ export interface ExperimentSettings {
 }
 /** 최초 정의. arms는 중복 없는 비어 있지 않은 ID 목록이다. settings에서 minHoldMs만 필수다. */
 export interface CreateExperiment {
+  /** Initial selection state; defaults to active. Applied atomically with creation. */
+  readonly initialStatus?: 'active' | 'paused';
   readonly experimentId: string;
   readonly arms: readonly ArmInput[];
   readonly settings: Pick<ExperimentSettings, 'minHoldMs'> & Partial<Omit<ExperimentSettings, 'minHoldMs'>>;

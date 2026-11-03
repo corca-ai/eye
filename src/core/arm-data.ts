@@ -47,9 +47,16 @@ export function parseArm(input: unknown): ArmDefinition {
   const value = record(input, 'arm');
   return { armId: id(value.armId, 'armId'), ...(value.data === undefined ? {} : { data: armData(value.data) }) };
 }
+export function initialStatus(input: unknown): 'active' | 'paused' | undefined {
+  if (input === null || typeof input !== 'object') return undefined;
+  const value = record(input, 'definition').initialStatus;
+  invariant(value === undefined || value === 'active' || value === 'paused', 'invalid_input', 'Invalid initial status');
+  return value;
+}
 export function canonicalArm(input: unknown): ArmInput {
   const arm = parseArm(input);
-  return arm.data === undefined ? arm.armId : arm;
+  const status = initialStatus(input);
+  return status === undefined ? (arm.data === undefined ? arm.armId : arm) : { ...arm, initialStatus: status };
 }
 export function checkExperimentData(arms: readonly ArmDefinition[]): void {
   const bytes = arms.reduce((sum, arm) => sum + (arm.data === undefined ? 0 : new TextEncoder().encode(JSON.stringify(arm.data)).length), 0);
