@@ -93,7 +93,6 @@ export class SummaryBatch {
     if (this.state.config.goalIds.includes(event.goalId)) this.add('goals', event.goalId, event.occurredAt, '[]', event.value);
   }
   observation(assignment: Assignment, startAt: number, reward: number): void {
-    if (assignment.allocation === 'default') return;
     if (this.state.config.experimentIds.includes(assignment.experimentId)) this.add('learning', assignment.experimentId, startAt,
       JSON.stringify([assignment.armId, assignment.generation, assignment.settings.observationWindowMs]), reward);
   }

@@ -183,3 +183,31 @@ it('rejects sparse configuration arrays without resetting existing summary cover
     }
   });
 });
+
+
+it('learns and summarizes default rewards and zero outcomes together with policy samples exactly once', async () => {
+  await runInDurableObject(env.SITES.getByName(crypto.randomUUID()), (_actor, ctx) => {
+    const engine = new IncrementalLearning(ctx.storage.sql), summaries = engine.summaries;
+    const atomic = <T>(fn: () => T) => ctx.storage.transactionSync(fn);
+    atomic(() => summaries.configure({ goalIds: [], experimentIds: ['e'] }, start));
+    const asDefault = (event: ExposureEvent): ExposureEvent => ({ ...event, assignment: {
+      ...event.assignment, allocation: 'default', probability: null, policyRevision: null, authorityRevision: 1,
+    } });
+    const paid = asDefault(exposure('default-paid', start + 10));
+    const events = [paid, asDefault(exposure('default-zero', start + 10)), exposure('policy-zero', start + 10),
+      { ...goal('goal', start + 10, 12), subject: paid.subject }];
+    atomic(() => engine.accept(events, start + 11));
+    atomic(() => engine.accept(events, start + 12));
+    atomic(() => engine.close('s', start + 62_000, cohort => {
+      expect(cohort.arms).toHaveLength(1);
+      expect(cohort.arms[0]!.samples).toBe(3);
+      expect(cohort.arms[0]!.moments.mean * cohort.arms[0]!.moments.scale).toBe(4);
+    }));
+    const query = { kind: 'learning' as const, experimentId: 'e', from: start, to: start + H };
+    expect(summaries.query(query, start + H).rows).toEqual([
+      { kind: 'learning', experimentId: 'e', armId: 'a', generation: 1, observationWindowMs: 1000, count: 3, total: 12, mean: 4 },
+    ]);
+    atomic(() => engine.close('s', start + 63_000, () => { throw Error('already closed'); }));
+    expect(summaries.query(query, start + H).rows[0]!.count).toBe(3);
+  });
+});

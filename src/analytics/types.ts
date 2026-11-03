@@ -64,8 +64,8 @@ export interface ArmRow {
   subjects: number;
   /** 현재 조회 가능한 원본으로 재계산한 귀속 보상. */
   totalValue: number;
-  /** 확정 당시 학습에 반영한 전체 goal 보상. goalId 필터와 무관하다. */
-  learningValue: number | null;
+  /** 마감 때 확정한 전체 goal 보상. goalId 필터와 무관하다. */
+  learningValue: number;
   /** totalValue / completed. 완료 표본이 없으면 null; 미달성 완료 표본도 분모에 포함한다. */
   meanValue: number | null; latestReceivedAt: number;
 }
@@ -152,4 +152,4 @@ export interface LearningRow {
   completed: number; learningValue: number; meanValue: number; latestReceivedAt: number;
 }
 /** 감쇠된 정책 점수와 다르다. 확정된 표본 보상의 합계·평균이며 늦은 골로 재계산하지 않는다. */
-export interface LearningReport extends AnalyticsPage<LearningRow> { allocationMode: 'policy'; rewardBasis: 'closed_learning'; cohortBasis: 'observation_start' }
+export interface LearningReport extends AnalyticsPage<LearningRow> { allocationMode: 'all'; rewardBasis: 'closed_learning'; cohortBasis: 'observation_start' }

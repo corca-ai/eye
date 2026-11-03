@@ -129,7 +129,7 @@ MAX(ABS(learning_reward)) OVER (PARTITION BY ${dimensions.join(', ')}) AS learni
 SELECT ${dimensions.join(', ')}, SUM(CASE WHEN status = 'complete' THEN 1 ELSE 0 END) AS completed,
 SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
 COUNT(DISTINCT subject_key) AS subjects, COALESCE(SUM(reward / NULLIF(reward_scale, 0)) * MAX(reward_scale), 0) AS total_value,
-CASE WHEN allocation_mode = 'default' THEN NULL ELSE COALESCE(SUM(CASE WHEN status = 'complete' THEN learning_reward / NULLIF(learning_scale, 0) ELSE 0 END) * MAX(learning_scale), 0) END AS learning_value,
+COALESCE(SUM(CASE WHEN status = 'complete' THEN learning_reward / NULLIF(learning_scale, 0) ELSE 0 END) * MAX(learning_scale), 0) AS learning_value,
 CASE WHEN SUM(CASE WHEN status = 'complete' THEN 1 ELSE 0 END) = 0 THEN NULL
 ELSE COALESCE(AVG(CASE WHEN status = 'complete' THEN reward / NULLIF(reward_scale, 0) ELSE NULL END) * MAX(reward_scale), 0) END AS mean_value,
 MAX(received_at) AS latest_received_at
@@ -144,7 +144,7 @@ FROM cohort_scaled GROUP BY ${dimensions.join(', ')} ORDER BY ${dimensions.join(
     return { sql: `WITH ${latest}, closed AS (
 SELECT experiment_id, arm_id, json_get_int(payload_json, 'generation') AS generation,
 json_get_int(payload_json, 'endAt') - occurred_at AS window_ms, value, received_at
-FROM closed_latest WHERE status = 'complete' AND ${allocationSQL()} = 'policy'), scaled AS (
+FROM closed_latest WHERE status = 'complete'), scaled AS (
 SELECT *, MAX(ABS(value)) OVER (PARTITION BY ${dimensions}) AS scale FROM closed)
 SELECT ${dimensions}, COUNT(*) AS completed,
 COALESCE(SUM(value / NULLIF(scale, 0)) * MAX(scale), 0) AS learning_value,

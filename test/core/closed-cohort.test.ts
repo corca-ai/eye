@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { reduceClosedCohort } from '../../src/core/closed-cohort.js';
+import { closedSampleMoments, reduceClosedCohort } from '../../src/core/closed-cohort.js';
 import type { CohortInput, SampleExposure } from '../../src/core/closed-cohort.js';
 import { meanOf, stddevOf } from '../../src/core/moments.js';
 import type { Assignment, GoalEvent, Subject } from '../../src/core/types.js';
@@ -150,4 +150,21 @@ describe('immutable closed-cohort reduction', () => {
     expect(() => reduceClosedCohort(input([shown, exposure('another', 'e', 'b', 20, { sampleId: 'shown' })]))).toThrow(/Conflicting/);
     expect(() => reduceClosedCohort(input([shown], [goal('g', 20, 1), goal('g', 20, 1)]))).toThrow(/Deduplicate/);
   });
+});
+
+
+it('uses default rewards and zero outcomes exactly like policy samples for arm moments', () => {
+  const policy = exposure('policy', 'exp', 'a', 0).event.assignment;
+  const performanceDefault: Assignment = { ...policy, allocation: 'default', probability: null, policyRevision: null, authorityRevision: 1 };
+  const samples = [
+    { sampleId: 'default-zero', assignment: performanceDefault, startAt: 0, endAt: 100, reward: 0 },
+    { sampleId: 'policy-paid', assignment: policy, startAt: 0, endAt: 100, reward: 10 },
+    { sampleId: 'default-paid', assignment: performanceDefault, startAt: 0, endAt: 100, reward: 20 },
+  ];
+  const mixed = closedSampleMoments(samples, 100);
+  expect(mixed).toEqual(closedSampleMoments(samples.map(s => ({ ...s, assignment: policy })), 100));
+  expect(mixed[0]!.samples).toBe(3);
+  expect(mixed[0]!.moments.weight).toBe(3);
+  expect(meanOf(mixed[0]!.moments)).toBe(10);
+  expect(stddevOf(mixed[0]!.moments)).toBeCloseTo(Math.sqrt(200 / 3));
 });
