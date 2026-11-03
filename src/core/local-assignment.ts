@@ -62,7 +62,7 @@ export function selectLocal(input: LocalSelectionInput): LocalSelection {
     && previous.subject.cid === subject.cid && previous.subject.uid === subject.uid;
   if (sameContext) {
     // Do not validate an old held context against an even older policy snapshot.
-    if (previous.assignment.policyRevision > policy.revision) return { status: 'unavailable', refreshPolicy: true };
+    if (previous.assignment.allocation === 'default' || previous.assignment.policyRevision > policy.revision) return { status: 'unavailable', refreshPolicy: true };
     const endAt = previous.sample === undefined ? 0
       : observationEndAt(previous.sample.startAt, previous.assignment.settings.observationWindowMs);
     const heldUntil = Math.max(previous.assignment.assignedAt + previous.assignment.settings.minHoldMs, endAt);
@@ -117,4 +117,28 @@ function selectionUnit(key: string): number {
   hash ^= hash >>> 13; hash = Math.imul(hash, 0xc2b2ae35);
   hash ^= hash >>> 16;
   return (hash >>> 0) / 4_294_967_296;
+}
+
+/** Zero policy I/O: a declared default still requires a valid published authority.
+ * Authorization renewal preserves the independently timed observation. */
+export function selectDefault(input: LocalSelectionInput & { defaultArm: string }): LocalSelection {
+  const { policy, previous, now, subject, experimentId, siteId } = input;
+  if (!policy || policy.siteId !== siteId || policy.experimentId !== experimentId
+    || policy.publishedAt > now || now >= policy.usableUntil) return { status: 'unavailable', refreshPolicy: true };
+  const refreshPolicy = now >= policy.freshUntil;
+  if (!policy.active || !policy.arms.some(a => a.armId === input.defaultArm)) return { status: 'no_active_arm', refreshPolicy };
+  const semantic = (s: ExperimentSettings) => JSON.stringify([s.minHoldMs, s.observationWindowMs,
+    s.attributionHalfLifeMs, s.learningHalfLifeMs, s.attributionWindowMs]);
+  if (previous?.assignment.allocation === 'default' && previous.siteId === siteId
+    && previous.subject.cid === subject.cid && previous.subject.uid === subject.uid
+    && previous.assignment.experimentId === experimentId && previous.assignment.armId === input.defaultArm
+    && previous.assignment.generation === policy.generation && semantic(previous.assignment.settings) === semantic(policy.settings)
+    && (!previous.sample || now < observationEndAt(previous.sample.startAt, previous.assignment.settings.observationWindowMs))) {
+    return { status: 'assigned', refreshPolicy, reason: 'held', context: previous, applyUntil: policy.usableUntil };
+  }
+  return { status: 'assigned', refreshPolicy, reason: 'selected', applyUntil: policy.usableUntil,
+    context: { siteId, subject: { ...subject }, drawIndex: 0, attributionWindowMs: policy.attributionWindowMs,
+      assignment: { assignmentId: input.newId(), experimentId, armId: input.defaultArm, generation: policy.generation,
+        assignedAt: now, allocation: 'default', probability: null, policyRevision: null,
+        authorityRevision: policy.revision, settings: policy.settings } } };
 }

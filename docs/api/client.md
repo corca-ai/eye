@@ -25,6 +25,8 @@ createEye(options: EyeOptions): EyeClient
 - [eye.identify](#eyeidentify)
 - [eye.logout](#eyelogout)
 - [eye.decide](#eyedecide)
+- [eye.decideDefault](#eyedecidedefault)
+- [eye.defaultState](#eyedefaultstate)
 - [eye.flush](#eyeflush)
 - [eye.analytics.summaries.hours](#eyeanalyticssummarieshours)
 - [eye.analytics.summaries.series](#eyeanalyticssummariesseries)
@@ -70,14 +72,17 @@ createEye(options: EyeOptions): EyeClient
 - [eye.goals.resume](#eyegoalsresume)
 - [eye.goals.delete](#eyegoalsdelete)
 - [request.state](#requeststate)
+- [request.defaultState](#requestdefaultstate)
 - [request.variant](#requestvariant)
 - [request.track](#requesttrack)
 - [request.goal](#requestgoal)
+- [browser.prepare](#browserprepare)
 - [browser.setScope](#browsersetscope)
 - [browser.beginView](#browserbeginview)
 - [browser.flush](#browserflush)
 - [browser.dispose](#browserdispose)
 - [browserServer.prepare](#browserserverprepare)
+- [browserServer.snapshot](#browserserversnapshot)
 - [browserServer.receive](#browserserverreceive)
 
 ## eye.prepare
@@ -123,10 +128,10 @@ eye.goal(input: EventInput<GoalEvent>): Submission
 arm을 실제 적용한 뒤 assigned decision을 그대로 전달한다. userAttributes는 첫 노출 때 관측 속성으로 고정하고, attributes는 개별 노출 사건 속성으로 보관한다.
 
 ```ts
-eye.expose(input: { subject: Subject; decision: AssignedDecision; eventId?: string; occurredAt?: number; userAttributes?: Attributes; attributes?: Attributes; }): Submission
+eye.expose(input: { subject: Subject; decision: AssignedDecision; eventId?: string; occurredAt?: number; userAttributes?: Attributes; attributes?: Attributes; defaultReason?: import("./core/types.js").DefaultReason; }): Submission
 ```
 
-타입: [AssignedDecision](types.md#assigneddecision) · [Attributes](types.md#attributes) · [Subject](types.md#subject) · [Submission](types.md#submission)
+타입: [AssignedDecision](types.md#assigneddecision) · [Attributes](types.md#attributes) · [DefaultReason](types.md#defaultreason) · [Subject](types.md#subject) · [Submission](types.md#submission)
 
 ## eye.identify
 
@@ -153,10 +158,28 @@ eye.logout(input: EventInput<IdentityEvent>): Submission
 유효한 로컬 정책으로 선택·재사용한다. 서명 검증은 기다리지만 원격 조회는 기다리지 않는다. assigned가 아니면 기본 화면을 사용하고 expose하지 않는다.
 
 ```ts
-eye.decide(input: { subject: Subject; experimentId: string; }): Promise<Decision>
+eye.decide(input: { subject: Subject; experimentId: string; context?: import("./core/local-assignment.js").LocalAssignmentContext; }): Promise<Decision>
 ```
 
 타입: [Decision](types.md#decision) · [Subject](types.md#subject)
+
+## eye.decideDefault
+
+Select a declared default using valid local authority; never waits for a policy RPC.
+
+```ts
+eye.decideDefault(input: { subject: Subject; experimentId: string; defaultArm: string; context?: import("./core/local-assignment.js").LocalAssignmentContext; }): Promise<Decision>
+```
+
+타입: [Decision](types.md#decision) · [Subject](types.md#subject)
+
+## eye.defaultState
+
+Signed default observation state, persisted independently of policy holds.
+
+```ts
+eye.defaultState(): Promise<Record<string, string>>
+```
 
 ## eye.flush
 
@@ -602,12 +625,20 @@ eye.goals.delete(goalId: string): Promise<GoalDefinition>
 request.state(): Promise<Record<string, string>>
 ```
 
+## request.defaultState
+
+Persist separately from policy tokens.
+
+```ts
+request.defaultState(): Promise<Record<string, string>>
+```
+
 ## request.variant
 
 로컬 검증 후 지원하는 arm 값을 반환한다. 원격 조회는 기다리지 않으며 오류·미준비·미지원 arm은 fallback이다. 호출마다 새 노출 핸들을 만든다.
 
 ```ts
-request.variant<T>(definition: VariantDefinition<T>): Promise<VariantSelection<T>>
+request.variant<T>(definition: VariantDefinition<T>, options?: { maxWaitMs: number; }): Promise<VariantSelection<T>>
 ```
 
 타입: [VariantDefinition](types.md#variantdefinition) · [VariantSelection](types.md#variantselection)
@@ -631,6 +662,14 @@ request.goal(input: Omit<EventInput<GoalEvent>, "subject">): Submission
 ```
 
 타입: [EventInput](types.md#eventinput) · [GoalEvent](types.md#goalevent) · [Submission](types.md#submission)
+
+## browser.prepare
+
+Explicit preparation shares transport work, preserves state and never applies a variant.
+
+```ts
+browser.prepare(experimentIds: readonly string[]): Promise<Record<string, "assigned" | "inactive" | "unavailable">>
+```
 
 ## browser.setScope
 
@@ -668,11 +707,20 @@ browser.dispose(): void
 
 ## browserServer.prepare
 
-최대 20실험을 준비한다. 필요하면 정책 조회를 기다리며 실패·비활성 실험은 choices에서 제외한다.
-previous는 실험별 BrowserState이며 검증 후 재사용한다. 실험별 실패는 onError로 보고한다. 잘못된 배치 입력은 reject한다.
+Prepare policies explicitly; existing states and independent default observations survive renewal.
 
 ```ts
-browserServer.prepare(experimentIds: readonly string[], previous?: unknown): Promise<BrowserSnapshot>
+browserServer.prepare(experimentIds: readonly string[], previous?: unknown, previousDefaults?: unknown): Promise<BrowserSnapshot>
+```
+
+타입: [BrowserSnapshot](types.md#browsersnapshot)
+
+## browserServer.snapshot
+
+Navigation bootstrap from trusted local authority and local crypto only; no awaited policy lookup.
+
+```ts
+browserServer.snapshot(experimentIds: readonly string[], previous?: unknown, previousDefaults?: unknown): Promise<BrowserSnapshot>
 ```
 
 타입: [BrowserSnapshot](types.md#browsersnapshot)
@@ -729,7 +777,7 @@ checkedAt: (key: string) => number | undefined
 /** SDK 갱신용. 키별 조회 시작을 10초 간격으로 제한하며 허용되면 true. */
 begin: (key: string, now: number) => boolean
 /** SDK 갱신용. 더 오래된 sequence는 무시한다. 채택한 정책은 확인 시각을 기록한다. */
-put: (key: string, policy: PublishedPolicy) => void
+put: (key: string, policy: PublishedPolicy, checkedAt?: number) => void
 ```
 
 타입: [PublishedPolicy](types.md#publishedpolicy)
@@ -753,7 +801,7 @@ createEyeRequest(options: EyeRequestOptions): EyeRequest
 요청별 브라우저 준비·노출 어댑터. 호스트가 인증·동일 Origin POST·허용 실험·본문 크기를 확인한 뒤 호출한다.
 
 ```ts
-createEyeBrowserServer(options: BrowserServerOptions): { prepare(experimentIds: readonly string[], previous?: unknown): Promise<BrowserSnapshot>; receive(input: unknown): Promise<BrowserEventResult[]>; }
+createEyeBrowserServer(options: BrowserServerOptions): { prepare: (experimentIds: readonly string[], previous?: unknown, previousDefaults?: unknown) => Promise<BrowserSnapshot>; snapshot: (experimentIds: readonly string[], previous?: unknown, previousDefaults?: unknown) => Promise<BrowserSnapshot>; receive(input: unknown): Promise<BrowserEventResult[]>; }
 ```
 
 타입: [BrowserEventResult](types.md#browsereventresult) · [BrowserServerOptions](types.md#browserserveroptions) · [BrowserSnapshot](types.md#browsersnapshot)

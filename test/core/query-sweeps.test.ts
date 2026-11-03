@@ -78,7 +78,7 @@ it.each([1, 7, 29, 103, 1234, 7159, 65537, 3735928559])('matches all identity/co
     for (const hasEvent of [undefined, { name: 'view' }, { name: 'click', filter: { field: { key: 'x', type: 'number' as const }, op: 'gte' as const, value: 1 } }]) {
       const input: ArmQuery = { from: SWEEP_START, to: SWEEP_NOW, experimentId: 'exp-0', groupBy: [{ key: 'group', type: 'string' }], ...(hasEvent ? { hasEvent } : {}) };
       for (const bucket of [undefined, 60_000]) {
-        const expected = db.run(baseline.arms(input, bucket).sql), actual = db.run(next.arms(input, bucket).sql);
+        const expected = db.run(baseline.arms(input, bucket).sql).map((row): Record<string, unknown> => ({ ...(bucket === undefined ? {} : { bucket_start: row.bucket_start }), allocation_mode: 'policy', ...row })), actual = db.run(next.arms(input, bucket).sql);
         expect(expected.length).toBeGreaterThan(0);
         expect(actual).toHaveLength(expected.length);
         actual.forEach((row, i) => {

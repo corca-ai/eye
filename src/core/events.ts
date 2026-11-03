@@ -7,13 +7,23 @@ import type { CollectionLimits } from '../collection-limits.js';
 export function parseAssignment(value: unknown): Assignment {
   const v = record(value, 'assignment');
   const generation = timestamp(v.generation, 'generation');
-  const probability = number(v.probability, 'probability');
-  invariant(generation >= 1 && probability > 0 && probability <= 1, 'invalid_input', 'Invalid assignment generation or probability');
+  invariant(generation >= 1, 'invalid_input', 'Invalid assignment generation');
+  invariant(v.allocation === undefined || v.allocation === 'policy' || v.allocation === 'default', 'invalid_input', 'Invalid allocation');
+  const allocation = v.allocation === 'default'
+    ? (() => {
+      invariant(v.probability === null && v.policyRevision === null, 'invalid_input', 'Default is not a policy draw');
+      return { allocation: 'default' as const, probability: null, policyRevision: null, authorityRevision: timestamp(v.authorityRevision, 'authorityRevision') };
+    })()
+    : (() => {
+      const probability = number(v.probability, 'probability');
+      invariant(probability > 0 && probability <= 1, 'invalid_input', 'Invalid policy probability');
+      return { ...(v.allocation === 'policy' ? { allocation: 'policy' as const } : {}), policyRevision: timestamp(v.policyRevision, 'policyRevision'), probability };
+    })();
   const parsedSettings = historicalSettings(v.settings);
   return {
     assignmentId: id(v.assignmentId, 'assignmentId'), experimentId: id(v.experimentId, 'experimentId'),
     armId: id(v.armId, 'armId'), generation, assignedAt: timestamp(v.assignedAt, 'assignedAt'),
-    policyRevision: timestamp(v.policyRevision, 'policyRevision'), probability, settings: parsedSettings,
+    ...allocation, settings: parsedSettings,
   };
 }
 export function parseEvent(value: unknown, limits?: CollectionLimits): EyeEvent {
@@ -27,6 +37,7 @@ export function parseEvent(value: unknown, limits?: CollectionLimits): EyeEvent 
     case 'goal': return { ...base, kind: 'goal', goalId: id(v.goalId, 'goalId'), value: number(v.value, 'value') };
     case 'exposure': {
       const assignment = parseAssignment(v.assignment);
+      invariant(v.defaultReason === undefined || (assignment.allocation === 'default' && ['unprepared', 'deadline', 'resource_unready'].includes(v.defaultReason as string)), 'invalid_input', 'Invalid default reason');
       invariant(base.occurredAt >= assignment.assignedAt, 'invalid_input', 'Exposure predates assignment');
       const sample = v.sample === undefined ? undefined : record(v.sample, 'sample');
       const sampleValue = sample === undefined ? undefined : { sampleId: sampleId(sample.sampleId), startAt: timestamp(sample.startAt, 'sample.startAt') };
@@ -36,7 +47,7 @@ export function parseEvent(value: unknown, limits?: CollectionLimits): EyeEvent 
       if (horizon !== undefined) invariant(horizon > 0 && horizon <= RETENTION_MS, 'invalid_input', 'Invalid attribution horizon');
       return {
       ...(sampleValue === undefined ? {} : { sample: sampleValue }), ...(horizon === undefined ? {} : { attributionWindowMs: horizon }),
-      ...base, kind: 'exposure', assignment,
+      ...base, kind: 'exposure', assignment, ...(v.defaultReason === undefined ? {} : { defaultReason: v.defaultReason as import('./types.js').DefaultReason }),
       ...(v.userAttributes === undefined ? {} : { userAttributes: attributes(v.userAttributes, limits) }),
     };
     }

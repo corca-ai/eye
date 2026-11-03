@@ -1,6 +1,6 @@
 export type {
   Attributes, Subject, GoalStatus, ArmStatus, ExperimentStatus, ObservationStatus,
-  ExperimentSettings, CreateExperiment, Experiment, Assignment, Decision,
+  ExperimentSettings, CreateExperiment, Experiment, Assignment, DefaultReason, Decision,
   TrackEvent, GoalEvent, ExposureEvent, IdentityEvent, EyeEvent,
 } from './core/types.js';
 export { EyeError } from './core/errors.js';

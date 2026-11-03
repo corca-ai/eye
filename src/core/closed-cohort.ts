@@ -154,6 +154,7 @@ export function reduceClosedCohort(input: CohortInput): ClosedCohort {
 export function closedSampleMoments(samples: readonly ClosedSample[], asOf: number): ClosedArmMoments[] {
   const arms = new Map<string, ClosedArmMoments>();
   for (const sample of samples) {
+    if (sample.assignment.allocation === 'default') continue;
     const { experimentId, generation, armId, settings } = sample.assignment;
     const key = JSON.stringify([experimentId, generation, armId]);
     const previous = arms.get(key) ?? { experimentId, generation, armId, moments: emptyMoments(asOf), samples: 0 };

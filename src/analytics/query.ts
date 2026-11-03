@@ -28,6 +28,12 @@ function numeric(row: Row, key: string): number {
   invariant(typeof value === 'number' && Number.isFinite(value), 'numeric_range', `Analytics column ${key} is not a finite number`);
   return value;
 }
+function allocationMode(row: Row): 'policy' | 'default' {
+  // Legacy remote readers/mocks without the added dimension describe policy only.
+  const mode = row.allocation_mode ?? 'policy';
+  invariant(mode === 'policy' || mode === 'default', 'unavailable', 'Invalid allocation mode');
+  return mode;
+}
 function scalar(value: unknown): Scalar {
   invariant(value === null || typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value)), 'unavailable', 'Invalid analytics scalar');
   return value;
@@ -133,13 +139,13 @@ export class BasinAnalytics implements AnalyticsAPI {
       ...(bucketMs === undefined ? {} : { bucketStart: numeric(row, 'bucket_start') }),
       armId: text(row, 'arm_id'), generation: numeric(row, 'generation'), observationWindowMs: numeric(row, 'window_ms'),
       groups: (query.groupBy ?? []).map((_, i) => scalar(row[`group_${i}`])), completed: numeric(row, 'completed'), pending: numeric(row, 'pending'),
-      subjects: numeric(row, 'subjects'), totalValue: numeric(row, 'total_value'), learningValue: numeric(row, 'learning_value'),
+      allocationMode: allocationMode(row), subjects: numeric(row, 'subjects'), totalValue: numeric(row, 'total_value'), learningValue: row.learning_value === null ? null : numeric(row, 'learning_value'),
       meanValue: row.mean_value === null ? null : numeric(row, 'mean_value'), latestReceivedAt: numeric(row, 'latest_received_at'),
     })) };
   }
   async learning(query: import('./types.js').LearningQuery): Promise<import('./types.js').LearningReport> {
     const result = await this.execute(this.sql().learning(query));
-    return { rewardBasis: 'closed_learning', cohortBasis: 'observation_start', meta: result.meta, rows: result.rows.map(row => ({
+    return { allocationMode: 'policy', rewardBasis: 'closed_learning', cohortBasis: 'observation_start', meta: result.meta, rows: result.rows.map(row => ({
       experimentId: text(row, 'experiment_id'), armId: text(row, 'arm_id'), generation: numeric(row, 'generation'),
       observationWindowMs: numeric(row, 'window_ms'), completed: numeric(row, 'completed'), learningValue: numeric(row, 'learning_value'),
       meanValue: numeric(row, 'mean_value'), latestReceivedAt: numeric(row, 'latest_received_at'),
@@ -155,7 +161,7 @@ export class BasinAnalytics implements AnalyticsAPI {
     const result = await this.execute(this.sql().traffic(query));
     return { meta: result.meta, rows: result.rows.map(row => ({ bucketStart: numeric(row, 'bucket_start'), armId: text(row, 'arm_id'),
       generation: numeric(row, 'generation'), assignments: numeric(row, 'assignments'), exposures: numeric(row, 'exposures'),
-      assignmentShare: row.assignment_share === null ? null : numeric(row, 'assignment_share'), exposureShare: row.exposure_share === null ? null : numeric(row, 'exposure_share') })) };
+      allocationMode: allocationMode(row), assignmentShare: row.assignment_share === null ? null : numeric(row, 'assignment_share'), exposureShare: row.exposure_share === null ? null : numeric(row, 'exposure_share') })) };
   }
   async policies(query: import('./types.js').PolicyQuery) {
     const result = await this.execute(this.sql().policies(query));

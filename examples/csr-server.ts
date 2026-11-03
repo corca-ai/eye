@@ -34,7 +34,7 @@ export async function handleEyeHttp(request: Request, env: Env, ctx: ExecutionCo
         || !input.experimentIds.every((id: unknown): id is string => typeof id === 'string' && allowed.has(id))) {
         return Response.json({ error: 'Invalid experiment list' }, { status: 400, headers });
       }
-      return Response.json(await server.prepare(input.experimentIds, 'states' in input ? input.states : {}), { headers });
+      return Response.json(await server.prepare(input.experimentIds, 'states' in input ? input.states : {}, 'defaultStates' in input ? input.defaultStates : {}), { headers });
     }
     return Response.json(await server.receive(input), { headers });
   } catch {

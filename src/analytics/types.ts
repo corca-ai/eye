@@ -13,7 +13,7 @@ export type Filter =
 export interface QueryRange { from: number; to: number; limit?: number }
 /** filter/groupBy는 최초 노출 userAttributes, 기간은 관측 시작 시각 기준. groupBy 최대 3개. goalId는 분자만 제한한다. */
 export interface ArmQuery extends QueryRange {
-  experimentId: string; armId?: string; generation?: number; goalId?: string; groupBy?: readonly AttributeField[]; filter?: Filter;
+  experimentId: string; allocationMode?: 'policy' | 'default'; armId?: string; generation?: number; goalId?: string; groupBy?: readonly AttributeField[]; filter?: Filter;
   /** Restrict to observations containing a matching track event, without duplicating the denominator. */
   hasEvent?: { name: string; filter?: Filter };
 }
@@ -55,6 +55,7 @@ export interface AnalyticsMeta {
 }
 /** arm·세대·관측 기간·사용자군별 성과. 평균 차이가 인과적 uplift를 뜻하지는 않는다. */
 export interface ArmRow {
+  allocationMode: 'policy' | 'default';
   armId: string; generation: number; observationWindowMs: number;
   /** 요청 groupBy와 같은 순서의 값. */
   groups: Scalar[];
@@ -64,7 +65,7 @@ export interface ArmRow {
   /** 현재 조회 가능한 원본으로 재계산한 귀속 보상. */
   totalValue: number;
   /** 확정 당시 학습에 반영한 전체 goal 보상. goalId 필터와 무관하다. */
-  learningValue: number;
+  learningValue: number | null;
   /** totalValue / completed. 완료 표본이 없으면 null; 미달성 완료 표본도 분모에 포함한다. */
   meanValue: number | null; latestReceivedAt: number;
 }
@@ -102,9 +103,9 @@ export interface ArmSeriesQuery extends ArmQuery { bucketMs: number }
 /** 관측 시작 bucket별 arm 성과. 분모·필터 의미는 ArmRow와 같다. */
 export interface ArmSeriesRow extends ArmRow { bucketStart: number }
 /** 실제 노출된 배정·노출의 시계열. bucketMs는 양의 정수 ms다. */
-export interface TrafficQuery extends QueryRange { experimentId: string; bucketMs: number }
+export interface TrafficQuery extends QueryRange { experimentId: string; bucketMs: number; allocationMode?: 'policy' | 'default' }
 /** bucket·arm·세대별 배정/노출 수와 비율. 미노출 선택·fallback은 포함하지 않는다. */
-export interface TrafficRow { bucketStart: number; armId: string; generation: number; assignments: number; exposures: number; assignmentShare: number | null; exposureShare: number | null }
+export interface TrafficRow { allocationMode: 'policy' | 'default'; bucketStart: number; armId: string; generation: number; assignments: number; exposures: number; assignmentShare: number | null; exposureShare: number | null }
 /** 기간 내 발행 정책 이력. 현재 정책은 experiments.policy로 조회한다. */
 export interface PolicyQuery extends QueryRange { experimentId: string; armId?: string }
 /** 발행 당시 신규 선택 확률·원래 단위의 평균·scoreScale 단위의 점수. 실제 노출 비율과 다르다. */
@@ -151,4 +152,4 @@ export interface LearningRow {
   completed: number; learningValue: number; meanValue: number; latestReceivedAt: number;
 }
 /** 감쇠된 정책 점수와 다르다. 확정된 표본 보상의 합계·평균이며 늦은 골로 재계산하지 않는다. */
-export interface LearningReport extends AnalyticsPage<LearningRow> { rewardBasis: 'closed_learning'; cohortBasis: 'observation_start' }
+export interface LearningReport extends AnalyticsPage<LearningRow> { allocationMode: 'policy'; rewardBasis: 'closed_learning'; cohortBasis: 'observation_start' }

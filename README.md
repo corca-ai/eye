@@ -39,3 +39,6 @@ API 설명은 TypeScript 소스의 JSDoc에 작성하고 `npm run docs:api`로 �
 ## 라이선스
 
 [MIT](LICENSE) © 2026 Corca, Inc.
+
+페이지·부분 요소·클라이언트 함수·API를 지연 없이 선택하고 default arm도 실제 참여로 기록하려면
+[빠른 실험 적용](docs/LOW-LATENCY.md)을 따른다. 기존 fallback 호출은 계속 미참여다.
