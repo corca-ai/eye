@@ -64,7 +64,7 @@ if (state.status === 'complete') {
 
 ## 기본 보고서 자동 생성
 
-`learning({ from, to, experimentId?, limit? })`은 저장된 complete 관측만 집계한다. 원본 골·신원·노출을 다시 읽지 않는다. 실험·arm·학습 세대·관측 기간별 `completed`, `learningValue`, `meanValue`, `latestReceivedAt`을 반환한다. 보상 없는 완료 표본도 분모에 포함한다. `rewardBasis: 'closed_learning'`, `cohortBasis: 'observation_start'`이며, 학습 반감기로 계속 변하는 정책 점수·정책 평균과는 다르다. 원본 귀속·속성별 탐색에는 기존 `arms()`를 쓴다.
+`learning({ from, to, experimentId?, limit? })`은 policy/default 배정 모두의 저장된 complete 관측을 arm별로 함께 집계하며 `allocationMode: 'all'`을 반환한다. 원본 골·신원·노출을 다시 읽지 않는다. 실험·arm·학습 세대·관측 기간별 `completed`, `learningValue`, `meanValue`, `latestReceivedAt`을 반환한다. 보상 없는 완료 표본도 분모에 포함한다. `rewardBasis: 'closed_learning'`, `cohortBasis: 'observation_start'`이며, 학습 반감기로 계속 변하는 정책 점수·정책 평균과는 다르다. 원본 귀속·속성별 탐색에는 기존 `arms()`를 쓴다.
 
 자주 쓰는 골 합계나 학습 요약은 서버에서 한 번 등록한다. 화면 조회마다 등록할 필요는 없다.
 
@@ -111,7 +111,7 @@ if (status.state === 'collecting' && status.coverageFrom !== null && from >= sta
 
 UTC 전체 시간 경계의 `[from,to)`만 허용하며 최대 59일, 끝은 현재 시간의 시작 이하이다. goal은 발생 시각, learning은 관측 시작 시각으로 선택한다. `coverageFrom`은 설정한 이후 첫 전체 시간과 최근 60일 보존 경계 중 늦은 쪽이다. 과거 데이터는 소급 집계하지 않는다. 전 구간 coverage가 없거나 ID가 미설정이면 `unavailable`이며 0 합계로 대신하지 않는다. 호출자는 필요하면 기존 원본 API를 선택한다. 집계가 있는 범위의 사건 없는 결과는 빈 rows다.
 
-`meta.basis='durable_local'`은 내부에서 수락한 goal/완료한 관측 기준이다. 원본 Stream이 아직 가시화되지 않아도 보일 수 있다. `queriedAt`은 읽은 시각이며 원래 수신 시각이나 수집 완료 watermark가 아니다. 늦은 goal 또는 후속 마감으로 과거 시간의 값이 바뀔 수 있다. learning은 0 보상 표본도 count에 넣고 arm·세대·관측 기간별로 나누며, 평균은 표본 합계/count다. 버킷 평균을 단순 평균하지 않는다. 최종 합계/평균을 표현할 수 없으면 `numeric_range`이며 학습 수집은 계속된다.
+`meta.basis='durable_local'`은 내부에서 수락한 goal/완료한 관측 기준이다. 원본 Stream이 아직 가시화되지 않아도 보일 수 있다. `queriedAt`은 읽은 시각이며 원래 수신 시각이나 수집 완료 watermark가 아니다. 늦은 goal 또는 후속 마감으로 과거 시간의 값이 바뀔 수 있다. learning은 policy/default 모두와 0 보상 표본을 count에 넣고 arm·세대·관측 기간별로 나누며, 평균은 표본 합계/count다. 버킷 평균을 단순 평균하지 않는다. 최종 합계/평균을 표현할 수 없으면 `numeric_range`이며 학습 수집은 계속된다.
 
 설정 ID는 goal·실험 합계 최대 32개, 저장은 사이트당 최대 50,000 버킷 행이다. 설정 목록 변경은 전체 요약을 초기화하므로 필요한 ID를 한 번에 등록한다. 한도에 도달하면 지연된 만료 정리를 최대 1,000행 먼저 수행한다. 그래도 새 버킷을 만들 수 없으면 `capacity_exceeded`로 요약 수집·조회를 중단하며 원본 수집·학습은 계속한다. 빈 목록으로 비활성화한 뒤 다시 설정하면 새 coverage로 시작한다. 원본 필터·사용자·속성별 요약이나 과거 backfill은 제공하지 않는다. 추가 SQLite 쓰기 비용이 있으므로 자주 쓰는 요약부터 선택한다.
 

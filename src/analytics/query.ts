@@ -139,13 +139,13 @@ export class BasinAnalytics implements AnalyticsAPI {
       ...(bucketMs === undefined ? {} : { bucketStart: numeric(row, 'bucket_start') }),
       armId: text(row, 'arm_id'), generation: numeric(row, 'generation'), observationWindowMs: numeric(row, 'window_ms'),
       groups: (query.groupBy ?? []).map((_, i) => scalar(row[`group_${i}`])), completed: numeric(row, 'completed'), pending: numeric(row, 'pending'),
-      allocationMode: allocationMode(row), subjects: numeric(row, 'subjects'), totalValue: numeric(row, 'total_value'), learningValue: row.learning_value === null ? null : numeric(row, 'learning_value'),
+      allocationMode: allocationMode(row), subjects: numeric(row, 'subjects'), totalValue: numeric(row, 'total_value'), learningValue: numeric(row, 'learning_value'),
       meanValue: row.mean_value === null ? null : numeric(row, 'mean_value'), latestReceivedAt: numeric(row, 'latest_received_at'),
     })) };
   }
   async learning(query: import('./types.js').LearningQuery): Promise<import('./types.js').LearningReport> {
     const result = await this.execute(this.sql().learning(query));
-    return { allocationMode: 'policy', rewardBasis: 'closed_learning', cohortBasis: 'observation_start', meta: result.meta, rows: result.rows.map(row => ({
+    return { allocationMode: 'all', rewardBasis: 'closed_learning', cohortBasis: 'observation_start', meta: result.meta, rows: result.rows.map(row => ({
       experimentId: text(row, 'experiment_id'), armId: text(row, 'arm_id'), generation: numeric(row, 'generation'),
       observationWindowMs: numeric(row, 'window_ms'), completed: numeric(row, 'completed'), learningValue: numeric(row, 'learning_value'),
       meanValue: numeric(row, 'mean_value'), latestReceivedAt: numeric(row, 'latest_received_at'),

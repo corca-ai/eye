@@ -101,7 +101,7 @@ it('bounded preparation freezes default at deadline and returns a later policy o
   } finally { client.dispose(); }
 });
 
-it('default goal attribution supersedes B without feeding default moments or inflating competing rewards', async () => {
+it('default goal attribution supersedes B and feeds its arm without inflating competing rewards', async () => {
   const setting = policy().settings;
   const make = (key: string, armId: string, time: number, defaults = false, experimentId = 'exp'): ExposureEvent => ({
     kind: 'exposure', eventId: key, occurredAt: time, subject: { cid: 'c' }, sample: { sampleId: key, startAt: time }, attributionWindowMs: 10000,
@@ -118,15 +118,17 @@ it('default goal attribution supersedes B without feeding default moments or inf
     learning.engine.close('site', at + 62000, cohort => { moments = [...moments, ...cohort.arms]; });
     for (const row of learning.engine.outputs()) records.push(...row.output.records);
     expect(moments.map(m => [m.experimentId, m.armId])).toEqual(expect.arrayContaining([['exp', 'b'], ['other', 'a']]));
-    expect(moments.some(m => m.experimentId === 'exp' && m.armId === 'a')).toBe(false);
+    expect(moments.find(m => m.experimentId === 'exp' && m.armId === 'a')!.samples).toBe(1);
     const db = database(records);
     try {
       const api = new BasinAnalytics({ EYE_ANALYTICS_WAREHOUSE: `${'a'.repeat(32)}_eye-data`, EYE_ANALYTICS_TOKEN: 'test' }, 'site', db.request, () => at + 62000);
       const report = await api.arms({ from: at, to: at + 62000, experimentId: 'exp' });
       expect(report.rows.find(r => r.allocationMode === 'policy')!.totalValue).toBe(0);
       const defaultRow = report.rows.find(r => r.allocationMode === 'default')!;
-      expect(defaultRow.completed).toBe(1); expect(defaultRow.totalValue).toBeCloseTo(50, 3); expect(defaultRow.learningValue).toBeNull();
-      expect((await api.learning({ from: at, to: at + 62000 })).rows.some(r => r.experimentId === 'exp' && r.armId === 'a')).toBe(false);
+      expect(defaultRow.completed).toBe(1); expect(defaultRow.totalValue).toBeCloseTo(50, 3); expect(defaultRow.learningValue).toBeCloseTo(50, 3);
+      const frozen = await api.learning({ from: at, to: at + 62000 });
+      expect(frozen.allocationMode).toBe('all');
+      expect(frozen.rows.find(r => r.experimentId === 'exp' && r.armId === 'a')).toMatchObject({ completed: 1, learningValue: defaultRow.learningValue });
       expect((await api.traffic({ from: at, to: at + 62000, experimentId: 'exp', bucketMs: 60000 })).rows.map(r => r.allocationMode)).toEqual(expect.arrayContaining(['policy', 'default']));
     } finally { db.close(); }
   } finally { learning.close(); }

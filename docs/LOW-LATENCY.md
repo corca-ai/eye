@@ -95,15 +95,21 @@ initialPolicies는 서버 설정이며 브라우저 JSON을 그대로 사용하�
 실제 우회 이유는 각 exposure의 defaultReason에 기록한다.
 
 `arms`, `armSeries`, `traffic`은 allocationMode를 별도 차원으로 반환하며 동일 이름의 필터를
-지원한다. default에도 노출·관측·raw 골 귀속이 있지만 learningValue는 null이다.
-`learning()`과 선택적 learning summary는 policy-only다. default도 최신 노출과 동시 실험의
-귀속 분모에 남긴 뒤, 완료 표본을 정책 moments로 더하는 마지막 경계에서만 제외한다.
-따라서 default 뒤의 골이 과거 정책 arm으로 잘못 되돌아가거나 다른 실험의 보상이 부풀지
-않도록 한다. 이 설명은 사건이 처리된 순서의 범위이며 아래 수신 순서 한계가 있다.
+지원한다. policy/default 모두 실제 노출 이후 관측을 시작하고, 완료 표본의 보상을 같은 arm의
+점수·분산·표본 가중치 계산에 포함한다. 성과가 없는 완료 표본도 0점으로 포함한다.
+`learningValue`는 default에도 숫자를 반환한다. `learning()`은 `allocationMode: 'all'`이며
+선택적 learning summary도 policy/default를 arm별로 함께 집계한다. 배정 확률로 보상을
+재가중하지 않는다. allocationMode와 defaultReason은 진단을 위해 보존한다.
 
-정책 표본도 실제로 적용된 집단의 결과다. 느린 B를 적용하지 못하고 A-default를 사용하면
-B에 직접 실패 벌점이 생기는 것은 아니다. 이 분리만으로 unbiased uplift나 리소스 준비까지
-포함한 종단 최적화를 주장하지 않는다. default율·우회 이유·전달 품질을 함께 관찰한다.
+default도 최신 노출과 동시 실험의 귀속 분모에 남기므로 default 뒤의 골이 과거 정책 arm으로
+잘못 되돌아가거나 다른 실험의 보상이 부풀지 않도록 한다. 이 설명은 사건이 처리된 순서의
+범위이며 아래 수신 순서 한계가 있다.
+
+학습 결과는 실제로 해당 arm이 적용된 집단의 성과다. 성능 우회로 특정 arm에 배정되는
+사용자군 편향은 감수하며 별도의 사용자 조건 보정은 하지 않는다. 느린 B를 적용하지 못하고
+A-default를 사용하면 그 결과는 A를 학습하며 B에 직접 실패 벌점이 생기는 것은 아니다.
+인과적 uplift나 리소스 준비까지 포함한 종단 최적화를 주장하지 않는다.
+default율·우회 이유·전달 품질을 함께 관찰한다.
 
 현재 학습은 배치 안에서만 (occurredAt,eventId)로 정렬한다. goal이 먼저 도착하면 나중
 exposure로 이미 처리한 보상을 되돌리지 않는다. 브라우저 노출과 API 골의 순서 역전·유실은
@@ -117,3 +123,9 @@ exposure로 이미 처리한 보상을 되돌리지 않는다. 브라우저 노�
 새·구형 사건을 읽는 runtime을 먼저 배포하고 호스트 SDK를 갱신한다. 기존 receipt·Queue
 사건은 계속 읽는다. 기존 테이블·Stream 스키마는 유지하지만 JSON reader와 타입은 함께
 갱신해야 한다. 실험을 사용하지 않는 호스트의 기존 track/goal 호출은 그대로다.
+
+학습 포함 변경은 업그레이드 이후 마감하는 관측부터 적용한다. 이미 마감된 관측의 정책
+moments와 선택적 summary를 되돌려 채우지 않는다. 기존 complete 관측에는 default의
+최종 보상이 저장돼 있으므로 `learning()`은 과거 default도 포함해 반환하지만, 그 값이
+과거 정책 moments나 summary에 반영됐다는 뜻은 아니다. 설치 전에 수집한 default가 있다면
+배포 경계를 나눠 해석한다.
