@@ -412,7 +412,9 @@ export interface ArmEvaluation {
 
 ```ts
 /** Existing ID-only arms remain supported. Data is immutable for an arm ID. */
-export type ArmInput = string | ArmDefinition;
+export type ArmInput = string | (ArmDefinition & {
+    readonly initialStatus?: 'active' | 'paused';
+});
 ```
 
 타입: [ArmDefinition](types.md#armdefinition) · [ArmInput](types.md#arminput)
@@ -552,7 +554,7 @@ export type AssignedDecision = Extract<Decision, {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L77)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L79)
 
 ```ts
 /** 정책 선택과 성능상 기본 arm 적용을 구분한다. 과거 allocation 생략은 policy다. */
@@ -574,7 +576,7 @@ export type Assignment = AssignmentBase & ({
 
 보조 타입: 공개 API의 입력·반환형에 포함되지만 패키지에서 직접 export하지 않는다.
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L68)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L70)
 
 ```ts
 /** 서버가 발급한 배정. settings는 배정 당시 고정되며 probability는 신규 선택 당시 확률이다. 직접 만들거나 수정하지 않는다. */
@@ -1005,6 +1007,8 @@ export interface CollectionLimits {
 ```ts
 /** 최초 정의. arms는 중복 없는 비어 있지 않은 ID 목록이다. settings에서 minHoldMs만 필수다. */
 export interface CreateExperiment {
+    /** Initial selection state; defaults to active. Applied atomically with creation. */
+    readonly initialStatus?: 'active' | 'paused';
     readonly experimentId: string;
     readonly arms: readonly ArmInput[];
     readonly settings: Pick<ExperimentSettings, 'minHoldMs'> & Partial<Omit<ExperimentSettings, 'minHoldMs'>>;
@@ -1036,7 +1040,7 @@ export interface DataDefinition<T> {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L86)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L88)
 
 ```ts
 /** assigned만 실제 적용 후 expose한다. unavailable은 정책 미준비/만료 등, no_active_arm은 비활성 상태다.
@@ -1113,7 +1117,7 @@ export interface DecisionOptions {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L82)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L84)
 
 ```ts
 /** 성능상 기본 arm을 적용한 이유. 노출별로 기록하며 관측의 정의를 바꾸지 않는다. */
@@ -1139,7 +1143,7 @@ export type ErrorCode = 'invalid_input' | 'not_found' | 'conflict' | 'deleted' |
 
 보조 타입: 공개 API의 입력·반환형에 포함되지만 패키지에서 직접 export하지 않는다.
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L90)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L92)
 
 ```ts
 interface EventBase {
@@ -1158,7 +1162,7 @@ interface EventBase {
 
 보조 타입: 공개 API의 입력·반환형에 포함되지만 패키지에서 직접 export하지 않는다.
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L111)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L113)
 
 ```ts
 export interface EventEnvelope {
@@ -1300,7 +1304,7 @@ export interface EventsQuery extends QueryRange {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L55)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L57)
 
 ```ts
 /** 현재 실험 정의. 배정 전략 변경은 학습을 유지하며 관측·귀속·학습 반감기·유지 기간 변경은 새 generation으로 학습한다. */
@@ -1374,7 +1378,7 @@ export type ExperimentStatus = ArmStatus;
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L103)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L105)
 
 ```ts
 /** 실제 적용한 배정의 노출 원본. SDK expose가 표본 문맥을 구성하므로 직접 생성하지 않는다. */
@@ -1441,7 +1445,7 @@ export interface EyeBrowser {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L110)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L112)
 
 ```ts
 /** 수집 가능한 사건 원본의 구분 유니온. 일반 호출에는 EventInput을 사용하는 SDK 메서드를 쓴다. */
@@ -1637,7 +1641,7 @@ export interface GoalDefinition {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L101)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L103)
 
 ```ts
 /** 등록된 goal의 실제 발생과 가치. 사이트 내 모든 goal의 단위를 통일하며 유한한 음수·0도 허용한다. */
@@ -1758,7 +1762,7 @@ export interface HourlyGoalStatus {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L108)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L110)
 
 ```ts
 /** identify는 인증된 cid+uid, logout은 cid만 전달한다. 호스트의 로그인·세션 상태를 변경하지 않는다. */
@@ -2367,7 +2371,7 @@ export interface TimelineRow {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L99)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L101)
 
 ```ts
 /** 서비스 정의 행동 로그. 분석에 사용하며 직접 학습 보상을 만들지는 않는다. */
