@@ -83,7 +83,8 @@ export function createEyeBrowserServer(options: BrowserServerOptions) {
     async function choice(decision: AssignedDecision): Promise<import('./browser-types.js').BrowserChoice | undefined> {
       const issuedAt = Date.now(), applyUntil = decision.applyUntil!;
       if (applyUntil <= issuedAt) return undefined;
-      const receipt = await seal({ binding, scope, subject, decision, issuedAt, applyUntil, userAttributes }, decision.localContext!.siteId);
+      const { data, ...receiptDecision } = decision;
+      const receipt = await seal({ binding, scope, subject, decision: receiptDecision, issuedAt, applyUntil, userAttributes }, decision.localContext!.siteId);
       invariant(receipt.length <= 24_000, 'invalid_input', 'Exposure receipt exceeds 24 KB');
       const a = decision.assignment;
       const contextKey = a.allocation === 'default' ? encode(new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(JSON.stringify([
@@ -92,6 +93,7 @@ export function createEyeBrowserServer(options: BrowserServerOptions) {
         a.settings.learningHalfLifeMs, a.settings.attributionWindowMs,
       ]))))) : undefined;
       return { ...(contextKey === undefined ? {} : { contextKey }), experimentId: decision.assignment.experimentId, armId: decision.assignment.armId, applyUntil, receipt,
+        ...(data === undefined ? {} : { data }),
         refreshAfter: Math.min(applyUntil, issuedAt + policyFreshMs(options.decisions)),
         allocation: decision.assignment.allocation ?? 'policy', assignmentId: decision.assignment.assignmentId,
         observationWindowMs: decision.assignment.settings.observationWindowMs,

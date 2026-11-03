@@ -1,3 +1,4 @@
+import { parseArm, checkExperimentData } from './core/arm-data.js';
 import { policyFreshMs, DEFAULT_POLICY_MAX_AGE_MS } from './policy-timing.js';
 import { invariant } from './core/errors.js';
 import { selectLocal, selectDefault, exposeLocal } from './core/local-assignment.js';
@@ -113,6 +114,12 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
     invariant(Number.isSafeInteger(policy.publishedAt) && policy.publishedAt >= 0 && Number.isSafeInteger(policy.sequence)
       && policy.sequence >= 0 && policy.activeArms.length === policy.arms.length
       && policy.activeArms.every(arm => policy.arms.some(a => a.armId === arm)), 'invalid_input', 'Invalid initial policy');
+    if (policy.armData !== undefined) {
+      const arms = Object.entries(record(policy.armData, 'policy arm data')).map(([armId, data]) => parseArm({ armId, data }));
+      invariant(arms.every(a => policy.activeArms.includes(a.armId)), 'invalid_input', 'Data must belong to an active arm');
+      checkExperimentData(arms);
+      policy.armData = Object.fromEntries(arms.map(a => [a.armId, a.data!]));
+    }
     if (!cache.read(key(policy.experimentId)) || cache.read(key(policy.experimentId))!.sequence < policy.sequence)
       cache.put(key(policy.experimentId), policy, policy.publishedAt);
   }
@@ -195,6 +202,7 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
     if (selection.refreshPolicy) refresh(experimentId);
     const decision: Decision = selection.status === 'assigned' ? {
       status: 'assigned', assignment: selection.context.assignment, reason: selection.reason,
+      ...(policy?.armData && Object.hasOwn(policy.armData, selection.context.assignment.armId) ? { data: structuredClone(policy.armData[selection.context.assignment.armId]!) } : {}),
       localContext: selection.context, applyUntil: selection.applyUntil,
     } : { status: selection.status, experimentId };
     if (selection.status === 'assigned' && selection.context !== previous) persist(experimentId, selection.context);

@@ -1,3 +1,4 @@
+import { canonicalArm, checkExperimentData, parseArm } from './arm-data.js';
 import { EyeError, invariant } from './errors.js';
 import { observationEndAt } from './sample-context.js';
 import { EVENT_MAX_AGE_MS, historicalSettings, attributes, id, number, record, RETENTION_MS, settings, subject, timestamp, sampleId } from './validation.js';
@@ -37,7 +38,7 @@ export function parseEvent(value: unknown, limits?: CollectionLimits): EyeEvent 
     case 'goal': return { ...base, kind: 'goal', goalId: id(v.goalId, 'goalId'), value: number(v.value, 'value') };
     case 'exposure': {
       const assignment = parseAssignment(v.assignment);
-      invariant(v.defaultReason === undefined || (assignment.allocation === 'default' && ['unprepared', 'deadline', 'resource_unready'].includes(v.defaultReason as string)), 'invalid_input', 'Invalid default reason');
+      invariant(v.defaultReason === undefined || (assignment.allocation === 'default' && ['unprepared', 'deadline', 'resource_unready', 'invalid_data'].includes(v.defaultReason as string)), 'invalid_input', 'Invalid default reason');
       invariant(base.occurredAt >= assignment.assignedAt, 'invalid_input', 'Exposure predates assignment');
       const sample = v.sample === undefined ? undefined : record(v.sample, 'sample');
       const sampleValue = sample === undefined ? undefined : { sampleId: sampleId(sample.sampleId), startAt: timestamp(sample.startAt, 'sample.startAt') };
@@ -71,8 +72,9 @@ export function parseEnvelope(value: unknown, now: number, limits?: CollectionLi
 export function parseCreateExperiment(value: unknown): CreateExperiment & { settings: ReturnType<typeof settings> } {
   const v = record(value, 'experiment');
   invariant(Array.isArray(v.arms) && v.arms.length > 0, 'invalid_input', 'At least one arm is required');
-  const arms = Array.from(v.arms, (a: unknown) => id(a, 'armId'));
-  invariant(new Set(arms).size === arms.length, 'invalid_input', 'Arm IDs must be unique');
+  const arms = Array.from(v.arms, (a: unknown) => canonicalArm(a));
+  checkExperimentData(arms.map(parseArm));
+  invariant(new Set(arms.map(a => parseArm(a).armId)).size === arms.length, 'invalid_input', 'Arm IDs must be unique');
   return { experimentId: id(v.experimentId, 'experimentId'), arms, settings: settings(v.settings) };
 }
 

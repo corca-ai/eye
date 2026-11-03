@@ -1,5 +1,5 @@
 export type {
-  Attributes, Subject, GoalStatus, ArmStatus, ExperimentStatus, ObservationStatus,
+  JsonValue, JsonArray, JsonObject, ArmDefinition, ArmInput, Attributes, Subject, GoalStatus, ArmStatus, ExperimentStatus, ObservationStatus,
   ExperimentSettings, CreateExperiment, Experiment, Assignment, DefaultReason, Decision,
   TrackEvent, GoalEvent, ExposureEvent, IdentityEvent, EyeEvent,
 } from './core/types.js';
@@ -38,3 +38,5 @@ export type { BasicReport, ReportScheduleRef, ReportScheduleInput, ReportSchedul
 export type { SummaryConfig, SummaryStatus, SummaryTarget, SummaryQuery, SummaryRow, SummaryReport, SummariesAPI } from './analytics/summaries.js';
 
 export type { HourlyGoalQuery, HourlyGoalReport, HourlyGoalStatus } from './analytics/hourly-goals.js';
+
+export type { DataDefinition } from './browser-types.js';

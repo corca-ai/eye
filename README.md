@@ -20,7 +20,9 @@
 
 브라우저 클라이언트는 `@eye/workers/browser`, 서버 SDK는 `@eye/workers`에서 가져온다. `@eye/workers/worker`는 설치 템플릿의 Worker 배포 진입점이다.
 
-선택과 실제 노출은 별개다. 준비가 안 됐으면 fallback을 사용하고 노출을 기록하지 않는다. 선택한 화면을 실제 제공한 뒤 `expose()`를 호출한다. 서버 수집은 `waitUntil()`에서 전송하며 로컬 `accepted`가 저장·학습 완료를 뜻하지 않는다. [신원·세션 연결](docs/INTEGRATION.md#3-ciduid와-서버-세션-연결)을 먼저 확인한다.
+선택과 실제 노출은 별개다. 준비가 안 됐으면 유효한 default 배정이나 미참여 fallback을 사용한다. 기본 구현·데이터는 서비스가 소유한다. 선택한 화면을 실제 제공한 뒤 `expose()`를 호출한다. 서버 수집은 `waitUntil()`에서 전송하며 로컬 `accepted`가 저장·학습 완료를 뜻하지 않는다. [신원·세션 연결](docs/INTEGRATION.md#3-ciduid와-서버-세션-연결)을 먼저 확인한다.
+
+문구 등은 [데이터 arm](docs/DATA-ARMS.md)으로 코드 재배포 없이 추가·정지할 수 있다.
 
 ## 개발과 문서 갱신
 

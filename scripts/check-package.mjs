@@ -46,7 +46,12 @@ import { createEyeBrowser } from '@eye/workers/browser';
 const client = createEyeBrowser({ scope: 'auth-epoch' });
 const view = client.beginView();
 const selection = view.variant({ experimentId: 'checkout', variants: { standard: 'normal' }, fallback: 'normal' });
-selection.expose(); client.dispose();
+selection.expose();
+const definition = { experimentId: 'copy', defaultArm: 'control', defaultValue: 'baseline',
+  parse(data: unknown) { if (typeof data !== 'string') throw new Error('copy'); return data; } };
+const text: string = view.data(definition).value;
+const deferred: Promise<string> = view.dataAsync(definition, { maxWaitMs: 0 }, 'later').then(selected => selected.value);
+void text; void deferred; client.dispose();
 `);
   await writeFile(join(temporary, 'tsconfig.browser.json'), JSON.stringify({ compilerOptions: {
     target: 'ES2023', module: 'ESNext', moduleResolution: 'Bundler', lib: ['ES2023', 'DOM'],

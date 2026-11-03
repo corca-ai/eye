@@ -1,6 +1,9 @@
+import type { JsonValue } from './core/types.js';
 /** 서버가 준비한 arm과 불투명한 노출 증표. 브라우저는 receipt를 해석·수정하지 않는다. */
 export interface BrowserChoice {
   experimentId: string; armId: string; receipt: string;
+  /** Selected content only; never included in exposure receipts or events. */
+  data?: JsonValue;
   /** 새 view에서 이 시각 이후 백그라운드 재준비한다. 기존 view를 교체하지 않는다. */
   refreshAfter?: number;
   /** 이 시각 전까지만 새 노출에 적용할 수 있다(서버 Unix ms). */
@@ -33,3 +36,12 @@ export type VariantDefinition<T> = VariantDefinitionBase<T> & (
   | { defaultArm: string; fallback?: T }
   | { defaultArm?: undefined; fallback: T }
 );
+
+/** Host owns the default and validates remote content. A new arm ID needs no local variants map. */
+export interface DataDefinition<T> {
+  experimentId: string;
+  defaultArm: string;
+  defaultValue: T;
+  /** Validate/convert one copied JSON value. Throw on invalid application fields. */
+  parse(data: JsonValue): T;
+}

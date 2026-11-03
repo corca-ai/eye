@@ -129,3 +129,6 @@ moments와 선택적 summary를 되돌려 채우지 않는다. 기존 complete �
 최종 보상이 저장돼 있으므로 `learning()`은 과거 default도 포함해 반환하지만, 그 값이
 과거 정책 moments나 summary에 반영됐다는 뜻은 아니다. 설치 전에 수집한 default가 있다면
 배포 경계를 나눠 해석한다.
+
+데이터 실험은 [데이터 arm](DATA-ARMS.md)을 사용한다. default 데이터는 서비스의
+기본값이며 Eye에서 별도로 관리하거나 가져오지 않는다.

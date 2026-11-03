@@ -42,3 +42,5 @@ API 설명은 `src/`의 JSDoc, 함수 시그니처와 타입을 원본으로 한
 저장소 검사 명령은 [README](../README.md#개발과-문서-갱신)에 있다. `src/`는 SDK·런타임, `test/`는 순수 로직·workerd 검사, `templates/`는 계정 설치 구성, `scripts/`는 도구다. 루트 Wrangler Stream ID는 로컬 검사용 placeholder이며 실제 설정은 `eye init`으로 만든다. 자격 증명은 환경 변수·secrets로 공급하고 실제 계정 설치 디렉터리는 소스 저장소 밖에 둔다.
 
 - [SDK 반복 작업 최적화 평가](PERFORMANCE-SDK.md): 서명·준비 RPC·수집 묶음의 전후 측정.
+
+- [데이터 arm](DATA-ARMS.md): 서비스 기본값, 불변 JSON, 배포 없는 문구 실험.

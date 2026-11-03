@@ -72,3 +72,15 @@ Wrangler의 exports에 SiteControl과 ReportObject를 SQLite 클래스로 선언
 Cloudflare 참고: [DO SQLite](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/), [R2 Workers API](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/), [Basin SQL](https://developers.cloudflare.com/basin-sql/), [Pipelines](https://developers.cloudflare.com/pipelines/). 로컬 SQLite 실행은 실제 Basin 실행 계획·비용·처리량 검증을 대신하지 않는다.
 
 외부 사건은 발생 후 15초 이내 최초 수집만 허용한다. 수집 서버가 receivedAt을 부여하며 Queue 재시도는 이를 유지한다. 실험 G는 설정 없이 1분 고정이다. 자동 goal 시간별 집계는 서버 접수 시각 축으로 SQLite에 증분 저장하고 시간 종료 10분 후 쓰기를 차단한다. 그 이후 처리된 사건은 해당 집계에서 누락시키며 원본 SQL 재집계·backfill은 하지 않는다. 기존 선택적 summary와 별도로 자동 수집하고 summaries.hours/series로 확정 범위를 한 번에 읽는다.
+
+## 데이터 arm 경로
+
+Experiment의 arm 정의에 선택적인 JSON data를 저장한다. ID-only 정의와 관리 호출은
+계속 지원하며 데이터가 있는 동일 ID의 변경은 거절한다. PublishedPolicy.armData를
+기존 정책 캐시에 함께 싣고, Decision.data와 BrowserChoice.data에는 선택된 데이터만
+전달한다. 기본값은 호스트의 DataDefinition.defaultValue에서만 읽는다.
+
+서버 data와 브라우저 data/dataAsync는 코드 variant와 동일한 선택·노출 핸들을
+재사용한다. 서비스 parse가 실패하면 유효한 default 권한으로 전환하거나 미참여
+기본값을 반환한다. JSON은 서명 배정 문맥·노출 receipt·이벤트·정책 이력에 넣지 않는다.
+크기·형식·호환성 경계는 [데이터 arm](docs/DATA-ARMS.md)이 소유한다.
