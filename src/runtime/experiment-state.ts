@@ -1,4 +1,4 @@
-import { parseArm, checkExperimentData } from '../core/arm-data.js';
+import { parseArm, checkExperimentData, initialStatus } from '../core/arm-data.js';
 import { POLICY_REEVALUATION_MS } from '../policy-timing.js';
 import { analyticsRecord } from '../analytics/records.js';
 import { invariant } from '../core/errors.js';
@@ -47,8 +47,8 @@ export class ExperimentState {
       return current;
     }
     const config: Experiment = {
-      experimentId: parsed.experimentId, status: 'active', generation: 1, revision: 1, createdAt: Date.now(),
-      settings: parsed.settings, arms: parsed.arms.map(arm => ({ ...parseArm(arm), status: 'active' })),
+      experimentId: parsed.experimentId, status: parsed.initialStatus ?? 'active', generation: 1, revision: 1, createdAt: Date.now(),
+      settings: parsed.settings, arms: parsed.arms.map(arm => ({ ...parseArm(arm), status: initialStatus(arm) ?? 'active' })),
     };
     this.kv.put('definition', parsed); this.kv.put('config', config); this.kv.put('generation:1', config.settings);
     return config;
@@ -84,7 +84,7 @@ export class ExperimentState {
       invariant(arm.data === undefined || JSON.stringify(existing.data) === JSON.stringify(arm.data), 'conflict', 'Arm data is immutable; use a new arm ID');
       return config;
     }
-    const next = { ...config, revision: config.revision + 1, arms: [...config.arms, { ...arm, status: 'active' as const }] };
+    const next = { ...config, revision: config.revision + 1, arms: [...config.arms, { ...arm, status: initialStatus(input) ?? 'active' }] };
     checkExperimentData(next.arms);
     this.kv.put('config', next);
     return next;
