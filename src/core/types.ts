@@ -1,3 +1,13 @@
+/** Immutable JSON content; rendering and validation of application fields belong to the host. */
+export interface JsonArray extends ReadonlyArray<JsonValue> {}
+/** Plain JSON object; field meaning is validated by the service. */
+export interface JsonObject { readonly [key: string]: JsonValue }
+/** Immutable JSON content bounded at management and selection boundaries. */
+export type JsonValue = null | boolean | number | string | JsonArray | JsonObject;
+/** Arm identity and optional immutable remote content; host defaults need only an ID. */
+export interface ArmDefinition { readonly armId: string; readonly data?: JsonValue }
+/** Existing ID-only arms remain supported. Data is immutable for an arm ID. */
+export type ArmInput = string | ArmDefinition;
 /** 최상위 키 → 유한한 숫자·문자열·boolean·null. 중첩 객체와 배열은 지원하지 않는다. */
 export type Attributes = Readonly<Record<string, string | number | boolean | null>>;
 /** 수집·배정에는 cid가 항상 필요하고 uid가 있으면 우선한다. 빈 uid 대신 속성을 생략한다. */
@@ -38,7 +48,7 @@ export interface ExperimentSettings {
 /** 최초 정의. arms는 중복 없는 비어 있지 않은 ID 목록이다. settings에서 minHoldMs만 필수다. */
 export interface CreateExperiment {
   readonly experimentId: string;
-  readonly arms: readonly string[];
+  readonly arms: readonly ArmInput[];
   readonly settings: Pick<ExperimentSettings, 'minHoldMs'> & Partial<Omit<ExperimentSettings, 'minHoldMs'>>;
 }
 /** 현재 실험 정의. 배정 전략 변경은 학습을 유지하며 관측·귀속·학습 반감기·유지 기간 변경은 새 generation으로 학습한다. */
@@ -52,7 +62,7 @@ export interface Experiment {
   readonly revision: number;
   readonly createdAt: number;
   readonly settings: ExperimentSettings;
-  readonly arms: readonly { readonly armId: string; readonly status: ArmStatus }[];
+  readonly arms: readonly (ArmDefinition & { readonly status: ArmStatus })[];
 }
 /** 서버가 발급한 배정. settings는 배정 당시 고정되며 probability는 신규 선택 당시 확률이다. 직접 만들거나 수정하지 않는다. */
 export interface AssignmentBase {
@@ -69,12 +79,12 @@ export type Assignment = AssignmentBase & (
   | { readonly allocation: 'default'; readonly policyRevision: null; readonly probability: null; readonly authorityRevision: number }
 );
 /** 성능상 기본 arm을 적용한 이유. 노출별로 기록하며 관측의 정의를 바꾸지 않는다. */
-export type DefaultReason = 'unprepared' | 'deadline' | 'resource_unready';
+export type DefaultReason = 'unprepared' | 'deadline' | 'resource_unready' | 'invalid_data';
 
 /** assigned만 실제 적용 후 expose한다. unavailable은 정책 미준비/만료 등, no_active_arm은 비활성 상태다.
  * localContext·applyUntil은 SDK 노출 검증용이므로 결정 객체를 직접 만들거나 변경하지 않는다. */
 export type Decision =
-  | { readonly status: 'assigned'; readonly assignment: Assignment; readonly reason: 'selected' | 'held'; readonly localContext?: import('./local-assignment.js').LocalAssignmentContext; readonly applyUntil?: number }
+  | { readonly status: 'assigned'; readonly data?: JsonValue; readonly assignment: Assignment; readonly reason: 'selected' | 'held'; readonly localContext?: import('./local-assignment.js').LocalAssignmentContext; readonly applyUntil?: number }
   | { readonly status: 'no_active_arm' | 'unavailable'; readonly experimentId: string };
 
 interface EventBase {

@@ -1,3 +1,4 @@
+import type { ArmInput } from '../core/types.js';
 import { EventSeriesCache } from '../analytics/event-series-cache.js';
 import { AnalyticsSQL } from '../analytics/sql.js';
 import { BasinAnalytics, type AnalyticsEnv } from '../analytics/query.js';
@@ -66,7 +67,7 @@ export class SiteControl extends StoredObject {
     this.checkSite(siteId);
     return this.atomic(() => { const result = this.state(experimentId).updateSettings(patch); this.noteSettings(result.settings); return result; });
   }
-  addExperimentArm(siteId: string, experimentId: string, armId: string) {
+  addExperimentArm(siteId: string, experimentId: string, armId: ArmInput) {
     this.checkSite(siteId); return this.atomic(() => this.state(experimentId).addArm(armId));
   }
   setExperimentArmStatus(siteId: string, experimentId: string, armId: string, status: ArmStatus) {

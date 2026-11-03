@@ -1,3 +1,4 @@
+import type { ArmInput } from './core/types.js';
 import type { SummariesAPI } from './analytics/summaries.js';
 import type { AnalyticsJobsAPI } from './analytics/jobs.js';
 import type { ArmStatus, Assignment, CreateExperiment, Decision, EventEnvelope, Experiment, ExperimentSettings, GoalStatus, Subject } from './core/types.js';
@@ -14,6 +15,8 @@ export interface PublishedPolicy extends PolicySnapshot {
   /** Automatically generated runtime identity; prevents cross-installation decision reuse. */
   installationId: string;
   settings: ExperimentSettings;
+  /** Immutable content for data arms; defaults remain host-owned. */
+  armData?: Readonly<Record<string, import('./core/types.js').JsonValue>>;
   publishedAt: number; sequence: number;
   /** 실험 전체의 상태와 신규 선택 가능한 arm ID 목록. */
   status: ArmStatus; activeArms: string[];
@@ -44,7 +47,7 @@ export interface EyeService {
   getExperiment(experimentId: string): Promise<Experiment>;
   listExperiments(after?: string, limit?: number): Promise<string[]>;
   updateExperiment(experimentId: string, settings: Partial<ExperimentSettings>): Promise<Experiment>;
-  addArm(experimentId: string, armId: string): Promise<Experiment>;
+  addArm(experimentId: string, armId: ArmInput): Promise<Experiment>;
   setArmStatus(experimentId: string, armId: string, status: ArmStatus): Promise<Experiment>;
   setExperimentStatus(experimentId: string, status: ArmStatus): Promise<Experiment>;
   getPolicy(experimentId: string): Promise<PolicySnapshot>;

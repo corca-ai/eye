@@ -74,6 +74,7 @@ createEye(options: EyeOptions): EyeClient
 - [request.state](#requeststate)
 - [request.defaultState](#requestdefaultstate)
 - [request.variant](#requestvariant)
+- [request.data](#requestdata)
 - [request.track](#requesttrack)
 - [request.goal](#requestgoal)
 - [browser.prepare](#browserprepare)
@@ -482,10 +483,10 @@ eye.experiments.update(experimentId: string, input: Partial<ExperimentSettings>)
 활성 arm을 추가한다. 기존 arm은 그대로 반환하며 삭제된 ID는 재사용할 수 없다.
 
 ```ts
-eye.experiments.addArm(experimentId: string, armId: string): Promise<Experiment>
+eye.experiments.addArm(experimentId: string, arm: ArmInput): Promise<Experiment>
 ```
 
-타입: [Experiment](types.md#experiment)
+타입: [ArmInput](types.md#arminput) · [Experiment](types.md#experiment)
 
 ## eye.experiments.pauseArm
 
@@ -642,6 +643,16 @@ request.variant<T>(definition: VariantDefinition<T>, options?: { maxWaitMs: numb
 ```
 
 타입: [VariantDefinition](types.md#variantdefinition) · [VariantSelection](types.md#variantselection)
+
+## request.data
+
+Select remote data with a host-owned default and parser; no per-arm code mapping.
+
+```ts
+request.data<T>(definition: DataDefinition<T>, options?: { maxWaitMs: number; }): Promise<VariantSelection<T>>
+```
+
+타입: [DataDefinition](types.md#datadefinition) · [VariantSelection](types.md#variantselection)
 
 ## request.track
 

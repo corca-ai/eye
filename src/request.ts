@@ -1,5 +1,5 @@
 import { createEye, type EyeClient, type EyeOptions, type EventInput, type Submission } from './client.js';
-import { fallbackValue, withinBudget } from './variant-definition.js';
+import { selectionFallback, selectionValue, isDataDefinition, withinBudget, type SelectionDefinition } from './variant-definition.js';
 import { EyeError } from './core/errors.js';
 import type { Attributes, GoalEvent, Subject, TrackEvent } from './core/types.js';
 
@@ -12,8 +12,8 @@ export interface EyeRequestOptions extends EyeOptions {
   /** false면 실험 선택·준비·노출을 생략한다. track/goal 수집은 유지한다. 기본 true. */
   experimentsEnabled?: boolean;
 }
-export type { VariantDefinition } from './browser-types.js';
-import type { VariantDefinition } from './browser-types.js';
+export type { VariantDefinition, DataDefinition } from './browser-types.js';
+import type { VariantDefinition, DataDefinition } from './browser-types.js';
 /** 실제 표시 시점의 노출 정보. 생략한 ID·시각은 SDK가 생성한다. */
 export interface ExposureInput {
   eventId?: string;
@@ -41,6 +41,8 @@ export interface EyeRequest {
   defaultState(): Promise<Record<string, string>>;
   /** 로컬 검증 후 지원하는 arm 값을 반환한다. 원격 조회는 기다리지 않으며 오류·미준비·미지원 arm은 fallback이다. 호출마다 새 노출 핸들을 만든다. */
   variant<T>(definition: VariantDefinition<T>, options?: { maxWaitMs: number }): Promise<VariantSelection<T>>;
+  /** Select remote data with a host-owned default and parser; no per-arm code mapping. */
+  data<T>(definition: DataDefinition<T>, options?: { maxWaitMs: number }): Promise<VariantSelection<T>>;
   /** 신원을 다시 전달하지 않는다. 접수 거절과 비동기 전송 실패 모두 onError로 보고한다. */
   track(input: Omit<EventInput<TrackEvent>, 'subject'>): Submission;
   /** 사이트가 확정한 값. 재전송은 원래 eventId·occurredAt·subject·payload를 보존한다. */
@@ -75,65 +77,70 @@ export function createEyeRequest(options: EyeRequestOptions): EyeRequest {
     defaultState: async () => eye ? eye.defaultState() : {},
     track: input => submit(client => client.track({ ...input, subject })),
     goal: input => submit(client => client.goal({ ...input, subject })),
-    async variant<T>(definition: VariantDefinition<T>, wait: { maxWaitMs: number } = { maxWaitMs: 0 }): Promise<VariantSelection<T>> {
-      const fallback = fallbackValue(definition);
-      if (!Number.isSafeInteger(wait.maxWaitMs) || wait.maxWaitMs < 0) throw new EyeError('invalid_input', 'Invalid wait budget');
-      let applied = false;
-      let owner = 0;
-      let replacement: Promise<VariantSelection<T>> | undefined;
-      let replaced = false;
-      const make = (decision?: import('./transport.js').AssignedDecision, reason?: import('./core/types.js').DefaultReason): VariantSelection<T> => {
-        const handleOwner = owner;
-        let result: Submission | undefined;
-        return { value: decision ? definition.variants[decision.assignment.armId]! : fallback,
-          armId: decision?.assignment.armId ?? null,
-          useDefault(defaultReason) {
-            if (applied) return Promise.reject(new EyeError('conflict', 'An applied occurrence cannot switch arms'));
-            replacement ??= (async () => {
-              replaced = true; owner++;
-              if (!decision || !eye || options.experimentsEnabled === false || definition.defaultArm === undefined) return make();
-              try {
-                const next = await eye.decideDefault({ subject, experimentId: definition.experimentId, defaultArm: definition.defaultArm });
-                return make(next.status === 'assigned' ? next : undefined, defaultReason);
-              } catch (error) { report(error); return make(); }
-            })();
-            return replacement;
-          },
-          expose(input = {}) {
-            if (result) return result;
-            if (!decision) { applied = true; return null; }
-            // A replacement locks the original handle, not its replacement.
-            if (replaced && handleOwner !== owner)
-              return { accepted: false, error: { code: 'conflict', message: 'Occurrence was replaced' } };
-            if (applied) return { accepted: false, error: { code: 'conflict', message: 'Occurrence already applied' } };
-            applied = true; // Application has happened even if collection is rejected.
-            result = submit(client => client.expose({ ...(userAttributes === undefined ? {} : { userAttributes }),
-              ...input, ...(reason === undefined ? {} : { defaultReason: reason }), subject, decision }));
-            return result;
-          } };
-      };
-      if (!eye || options.experimentsEnabled === false) return make();
-      try {
-        let decision = await eye.decide({ subject, experimentId: definition.experimentId });
-        if (decision.status === 'unavailable' && wait.maxWaitMs > 0) {
-          try {
-            const prepared = await withinBudget(eye.prepare({ subject, experimentId: definition.experimentId }), wait.maxWaitMs);
-            if (prepared) decision = prepared.decision;
-          } catch (error) { report(error); }
-        }
-        if (decision.status === 'assigned') {
-          if (!Object.hasOwn(definition.variants, decision.assignment.armId)) {
-            report(new EyeError('invalid_input', `Unsupported arm for experiment ${definition.experimentId}: ${decision.assignment.armId}`));
-            return make();
-          }
-          return make(decision);
-        }
-        if (decision.status === 'unavailable' && definition.defaultArm !== undefined) {
+    variant: (definition, wait) => select(definition, wait),
+    data: (definition, wait) => select(definition, wait),
+  };
+  async function select<T>(definition: SelectionDefinition<T>, wait: { maxWaitMs: number } = { maxWaitMs: 0 }): Promise<VariantSelection<T>> {
+    const fallback = selectionFallback(definition);
+    if (!Number.isSafeInteger(wait.maxWaitMs) || wait.maxWaitMs < 0) throw new EyeError('invalid_input', 'Invalid wait budget');
+    let applied = false;
+    let owner = 0;
+    let replacement: Promise<VariantSelection<T>> | undefined;
+    let replaced = false;
+    const make = (decision?: import('./transport.js').AssignedDecision, reason?: import('./core/types.js').DefaultReason, value = fallback): VariantSelection<T> => {
+      const handleOwner = owner;
+      let result: Submission | undefined;
+      return { value,
+        armId: decision?.assignment.armId ?? null,
+        useDefault(defaultReason) {
+          if (applied) return Promise.reject(new EyeError('conflict', 'An applied occurrence cannot switch arms'));
+          replacement ??= (async () => {
+            replaced = true; owner++;
+            if (!decision || !eye || options.experimentsEnabled === false || definition.defaultArm === undefined) return make();
+            try {
+              const next = await eye.decideDefault({ subject, experimentId: definition.experimentId, defaultArm: definition.defaultArm });
+              return make(next.status === 'assigned' ? next : undefined, defaultReason);
+            } catch (error) { report(error); return make(); }
+          })();
+          return replacement;
+        },
+        expose(input = {}) {
+          if (result) return result;
+          if (!decision) { applied = true; return null; }
+          // A replacement locks the original handle, not its replacement.
+          if (replaced && handleOwner !== owner)
+            return { accepted: false, error: { code: 'conflict', message: 'Occurrence was replaced' } };
+          if (applied) return { accepted: false, error: { code: 'conflict', message: 'Occurrence already applied' } };
+          applied = true; // Application has happened even if collection is rejected.
+          result = submit(client => client.expose({ ...(userAttributes === undefined ? {} : { userAttributes }),
+            ...input, ...(reason === undefined ? {} : { defaultReason: reason }), subject, decision }));
+          return result;
+        } };
+    };
+    if (!eye || options.experimentsEnabled === false) return make();
+    try {
+      let decision = await eye.decide({ subject, experimentId: definition.experimentId });
+      if (decision.status === 'unavailable' && wait.maxWaitMs > 0) {
+        try {
+          const prepared = await withinBudget(eye.prepare({ subject, experimentId: definition.experimentId }), wait.maxWaitMs);
+          if (prepared) decision = prepared.decision;
+        } catch (error) { report(error); }
+      }
+      if (decision.status === 'assigned') {
+        const value = selectionValue(definition, decision.assignment.armId, decision.data);
+        if (value.supported) return make(decision, undefined, value.value);
+        report(new EyeError('invalid_input', `Unsupported arm or invalid data for experiment ${definition.experimentId}: ${decision.assignment.armId}`));
+        if (isDataDefinition(definition)) {
           const next = await eye.decideDefault({ subject, experimentId: definition.experimentId, defaultArm: definition.defaultArm });
-          if (next.status === 'assigned') return make(next, wait.maxWaitMs > 0 ? 'deadline' : 'unprepared');
+          return make(next.status === 'assigned' ? next : undefined, 'invalid_data');
         }
         return make();
-      } catch (error) { report(error); return make(); }
-    },
-  };
+      }
+      if (decision.status === 'unavailable' && definition.defaultArm !== undefined) {
+        const next = await eye.decideDefault({ subject, experimentId: definition.experimentId, defaultArm: definition.defaultArm });
+        if (next.status === 'assigned') return make(next, wait.maxWaitMs > 0 ? 'deadline' : 'unprepared');
+      }
+      return make();
+    } catch (error) { report(error); return make(); }
+  }
 }

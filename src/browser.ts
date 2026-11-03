@@ -1,7 +1,7 @@
-import { fallbackValue, withinBudget } from './variant-definition.js';
+import { selectionFallback, selectionValue, isDataDefinition, withinBudget, type SelectionDefinition } from './variant-definition.js';
 import { EVENT_MAX_AGE_MS } from './core/validation.js';
 import { DEFAULT_POLICY_FRESH_MS } from './policy-timing.js';
-import type { VariantDefinition } from './browser-types.js';
+import type { VariantDefinition, DataDefinition } from './browser-types.js';
 import type { BrowserSnapshot, BrowserExposure, BrowserEventResult, BrowserState } from './browser-types.js';
 export type { BrowserSnapshot, BrowserExposure, BrowserEventResult, BrowserState } from './browser-types.js';
 /** 브라우저 전용 설정. 서버 secret·Worker 바인딩은 받지 않는다. */
@@ -41,6 +41,10 @@ export interface BrowserView {
   /** 이 뷰의 추가 노출을 막는다. 이미 접수한 이벤트는 취소하지 않는다. */
   /** Explicitly allow bounded preparation before this occurrence freezes. */
   variantAsync<T>(definition: VariantDefinition<T>, options: { maxWaitMs: number }, placement?: string): Promise<BrowserSelection<T>>;
+  /** Select data using the host default/parser and the same fixed occurrence as variant. */
+  data<T>(definition: DataDefinition<T>, placement?: string): BrowserSelection<T>;
+  /** Bound policy preparation, then freeze selected data or the host default. */
+  dataAsync<T>(definition: DataDefinition<T>, options: { maxWaitMs: number }, placement?: string): Promise<BrowserSelection<T>>;
   dispose(): void;
 }
 /** 브라우저 앱 수명 동안 재사용한다. 로그인 전환에는 setScope, 화면 전환에는 beginView를 사용한다. */
@@ -309,18 +313,18 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
       function usable(cached: ReturnType<typeof ready.get>): cached is NonNullable<typeof cached> {
         return !!cached && currentTime(cached) + cached.safetyMs < cached.choice.applyUntil;
       }
-      function variant<T>(definition: VariantDefinition<T>, placement = 'default', defaultReason: import('./core/types.js').DefaultReason = 'unprepared'): BrowserSelection<T> {
+      function variant<T>(definition: SelectionDefinition<T>, placement = 'default', defaultReason: import('./core/types.js').DefaultReason = 'unprepared'): BrowserSelection<T> {
         const key = JSON.stringify([definition.experimentId, placement]);
         const old = selections.get(key);
         if (old && live()) return old as BrowserSelection<T>;
-        const fallback = fallbackValue(definition);
+        const fallback = selectionFallback(definition);
         const owner = Symbol(); owners.set(key, owner);
         let emitted = false;
         let replacement: BrowserSelection<T> | undefined;
-        function make(cached?: NonNullable<ReturnType<typeof ready.get>>, reason?: import('./core/types.js').DefaultReason): BrowserSelection<T> {
+        function make(cached?: NonNullable<ReturnType<typeof ready.get>>, reason?: import('./core/types.js').DefaultReason, value = fallback): BrowserSelection<T> {
           const myOwner = owners.get(key);
           let accepted = false;
-          return { value: cached ? definition.variants[cached.choice.armId]! : fallback, armId: cached?.choice.armId ?? null,
+          return { value, armId: cached?.choice.armId ?? null,
             useDefault(defaultReason) {
               if (emitted) throw new Error('An applied occurrence cannot switch arms');
               if (replacement) return replacement;
@@ -363,29 +367,33 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
             } };
         }
         let cached = ready.get(definition.experimentId);
-        const unsupported = usable(cached) && !Object.hasOwn(definition.variants, cached.choice.armId);
-        if (unsupported) { report(new Error(`Unsupported Eye arm: ${cached!.choice.armId}`)); cached = undefined; }
+        const value = usable(cached) ? selectionValue(definition, cached.choice.armId, cached.choice.data) : undefined;
+        const unsupported = value?.supported === false;
         let reason: import('./core/types.js').DefaultReason | undefined;
+        if (unsupported) {
+          report(new Error(`Unsupported Eye arm or invalid data: ${cached!.choice.armId}`)); cached = undefined;
+          if (isDataDefinition(definition)) reason = 'invalid_data';
+        }
         if (!usable(cached)) {
           wanted.add(definition.experimentId); schedulePrepare();
           const defaultChoice = defaults.get(definition.experimentId);
-          cached = !unsupported && usable(defaultChoice) && defaultChoice.choice.armId === definition.defaultArm ? defaultChoice : undefined;
-          if (cached) reason = defaultReason;
+          cached = (!unsupported || isDataDefinition(definition)) && usable(defaultChoice) && defaultChoice.choice.armId === definition.defaultArm ? defaultChoice : undefined;
+          if (cached) reason ??= defaultReason;
         }
         if (cached && (currentTime(cached) + cached.safetyMs >= (cached.choice.refreshAfter ?? cached.serverNow + DEFAULT_POLICY_FRESH_MS)
           || cached.choice.applyUntil - currentTime(cached) < 60_000)) { wanted.add(definition.experimentId); schedulePrepare(); }
-        const selected = make(live() ? cached : undefined, reason);
+        const selected = make(live() ? cached : undefined, reason, live() && cached && !unsupported && value?.supported ? value.value : fallback);
         selections.set(key, selected); return selected;
       }
-      return { variant,
-        async variantAsync<T>(definition: VariantDefinition<T>, wait: { maxWaitMs: number }, placement = 'default') {
-          if (!Number.isSafeInteger(wait.maxWaitMs) || wait.maxWaitMs < 0) throw new Error('Invalid wait budget');
-          const key = JSON.stringify([definition.experimentId, placement]);
-          let timedOut = false;
-          if (!selections.has(key) && live() && !usable(ready.get(definition.experimentId)) && wait.maxWaitMs > 0)
-            timedOut = (await withinBudget(prepareExperiments([definition.experimentId]), wait.maxWaitMs)) === undefined;
-          return variant(definition, placement, timedOut ? 'deadline' : 'unprepared');
-        },
+      async function variantAsync<T>(definition: SelectionDefinition<T>, wait: { maxWaitMs: number }, placement = 'default') {
+        if (!Number.isSafeInteger(wait.maxWaitMs) || wait.maxWaitMs < 0) throw new Error('Invalid wait budget');
+        const key = JSON.stringify([definition.experimentId, placement]);
+        let timedOut = false;
+        if (!selections.has(key) && live() && !usable(ready.get(definition.experimentId)) && wait.maxWaitMs > 0)
+          timedOut = (await withinBudget(prepareExperiments([definition.experimentId]), wait.maxWaitMs)) === undefined;
+        return variant(definition, placement, timedOut ? 'deadline' : 'unprepared');
+      }
+      return { variant, variantAsync, data: variant, dataAsync: variantAsync,
         dispose() { disposed = true; selections.clear(); owners.clear(); },
       };
     },
@@ -393,3 +401,6 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
     dispose() { stopped = true; generation++; clearTimeout(prepareTimer); clearTimeout(sendTimer); wakeDrain?.(); ready.clear(); defaults.clear(); wanted.clear(); queue.length = 0; },
   };
 }
+
+export type { DataDefinition } from './browser-types.js';
+export type { JsonValue } from './core/types.js';

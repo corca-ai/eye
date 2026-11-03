@@ -209,3 +209,6 @@ if (!result.accepted) console.error(result.error.code, result.error.message);
 | 일부 결과만 보임 | meta.truncated 확인 후 기간·arm·속성 조건 축소 |
 
 운영 전 `onDecision`으로 미준비 참여 누락을 지역·신규/재방문별로 측정한다. 목표와 측정 범위는 [빠른 배정 운영 계약](FAST-DECISIONS.md#운영-목표와-측정)에 있다.
+
+문구 등 데이터만 바꾸는 실험은 [데이터 arm](DATA-ARMS.md)을 참고한다.
+기존 ID-only 코드 실험과 배정·학습 규칙을 공유한다.

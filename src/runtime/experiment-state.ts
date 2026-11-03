@@ -1,3 +1,4 @@
+import { parseArm, checkExperimentData } from '../core/arm-data.js';
 import { POLICY_REEVALUATION_MS } from '../policy-timing.js';
 import { analyticsRecord } from '../analytics/records.js';
 import { invariant } from '../core/errors.js';
@@ -6,8 +7,8 @@ import { ageMoments, emptyMoments, mergeMoments } from '../core/moments.js';
 import type { Moments } from '../core/moments.js';
 import { evaluateUnreservedPolicy } from '../core/policy.js';
 import type { ClosedCohort } from '../core/closed-cohort.js';
-import { id, RETENTION_MS, settings, historicalSettings, timestamp } from '../core/validation.js';
-import type { ArmStatus, Assignment, CreateExperiment, Experiment, ExperimentSettings } from '../core/types.js';
+import { RETENTION_MS, settings, historicalSettings, timestamp } from '../core/validation.js';
+import type { ArmInput, ArmStatus, Assignment, CreateExperiment, Experiment, ExperimentSettings } from '../core/types.js';
 import type { LearningSQL } from './incremental.js';
 const storedJson = <T>(text: string): T => JSON.parse(text) as T;
 
@@ -42,12 +43,12 @@ export class ExperimentState {
     invariant(parsed.experimentId === this.experimentId, 'invalid_input', 'Experiment state mismatch');
     if (current) {
       invariant(current.status !== 'deleted', 'conflict', 'Deleted experiment IDs cannot be reused');
-      invariant(JSON.stringify(original) === JSON.stringify(parsed), 'conflict', 'Experiment already exists with a different initial definition');
+      invariant(JSON.stringify(original && parseCreateExperiment(original)) === JSON.stringify(parsed), 'conflict', 'Experiment already exists with a different initial definition');
       return current;
     }
     const config: Experiment = {
       experimentId: parsed.experimentId, status: 'active', generation: 1, revision: 1, createdAt: Date.now(),
-      settings: parsed.settings, arms: parsed.arms.map(armId => ({ armId, status: 'active' })),
+      settings: parsed.settings, arms: parsed.arms.map(arm => ({ ...parseArm(arm), status: 'active' })),
     };
     this.kv.put('definition', parsed); this.kv.put('config', config); this.kv.put('generation:1', config.settings);
     return config;
@@ -73,14 +74,18 @@ export class ExperimentState {
     invariant(result, 'not_found', 'Experiment generation does not exist');
     return historicalSettings(result);
   }
-  addArm(armId: string): Experiment {
-    id(armId, 'armId');
+  addArm(input: ArmInput): Experiment {
+    const arm = parseArm(input), { armId } = arm;
     const config = this.getConfig();
     invariant(config.status !== 'deleted', 'conflict', 'Experiment is deleted');
     const existing = config.arms.find(a => a.armId === armId);
     invariant(existing?.status !== 'deleted', 'conflict', 'Deleted arm IDs cannot be reused');
-    if (existing) return config;
-    const next = { ...config, revision: config.revision + 1, arms: [...config.arms, { armId, status: 'active' as const }] };
+    if (existing) {
+      invariant(arm.data === undefined || JSON.stringify(existing.data) === JSON.stringify(arm.data), 'conflict', 'Arm data is immutable; use a new arm ID');
+      return config;
+    }
+    const next = { ...config, revision: config.revision + 1, arms: [...config.arms, { ...arm, status: 'active' as const }] };
+    checkExperimentData(next.arms);
     this.kv.put('config', next);
     return next;
   }
@@ -158,7 +163,8 @@ export class ExperimentState {
     const cached = this.cachedPolicy(maxAgeMs); if (cached) return cached;
     const config = this.getConfig(), previous = this.kv.get<import('../transport.js').PublishedPolicy>('publishedPolicy');
     const policy = this.getPolicy();
-    const result = { ...policy, installationId: siteId, settings: config.settings, publishedAt: Date.now(), sequence: (previous?.sequence ?? 0) + 1,
+    const data = Object.fromEntries(config.arms.filter(a => a.status === 'active' && a.data !== undefined).map(a => [a.armId, a.data!]));
+    const result = { ...policy, ...(Object.keys(data).length ? { armData: data } : {}), installationId: siteId, settings: config.settings, publishedAt: Date.now(), sequence: (previous?.sequence ?? 0) + 1,
       status: config.status, activeArms: config.arms.filter(a => a.status === 'active').map(a => a.armId) };
     this.kv.put('publishedPolicy', result); if (this.kv.get('policyDirty')) this.kv.delete('policyDirty');
     const history = config.arms.map(configured => result.arms.find(a => a.armId === configured.armId) ?? { armId: configured.armId, probability: 0, meanReward: null, score: null });

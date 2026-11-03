@@ -1,3 +1,4 @@
+import type { ArmInput } from '../core/types.js';
 import { AnalyticsSQL } from '../analytics/sql.js';
 import type { SummariesAPI } from '../analytics/summaries.js';
 import type { AnalyticsJobsAPI } from '../analytics/jobs.js';
@@ -103,7 +104,7 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
   async updateExperiment(experimentId: string, input: Partial<ExperimentSettings>): Promise<Experiment> {
     return this.site().updateExperiment(this.installationId, id(experimentId, 'experimentId'), input);
   }
-  async addArm(experimentId: string, armId: string): Promise<Experiment> { return this.site().addExperimentArm(this.installationId, id(experimentId, 'experimentId'), id(armId, 'armId')); }
+  async addArm(experimentId: string, armId: ArmInput): Promise<Experiment> { return this.site().addExperimentArm(this.installationId, id(experimentId, 'experimentId'), armId); }
   async setArmStatus(experimentId: string, armId: string, status: ArmStatus): Promise<Experiment> { return this.site().setExperimentArmStatus(this.installationId, id(experimentId, 'experimentId'), id(armId, 'armId'), status); }
   async setExperimentStatus(experimentId: string, status: ArmStatus): Promise<Experiment> { return this.site().setExperimentStatus(this.installationId, id(experimentId, 'experimentId'), status); }
   async getPolicy(experimentId: string): Promise<PolicySnapshot> { return this.site().getExperimentPolicy(this.installationId, id(experimentId, 'experimentId')); }

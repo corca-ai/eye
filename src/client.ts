@@ -1,3 +1,5 @@
+import { canonicalArm } from './core/arm-data.js';
+import type { ArmInput } from './core/types.js';
 import type { SummariesAPI } from './analytics/summaries.js';
 import type { AnalyticsJobsAPI, AnalyticsJobPage } from './analytics/jobs.js';
 import { decisionRuntime, validateDecisionOptions, type DecisionOptions } from './decisions.js';
@@ -213,7 +215,7 @@ export function createEye(options: EyeOptions) {
       /** 설정 patch를 반영한다. 배정 전략 변경은 학습을 유지하고 관측·귀속·학습 반감기·유지 기간 변경은 새 학습 세대를 시작한다. 기존 배정의 설정·최소 유지 기간은 보존한다. */
       update: (experimentId: string, input: Partial<ExperimentSettings>) => service.updateExperiment(id(experimentId, 'experimentId'), input),
       /** 활성 arm을 추가한다. 기존 arm은 그대로 반환하며 삭제된 ID는 재사용할 수 없다. */
-      addArm: (experimentId: string, armId: string) => service.addArm(id(experimentId, 'experimentId'), id(armId, 'armId')),
+      addArm: (experimentId: string, arm: ArmInput) => service.addArm(id(experimentId, 'experimentId'), canonicalArm(arm)),
       /** arm을 일시중지한다. 정책에 반영되면 최소 유지 기간보다 우선하며 로컬 정책에는 갱신 지연이 있다. */
       pauseArm: (experimentId: string, armId: string) => service.setArmStatus(id(experimentId, 'experimentId'), id(armId, 'armId'), 'paused'),
       /** 일시중지한 arm을 재개한다. 삭제된 arm은 재개할 수 없다. */
