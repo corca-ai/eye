@@ -125,7 +125,7 @@ eye.track({ subject, name: 'page_view', attributes: { path: '/checkout' } });
 
 ### 장애 시 기본 화면으로 돌아가기
 
-`defaultArm` 설정은 없다. 서비스가 기본 화면을 정하고, `assigned`이면서 서비스가 지원하는 arm일 때만 실험 화면을 적용한다. SDK 초기화·배정 예외도 기본 화면으로 연결한다. 초기화까지 포함한 오류 경계는 [호스트 예제](../examples/host.ts)를 따른다. 아직 화면 코드가 없는 arm을 등록했거나 SDK 오류가 발생해도 fallback을 특정 arm의 노출로 기록하지 않는다. fallback 화면이 control arm과 같아도 미참여와 control 배정은 구분한다.
+저수준 `decide()`에는 `defaultArm` 인자가 없다. 서비스가 기본 화면을 정하고, `assigned`이면서 서비스가 지원하는 arm일 때만 실험 화면을 적용한다. SDK 초기화·배정 예외도 기본 화면으로 연결한다. 초기화까지 포함한 오류 경계는 [호스트 예제](../examples/host.ts)를 따른다. 아직 화면 코드가 없는 arm을 등록했거나 SDK 오류가 발생해도 fallback을 특정 arm의 노출로 기록하지 않는다. fallback 화면이 control arm과 같아도 미참여와 control 배정은 구분한다. 기본 화면도 실제 arm 참여로 기록하려면 요청 래퍼·브라우저의 명시적 `defaultArm`과 유효한 권한을 사용하는 [빠른 실험 적용](LOW-LATENCY.md)을 따른다. 저수준 API는 `decideDefault()`를 제공한다.
 
 백그라운드 준비·갱신에 실패해도 정책과 해당 결정의 적용 기한이 유효하면 기존 arm을 계속 제공한다. 원격 장애를 매 요청 확인하지 않으므로 모든 장애를 즉시 감지해 fallback하지는 않는다. 즉시 중단이 필요하면 서비스의 자체 플래그로 `decide`·`expose` 호출과 실험 화면 적용을 함께 끈다. 이미 열린 관측의 보상 귀속은 계속될 수 있다. Worker 자체가 실행되지 않는 장애는 이 오류 경계로 복구할 수 없다.
 
@@ -139,7 +139,7 @@ eye.goal({ subject, eventId: `signup:${uid}`, occurredAt: user.signedUpAt, goalI
 eye.goal({ subject, eventId: `refund:${refund.id}`, occurredAt: refund.completedAt, goalId: 'refund', value: -refund.amount });
 ```
 
-위 시각은 업무 사건이 확정될 때 저장한 Unix 밀리초다. `occurredAt`을 생략하면 현재 시각을 사용하므로 재전송 가능한 사건은 최초부터 시각을 명시한다. 재시도에는 동일한 **eventId·occurredAt·subject·payload**를 사용한다. goal 중지·삭제는 수신 시각이 아니라 발생 당시 상태로 판정한다. [업무 사건 예제](../examples/business-events.ts)처럼 원래 신원을 주문/outbox에 함께 보관한다.
+위 시각은 업무 사건이 확정될 때 저장한 Unix 밀리초다. `occurredAt`을 생략하면 현재 시각을 사용하므로 재전송 가능한 사건은 최초부터 시각을 명시한다. 재시도에는 동일한 **eventId·occurredAt·subject·payload**를 사용한다. SDK와 수집 서버는 미래 시각과 발생 후 15초를 넘긴 외부 제출을 `invalid_input`으로 거절한다. SDK 로컬 접수만으로 서버의 접수 기한이 고정되지는 않으며, Queue 접수 이후의 내부 재시도만 최초 서버 수신 시각을 유지한다. 오래된 업무 사건을 보내려고 시각이나 ID를 새로 만들지 않는다. goal 중지·삭제는 수신 시각이 아니라 발생 당시 상태로 판정한다. [업무 사건 예제](../examples/business-events.ts)처럼 원래 신원을 주문/outbox에 함께 보관한다.
 
 ## 5. 결과 확인과 운영
 
@@ -160,6 +160,8 @@ const timeline = await eye.analytics.timeline({
 ```
 
 `report.rows`의 `completed/pending`와 `meanValue`를 함께 본다. `learningValue`는 마감 때 고정한 학습 보상이며 뒤늦게 반영된 원본 귀속 보상과 다를 수 있다. 관측이 끝나기 전에는 완료 평균이 없을 수 있다. `policy`는 현재 선택 정책, `traffic`은 실제 노출된 배정·노출, `analytics.policies`는 발행 정책 이력이다. 분석에는 반영 지연이 있으며 평균 차이는 인과적 uplift가 아니다. [조회별 의미·응답·필터 예제](ANALYTICS.md)를 참고한다. 자주 보는 기본 합계는 [선택적 요약](ANALYTICS.md#원본-조회-없이-읽는-선택적-요약)을 설정하고 명시적 summary 보고서를 사용하면 반복 원본 조회를 줄일 수 있다. [대시보드 예제](../examples/summary-dashboard.ts)는 범위가 부족할 때 합계를 0으로 표시하거나 원본 SQL을 자동 실행하지 않는다.
+
+검토 중인 실험은 `experiments.create({ ..., initialStatus: 'paused' })`, arm은 `experiments.addArm(id, { armId, initialStatus: 'paused' })`로 처음부터 일시중지 상태로 등록할 수 있다. 활성화는 `resume/resumeArm`으로 명시한다.
 
 arm을 추가하려면 `experiments.addArm(id, armId)`, 잠시 멈추려면 `pauseArm/resumeArm`, 실험 전체는 `pause/resume`을 사용한다. `delete/deleteArm`은 이력을 보존하는 영구 비활성화이며 ID 재사용을 금지한다. 로컬 결정에는 정책 갱신 지연이 있다. 골도 `goals.pause/resume/delete`로 관리한다.
 
@@ -187,7 +189,7 @@ const eye = createEye({ service: env.EYE, ctx,
 });
 ```
 
-일반 `createEye`의 로컬 거절은 반환값으로 확인하고 `createEyeRequest`는 `onError`에도 보고한다. 중요한 골의 재전송은 원래 ID·시각·신원·payload를 보존한다. 대기열 예산은 전송 성공·실패로 시도가 끝나면 복구되지만, 실패한 사건을 SDK가 자동 재전송하지는 않는다.
+일반 `createEye`의 로컬 거절은 반환값으로 확인하고 `createEyeRequest`는 `onError`에도 보고한다. 중요한 골의 외부 재전송은 발생 후 15초 이내에서 원래 ID·시각·신원·payload를 보존한다. 15초를 넘긴 업무 outbox 재생은 지원하지 않는다. 대기열 예산은 전송 성공·실패로 시도가 끝나면 복구되지만, 실패한 사건을 SDK가 자동 재전송하지는 않는다.
 
 ```ts
 const result = eye.track({ subject, name: 'page_view' });
@@ -203,7 +205,7 @@ if (!result.accepted) console.error(result.error.code, result.error.message);
 | --- | --- |
 | 계속 unavailable | secret, 정책 조회 실패·캐시 갱신, onPrepared 오류. 설정 없는 decide는 자동 참여하지 않음 |
 | no_active_arm | 실험 상태와 활성 arm, 로컬 정책 갱신 대기 |
-| 골은 있는데 arm 완료 평균이 없음 | 실제 expose, 관측 종료 후 고정 1분 유예, 귀속 범위 |
+| 골은 있는데 arm 완료 평균이 없음 | 실제 expose, 관측 종료 후 고정 1분 유예, 귀속 범위, 마감 전 학습 처리 여부 |
 | 속성별 결과가 예상과 다름 | expose.userAttributes와 사건 attributes 구분, 최초 노출 시점의 값 |
 | 분석 결과가 비거나 이전 값임 | 같은 Eye 바인딩, 분석 토큰·파이프라인, 최종 일관성, 최근 60일 범위 |
 | 일부 결과만 보임 | meta.truncated 확인 후 기간·arm·속성 조건 축소 |

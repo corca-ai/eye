@@ -22,7 +22,7 @@ export type ExperimentStatus = ArmStatus;
 export type ObservationStatus = 'pending' | 'complete';
 
 /** 배정 당시 고정되는 학습 설정. 기간은 ms이며 기본값은 CreateExperiment의 settings 생략 필드에 적용한다.
- * 사이트의 과거 최대 관측·유예·귀속 기간 합은 60일에서 1시간을 뺀 값보다 작아야 한다. */
+ * 설치 전체의 과거 최대 관측·귀속 기간과 고정 1분 유예(이전 저장 상한이 더 크면 그 값)의 합은 60일에서 1시간을 뺀 값보다 작아야 한다. */
 export interface ExperimentSettings {
   /** 기본 7일. 마지막 실제 노출의 유한한 귀속 기간(ms). */
   readonly attributionWindowMs?: number;
@@ -45,7 +45,7 @@ export interface ExperimentSettings {
   /** 기본 8. 감쇠 표본 가중치가 이 값보다 작은 arm을 초기 탐색 대상으로 보는 기준, 양의 정수. */
   readonly bootstrapQuota: number;
 }
-/** 최초 정의. arms는 중복 없는 비어 있지 않은 ID 목록이다. settings에서 minHoldMs만 필수다. */
+/** 최초 정의. arms는 중복 없는 비어 있지 않은 ID 또는 불변 JSON 데이터 정의 목록이다. settings에서 minHoldMs만 필수다. */
 export interface CreateExperiment {
   /** Initial selection state; defaults to active. Applied atomically with creation. */
   readonly initialStatus?: 'active' | 'paused';
@@ -92,7 +92,7 @@ export type Decision =
 interface EventBase {
   /** 재시도할 때 동일한 subject·payload와 함께 재사용하는 이벤트 ID. */
   readonly eventId: string;
-  /** 사건이 실제 발생한 Unix 밀리초. SDK 입력에서 생략하면 Date.now(). 미래 또는 60일 초과 과거는 거절한다. */
+  /** 사건이 실제 발생한 Unix 밀리초. SDK 입력에서 생략하면 Date.now(). SDK와 수집 서버는 미래 또는 발생 후 15초 초과 외부 제출을 거절한다. Queue 재시도는 최초 서버 수신 시각과 60일 보존 경계를 따른다. */
   readonly occurredAt: number;
   readonly subject: Subject;
   readonly attributes?: Attributes;

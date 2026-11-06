@@ -8,7 +8,9 @@ export interface PaidOrderEvent {
   subject: Subject;
 }
 
-/** Invoke after verifying the provider webhook and committing payment in the service. */
+/** Invoke after verifying the provider webhook and committing payment in the service.
+ * The original paidAt must be within 15 seconds at SDK and Worker admission.
+ * Delayed webhooks/outbox replays are rejected; never restamp them as new goals. */
 export function reportPaidOrder(options: EyeOptions, event: PaidOrderEvent) {
   const eye = createEyeRequest({ ...options, subject: event.subject });
   return eye.goal({
@@ -16,5 +18,6 @@ export function reportPaidOrder(options: EyeOptions, event: PaidOrderEvent) {
     goalId: 'purchase', value: event.amount,
   });
 }
-// Replays must reuse the same immutable event. accepted is not durable confirmation.
+// Replays within the 15-second admission window must reuse the same immutable event.
+// accepted is not durable confirmation; Queue retries preserve server receipt time.
 // Jobs needing Queue acknowledgement should use createEye + await flush() instead.

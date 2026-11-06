@@ -2,7 +2,7 @@
 
 [문서 안내](README.md) · [설계](../DESIGN.md) · [구현 구조](../TECHNICAL_DESIGN.md)
 
-현재 구현은 로컬 배정, 서버 요청 래퍼, CSR 클라이언트/서버 어댑터, Queue 원본 수집, Queue 배치 내 정렬과 SQLite 증분 학습, SiteControl 안의 실험·정책 관리, SQLite outbox 재시도, 원본 분석 API와 ReportObject의 비동기 조회·결과 재사용와 선택적 로컬 기본 요약 및 요약 기반 비동기·자동 보고서까지 연결한다.
+현재 구현은 로컬 배정, 서버 요청 래퍼, CSR 클라이언트/서버 어댑터, Queue 원본 수집, Queue 배치 내 정렬과 SQLite 증분 학습, SiteControl 안의 실험·정책 관리, SQLite outbox 재시도, 원본 분석 API와 ReportObject의 비동기 조회·결과 재사용, 자동 goal 접수 시간별 확정 집계와 선택적 로컬 기본 요약 및 요약 기반 비동기·자동 보고서까지 연결한다.
 
 로컬 검증은 TypeScript, 순수 코어 테스트, workerd의 DO/Queue 테스트, 생성 SQL의 SQLite 실행, 패키지 외부 소비자 및 DOM 전용 브라우저 타입 검사, 신규 설치 Worker 번들 dry-run을 사용한다. 실제 노출→원본→학습→정책, 표본 마감·통계·outbox의 동시 롤백, 재전송·eviction 중 중복 학습 방지, 로그인 귀속, 음수/큰 보상, 늦은 사건과 확정 보상 차이, CSR 인증 전환과 준비/노출 경합을 검사한다.
 
@@ -23,6 +23,8 @@ Eye Worker의 자동 invocation 로그는 끄고 명시적 진단 로그와 head
 [원자적 학습](ATOMIC-LEARNING.md)은 단일 저장소의 마감·통계 갱신·출력 재시도와 동시 수집 검증을 설명한다.
 
 ## 두 Sink 조회 검증
+
+현재 신규 설치는 `events`와 `projections` 두 테이블을 사용한다. 아래는 이 구성을 도입할 때의 비교 기록이며 기존 다섯 테이블 설치를 자동 이전했다는 뜻은 아니다.
 
 2026-10-26에 별도 원격 Stream·Sink·Catalog를 사용해 기존 다섯 테이블과
 원본/보조 분리 구성을 비교했다. 동일한 합성 레코드 24,014개에는 원본 20,000개,
