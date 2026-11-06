@@ -232,7 +232,7 @@ eye.analytics.summaries.status(): Promise<SummaryStatus>
 
 ## eye.analytics.summaries.query
 
-원본 SQL 없이 전체 UTC 시간 구간의 로컬 확정 합계·평균을 조회한다.
+원본 SQL 없이 선택적 요약의 전체 UTC 시간 구간 합계·평균을 조회한다. 늦은 골·관측 마감으로 과거 값도 바뀔 수 있다.
 
 ```ts
 eye.analytics.summaries.query(input: SummaryQuery): Promise<SummaryReport>
@@ -636,7 +636,8 @@ request.defaultState(): Promise<Record<string, string>>
 
 ## request.variant
 
-로컬 검증 후 지원하는 arm 값을 반환한다. 원격 조회는 기다리지 않으며 오류·미준비·미지원 arm은 fallback이다. 호출마다 새 노출 핸들을 만든다.
+로컬 검증 후 지원하는 arm 값을 반환한다. 기본 maxWaitMs=0은 원격 조회를 기다리지 않고 양수이면 해당 예산만큼 준비를 기다린다.
+유효한 정책 또는 명시적 defaultArm 권한을 사용하며 오류·미지원 arm·권한 없는 미준비는 fallback이다. 호출마다 새 노출 핸들을 만든다.
 
 ```ts
 request.variant<T>(definition: VariantDefinition<T>, options?: { maxWaitMs: number; }): Promise<VariantSelection<T>>

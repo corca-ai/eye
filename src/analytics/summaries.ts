@@ -32,8 +32,9 @@ export interface SummaryReport {
 }
 /** 원본 SQL 없이 기본 합계를 읽는다. 범위 부족을 빈 성공 결과나 원본 조회로 자동 대체하지 않는다. */
 export interface SummariesAPI {
-  /** Automatic finalized receipt-hour totals across all accepted goals; no configure call needed. */
+  /** Automatic receipt-hour coverage and immutable cutoff; no configure call needed. Returns status, not totals. */
   hours(): Promise<import('./hourly-goals.js').HourlyGoalStatus>;
+  /** Read immutable receipt-hour goal totals within coverage, on whole UTC hours, at most 59 days. */
   series(query: import('./hourly-goals.js').HourlyGoalQuery): Promise<import('./hourly-goals.js').HourlyGoalReport>;
   /** 관리 경로에서 호출한다. 목록 변경은 전체 요약을 초기화하며 동일 설정 재시도는 보존한다.
    * capacity_exceeded 이후에는 빈 목록으로 비활성화한 뒤 다시 설정한다. */

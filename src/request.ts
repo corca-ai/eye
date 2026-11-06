@@ -39,7 +39,8 @@ export interface EyeRequest {
   state(): Promise<Record<string, string>>;
   /** Persist separately from policy tokens. */
   defaultState(): Promise<Record<string, string>>;
-  /** 로컬 검증 후 지원하는 arm 값을 반환한다. 원격 조회는 기다리지 않으며 오류·미준비·미지원 arm은 fallback이다. 호출마다 새 노출 핸들을 만든다. */
+  /** 로컬 검증 후 지원하는 arm 값을 반환한다. 기본 maxWaitMs=0은 원격 조회를 기다리지 않고 양수이면 해당 예산만큼 준비를 기다린다.
+   * 유효한 정책 또는 명시적 defaultArm 권한을 사용하며 오류·미지원 arm·권한 없는 미준비는 fallback이다. 호출마다 새 노출 핸들을 만든다. */
   variant<T>(definition: VariantDefinition<T>, options?: { maxWaitMs: number }): Promise<VariantSelection<T>>;
   /** Select remote data with a host-owned default and parser; no per-arm code mapping. */
   data<T>(definition: DataDefinition<T>, options?: { maxWaitMs: number }): Promise<VariantSelection<T>>;

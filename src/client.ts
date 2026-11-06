@@ -15,7 +15,8 @@ import type { AnalyticsAPI } from './analytics/types.js';
 export const MAX_EVENT_BYTES = 100_000;
 export const MAX_BATCH_BYTES = 240_000;
 const encoder = new TextEncoder();
-/** eventId 기본 UUID, occurredAt 기본 현재 시각(Unix ms). 재전송은 두 값과 subject·payload를 모두 보존한다. */
+/** eventId 기본 UUID, occurredAt 기본 현재 시각(Unix ms). 미래 시각·발생 후 15초 초과 외부 제출은 거절한다.
+ * 재전송은 두 값과 subject·payload를 보존하며 같은 접수 기한을 따른다. Queue 이후 재시도는 최초 서버 수신 시각을 유지한다. */
 export type EventInput<T> = Omit<T, 'kind' | 'eventId' | 'occurredAt'> & { eventId?: string; occurredAt?: number };
 /** accepted는 로컬 검증 성공이지 영속 저장 확인이 아니다. 실패는 error.code와 message로 반환된다. */
 export type Submission = { accepted: true; eventId: string } | { accepted: false; error: { code: ErrorCode; message: string } };
@@ -157,7 +158,7 @@ export function createEye(options: EyeOptions) {
         configure: input => service.configureSummaries(input),
         /** 집계 시작 시각·상태를 확인한다. */
         status: () => service.summaryStatus(),
-        /** 원본 SQL 없이 전체 UTC 시간 구간의 로컬 확정 합계·평균을 조회한다. */
+        /** 원본 SQL 없이 선택적 요약의 전체 UTC 시간 구간 합계·평균을 조회한다. 늦은 골·관측 마감으로 과거 값도 바뀔 수 있다. */
         query: input => service.querySummary(input),
       } satisfies SummariesAPI,
       /** 원본 귀속을 다시 계산하지 않고 확정 학습 표본의 합계·평균을 조회한다. */

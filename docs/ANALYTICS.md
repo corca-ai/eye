@@ -2,7 +2,7 @@
 
 [연동 가이드](INTEGRATION.md) · [API 시그니처](api/client.md#eyeanalyticsarms) · [응답 타입](api/types.md#armreport) · [문서 안내](README.md)
 
-`createEye(...).analytics`의 원본 분석은 서버 Service Binding을 통해 고객 계정의 Basin SQL을 호출한다. 명시적으로 선택한 `summaries`와 `kind: 'summary'` 작업은 SiteControl의 로컬 집계만 읽는다. 토큰은 Eye Worker secret에만 둔다. UI와 공개 HTTP API는 호스트가 구성한다.
+`createEye(...).analytics`의 원본 분석은 서버 Service Binding을 통해 고객 계정의 Basin SQL을 호출한다. 자동 시간별 `summaries.hours/series`, 명시적으로 활성화한 `summaries.query`와 `kind: 'summary'` 작업은 SiteControl의 로컬 집계만 읽는다. 토큰은 Eye Worker secret에만 둔다. UI와 공개 HTTP API는 호스트가 구성한다.
 
 ## Automatic finalized goal hours
 
@@ -16,6 +16,8 @@ below retain their separate occurrence/start-time semantics.
 call, or one goal when filtered. It returns hourly `bucketStart`, `goalId`,
 `events` and signed `totalValue`, with `meta.basis: 'receipt_hour'`.
 Bounds must be whole UTC hours, within coverage and at most 59 days apart.
+Empty buckets are omitted; more than 50,000 result rows fails with `unavailable`,
+so narrow the range or specify `goalId`.
 Only finalized hours are readable. At 14:10, the 13:00–14:00 bucket becomes
 immutable and readable without a finalizer job, raw SQL, or polling.
 
@@ -94,7 +96,7 @@ scope별 격리는 일반 작업과 동일하다. 자동 보고서가 읽는 전
 
 ## 원본 조회 없이 읽는 선택적 요약
 
-자주 조회하는 기본 합계는 `analytics.summaries`를 별도로 활성화한다. 기존 `learning/goals`와 원본 kind의 jobs는 그대로 원본 저장소를 읽는다. 요약은 직접 조회하거나 jobs에서 명시적으로 선택한다. 호스트가 인증한 관리자만 설정하고, 조회 역시 해당 사이트·goal·실험 권한을 확인한다.
+자주 조회하는 기본 합계는 `analytics.summaries.configure()`로 별도로 활성화하고 `query()`로 읽는다. 자동 시간별 `hours()/series()`는 이 설정과 독립적이다. 기존 `learning/goals`와 원본 kind의 jobs는 그대로 원본 저장소를 읽는다. 요약은 직접 조회하거나 jobs에서 명시적으로 선택한다. 호스트가 인증한 관리자만 설정하고, 조회 역시 해당 사이트·goal·실험 권한을 확인한다.
 
 ```ts
 // 관리 경로에서 한 번 설정. 같은 목록의 재호출은 집계를 지우지 않는다.
@@ -147,9 +149,9 @@ await eye.analytics.jobs.schedule({ scope, scheduleId: 'purchase-summary',
 
 ## Arm 비교
 
-`arms({ experimentId, from, to, armId?, generation?, goalId?, groupBy?, filter?, hasEvent?, limit? })`
+`arms({ experimentId, from, to, allocationMode?, armId?, generation?, goalId?, groupBy?, filter?, hasEvent?, limit? })`
 
-cohort 기간은 관측 시작 시각이며 속성은 최초 실제 노출에서 고정한다. arm·학습 세대·관측 기간은 항상 분리하고, 속성 그룹을 최대 3개 추가한다. `rows`는 `armId`, `generation`, `observationWindowMs`, `groups`, `completed`, `pending`, `subjects`, `totalValue`, `learningValue`, `meanValue`, `latestReceivedAt`를 반환한다. `cohortBasis`는 `observation_start`다.
+cohort 기간은 관측 시작 시각이며 속성은 최초 실제 노출에서 고정한다. policy/default 배정·arm·학습 세대·관측 기간은 항상 분리하고, 속성 그룹을 최대 3개 추가한다. `rows`는 `allocationMode`, `armId`, `generation`, `observationWindowMs`, `groups`, `completed`, `pending`, `subjects`, `totalValue`, `learningValue`, `meanValue`, `latestReceivedAt`를 반환한다. `cohortBasis`는 `observation_start`다.
 
 `subjects`는 관측에 기록된 고유 신원 키 수다. 같은 사람의 cid/uid 전환이나 다른 쿠키를 하나로 합친 인원수가 아니며 관측 수와도 다르다.
 
@@ -185,7 +187,7 @@ cid 조회는 해당 브라우저 이력이다. uid 조회는 해당 uid 행을 
 
 ## 외부 검증 범위
 
-60일 조회 제한은 물리 삭제 정책이 아니다. 이전 데이터 정책은 합의대로 보류하며 R2에 자동 삭제 규칙을 설치하지 않는다.
+60일 조회 제한은 저장 행을 삭제하지 않는다. [보존 작업](../maintenance/README.md)을 하루 한 번 이상 별도로 실행해 `events`와 `projections`의 오래된 행을 삭제한다. 신규 설치는 Catalog snapshot expiration을 활성화하지만, 행 삭제와 이전 파일의 실제 회수는 별개다. R2 객체 lifecycle로 Iceberg 데이터 파일을 직접 삭제하지 않는다.
 
 현재 SQL 의미는 SQLite에 Basin JSON 함수 계약을 적용해 검사하며 HTTP 경계도 검사한다. 실제 Basin planner·타입 반환·예산 제한·6천만 행 지연은 원격 검증이 필요하다. 기준 문서는 [조회 API](https://developers.cloudflare.com/basin-sql/query-data/), [지원 SQL과 제한](https://developers.cloudflare.com/basin-sql/reference/limitations-best-practices/), [JSON 함수](https://developers.cloudflare.com/basin-sql/sql-reference/scalar-functions/#json-functions)다.
 
@@ -198,10 +200,10 @@ cid 조회는 해당 브라우저 이력이다. uid 조회는 해당 uid 행을 
 ## 시간별 arm 성과·트래픽·정책
 
 - `armSeries({ ...armQuery, bucketMs })`: 관측 시작 시각의 bucket별 `arms()` 결과다. goal별 0 분모·속성 필터·groupBy 계약을 그대로 유지한다.
-- `traffic({ experimentId, from, to, bucketMs, limit? })`: bucket·arm·generation별 `assignments`, `exposures`, `assignmentShare`, `exposureShare`다. assignments는 실제 노출된 assignment ID만 한 번 센다. 선택만 하고 노출하지 않은 배정은 저장하지 않는다. 노출은 실제 exposure 이벤트다. 비율의 분모는 같은 bucket·generation 전체 arm이며 0이면 null이다. 확률과 실제 노출 비율은 다르다.
-- `policies({ experimentId, from, to, armId?, limit? })`: 발행 시점별 arm 선택 확률·감쇠 평균·score·scoreScale·status·generation을 반환한다. 비활성 arm은 확률 0, 평균·점수 null이다. 이것은 최대 분당 한 번 생성하는 발행본 이력이며 모든 로컬 선택 순간의 통계 변화 이력은 아니다. 실제 신규 배정의 선택 확률은 decision payload에 보존한다. 정책 요청이 없던 기간을 보간하지 않는다. 결과가 잘리면 기간·arm 조건을 좁힌다.
+- `traffic({ experimentId, from, to, bucketMs, allocationMode?, limit? })`: bucket·arm·generation·allocationMode별 `assignments`, `exposures`, `assignmentShare`, `exposureShare`다. assignments는 실제 노출된 assignment ID만 한 번 센다. 선택만 하고 노출하지 않은 배정은 저장하지 않는다. 노출은 실제 exposure 이벤트다. 비율의 분모는 같은 bucket·generation·allocationMode 전체 arm이며 0이면 null이다. 확률과 실제 노출 비율은 다르다.
+- `policies({ experimentId, from, to, armId?, limit? })`: 발행 시점별 arm 선택 확률·감쇠 평균·score·scoreScale·status·generation을 반환한다. 비활성 arm은 확률 0, 평균·점수 null이다. 이력은 정책 RPC에서 새로 발행할 때 생성한다. revision 변경·새 학습의 dirty 상태는 기존 발행본을 무효화하므로 같은 분에도 여러 번 발행할 수 있다. 변경이 없으면 기본 한 시간까지 발행본을 재사용하며 짧은 학습 반감기·maxAgeMs가 간격을 줄일 수 있다. 모든 로컬 선택 순간의 통계 변화 이력은 아니다. 실제 신규 배정의 선택 확률은 decision payload에 보존한다. 정책 요청이 없던 기간을 보간하지 않는다. 결과가 잘리면 기간·arm 조건을 좁힌다.
 
-설치는 events, observations, identity_links, policies, attribute_keys 다섯 sink를 만든다. decisions·pending observations·credits는 원본에서 계산하는 논리적 조회 결과다.
+설치는 `events`와 `projections` 두 sink를 만든다. observations·identity_links·policies·attribute_keys는 `projections`의 논리 종류다. decisions·pending observations·credits는 원본에서 계산하는 논리적 조회 결과다.
 
 ## 사용자군 비교와 페이지 처리 예제
 

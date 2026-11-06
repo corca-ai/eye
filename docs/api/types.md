@@ -1005,7 +1005,7 @@ export interface CollectionLimits {
 [소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L49)
 
 ```ts
-/** 최초 정의. arms는 중복 없는 비어 있지 않은 ID 목록이다. settings에서 minHoldMs만 필수다. */
+/** 최초 정의. arms는 중복 없는 비어 있지 않은 ID 또는 불변 JSON 데이터 정의 목록이다. settings에서 minHoldMs만 필수다. */
 export interface CreateExperiment {
     /** Initial selection state; defaults to active. Applied atomically with creation. */
     readonly initialStatus?: 'active' | 'paused';
@@ -1149,7 +1149,7 @@ export type ErrorCode = 'invalid_input' | 'not_found' | 'conflict' | 'deleted' |
 interface EventBase {
     /** 재시도할 때 동일한 subject·payload와 함께 재사용하는 이벤트 ID. */
     readonly eventId: string;
-    /** 사건이 실제 발생한 Unix 밀리초. SDK 입력에서 생략하면 Date.now(). 미래 또는 60일 초과 과거는 거절한다. */
+    /** 사건이 실제 발생한 Unix 밀리초. SDK 입력에서 생략하면 Date.now(). SDK와 수집 서버는 미래 또는 발생 후 15초 초과 외부 제출을 거절한다. Queue 재시도는 최초 서버 수신 시각과 60일 보존 경계를 따른다. */
     readonly occurredAt: number;
     readonly subject: Subject;
     readonly attributes?: Attributes;
@@ -1178,10 +1178,11 @@ export interface EventEnvelope {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/client.ts#L19)
+[소스](https://github.com/corca-ai/eye/blob/main/src/client.ts#L20)
 
 ```ts
-/** eventId 기본 UUID, occurredAt 기본 현재 시각(Unix ms). 재전송은 두 값과 subject·payload를 모두 보존한다. */
+/** eventId 기본 UUID, occurredAt 기본 현재 시각(Unix ms). 미래 시각·발생 후 15초 초과 외부 제출은 거절한다.
+ * 재전송은 두 값과 subject·payload를 보존하며 같은 접수 기한을 따른다. Queue 이후 재시도는 최초 서버 수신 시각을 유지한다. */
 export type EventInput<T> = Omit<T, 'kind' | 'eventId' | 'occurredAt'> & {
     eventId?: string;
     occurredAt?: number;
@@ -1334,7 +1335,7 @@ export interface Experiment {
 
 ```ts
 /** 배정 당시 고정되는 학습 설정. 기간은 ms이며 기본값은 CreateExperiment의 settings 생략 필드에 적용한다.
- * 사이트의 과거 최대 관측·유예·귀속 기간 합은 60일에서 1시간을 뺀 값보다 작아야 한다. */
+ * 설치 전체의 과거 최대 관측·귀속 기간과 고정 1분 유예(이전 저장 상한이 더 크면 그 값)의 합은 60일에서 1시간을 뺀 값보다 작아야 한다. */
 export interface ExperimentSettings {
     /** 기본 7일. 마지막 실제 노출의 유한한 귀속 기간(ms). */
     readonly attributionWindowMs?: number;
@@ -1458,7 +1459,7 @@ export type EyeEvent = TrackEvent | GoalEvent | ExposureEvent | IdentityEvent;
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/client.ts#L24)
+[소스](https://github.com/corca-ai/eye/blob/main/src/client.ts#L25)
 
 ```ts
 /** 요청별 서버 SDK 설정. 사용자 신원은 각 수집·배정 호출에 전달한다. */
@@ -1491,7 +1492,8 @@ export interface EyeRequest {
     state(): Promise<Record<string, string>>;
     /** Persist separately from policy tokens. */
     defaultState(): Promise<Record<string, string>>;
-    /** 로컬 검증 후 지원하는 arm 값을 반환한다. 원격 조회는 기다리지 않으며 오류·미준비·미지원 arm은 fallback이다. 호출마다 새 노출 핸들을 만든다. */
+    /** 로컬 검증 후 지원하는 arm 값을 반환한다. 기본 maxWaitMs=0은 원격 조회를 기다리지 않고 양수이면 해당 예산만큼 준비를 기다린다.
+     * 유효한 정책 또는 명시적 defaultArm 권한을 사용하며 오류·미지원 arm·권한 없는 미준비는 fallback이다. 호출마다 새 노출 핸들을 만든다. */
     variant<T>(definition: VariantDefinition<T>, options?: {
         maxWaitMs: number;
     }): Promise<VariantSelection<T>>;
@@ -1705,10 +1707,11 @@ export type GoalStatus = 'active' | 'paused' | 'deleted';
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/hourly-goals.ts#L2)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/hourly-goals.ts#L3)
 
 ```ts
-/** Automatic goal totals on the runtime's first-receipt clock. No configuration or raw SQL. */
+/** Automatic goal totals by first server receipt, not occurrence time. Whole UTC hours in [from,to),
+ * at most 59 days and inside coverage/finalizedBefore. No configuration or historical backfill. */
 export interface HourlyGoalQuery {
     from: number;
     to: number;
@@ -1722,10 +1725,12 @@ export interface HourlyGoalQuery {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/hourly-goals.ts#L6)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/hourly-goals.ts#L10)
 
 ```ts
-/** Signed totals of accepted goals by server receipt hour; closed buckets never change. */
+/** Signed totals of accepted goals by server receipt hour; closed buckets never change.
+ * Processing after the ten-minute closing deadline is permanently omitted, even if raw logging succeeds.
+ * Empty buckets are omitted; uncovered/unfinalized ranges or results over 50,000 rows fail with unavailable. */
 export interface HourlyGoalReport {
     rows: {
         bucketStart: number;
@@ -1745,10 +1750,11 @@ export interface HourlyGoalReport {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/hourly-goals.ts#L4)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/hourly-goals.ts#L6)
 
 ```ts
-/** Automatic collection coverage and the exclusive end of immutable UTC hours. */
+/** Unix milliseconds: coverageFrom is the first fully covered UTC hour, finalizedBefore the exclusive
+ * readable end (hours close ten minutes after ending), queriedAt the read time, not an ingestion watermark. */
 export interface HourlyGoalStatus {
     coverageFrom: number;
     finalizedBefore: number;
@@ -2136,7 +2142,7 @@ export type Subject = {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/client.ts#L21)
+[소스](https://github.com/corca-ai/eye/blob/main/src/client.ts#L22)
 
 ```ts
 /** accepted는 로컬 검증 성공이지 영속 저장 확인이 아니다. 실패는 error.code와 message로 반환된다. */
@@ -2163,8 +2169,9 @@ export type Submission = {
 ```ts
 /** 원본 SQL 없이 기본 합계를 읽는다. 범위 부족을 빈 성공 결과나 원본 조회로 자동 대체하지 않는다. */
 export interface SummariesAPI {
-    /** Automatic finalized receipt-hour totals across all accepted goals; no configure call needed. */
+    /** Automatic receipt-hour coverage and immutable cutoff; no configure call needed. Returns status, not totals. */
     hours(): Promise<import('./hourly-goals.js').HourlyGoalStatus>;
+    /** Read immutable receipt-hour goal totals within coverage, on whole UTC hours, at most 59 days. */
     series(query: import('./hourly-goals.js').HourlyGoalQuery): Promise<import('./hourly-goals.js').HourlyGoalReport>;
     /** 관리 경로에서 호출한다. 목록 변경은 전체 요약을 초기화하며 동일 설정 재시도는 보존한다.
      * capacity_exceeded 이후에는 빈 목록으로 비활성화한 뒤 다시 설정한다. */

@@ -20,7 +20,7 @@
 
 브라우저 클라이언트는 `@eye/workers/browser`, 서버 SDK는 `@eye/workers`에서 가져온다. `@eye/workers/worker`는 설치 템플릿의 Worker 배포 진입점이다.
 
-선택과 실제 노출은 별개다. 준비가 안 됐으면 유효한 default 배정이나 미참여 fallback을 사용한다. 기본 구현·데이터는 서비스가 소유한다. 선택한 화면을 실제 제공한 뒤 `expose()`를 호출한다. 서버 수집은 `waitUntil()`에서 전송하며 로컬 `accepted`가 저장·학습 완료를 뜻하지 않는다. [신원·세션 연결](docs/INTEGRATION.md#3-ciduid와-서버-세션-연결)을 먼저 확인한다.
+선택과 실제 노출은 별개다. 요청 래퍼·브라우저에서 준비가 안 됐으면 명시적 `defaultArm`의 유효한 default 배정이나 미참여 `fallback`을 사용한다. 기본 구현·데이터는 서비스가 소유한다. 선택한 화면을 실제 제공한 뒤 `expose()`를 호출한다. 외부 사건은 발생 후 15초 이내 SDK와 수집 서버에 제출해야 한다. Queue 이후 재시도는 최초 서버 수신 시각을 유지한다. 서버 수집은 `waitUntil()`에서 전송하며 로컬 `accepted`가 저장·학습 완료를 뜻하지 않는다. [신원·세션 연결](docs/INTEGRATION.md#3-ciduid와-서버-세션-연결)을 먼저 확인한다.
 
 문구 등은 [데이터 arm](docs/DATA-ARMS.md)으로 코드 재배포 없이 추가·정지할 수 있다.
 
@@ -36,7 +36,7 @@ npm run check:package
 
 `check`는 타입·테스트·빌드와 생성 문서의 최신성을 확인한다. `check:package`는 외부 소비자 타입, 패키지 문서 링크, 설치 설정과 Worker 번들 dry-run을 검증한다. 실제 리소스는 배포하지 않는다. 바인딩 변경 시 `npm run types`로 타입을 갱신한다.
 
-API 설명은 TypeScript 소스의 JSDoc에 작성하고 `npm run docs:api`로 생성한다. 생성 문서를 직접 수정하지 않는다. `npm run docs:check`는 공개 export·클라이언트 메서드의 설명 누락과 생성 문서의 최신성을 검사한다. 문서 생성은 안정된 컴파일러 API를 제공하는 별칭 의존성 `typescript-docs`(6.x)를 사용하며, 제품 빌드와 타입 검사는 기존 TypeScript 7을 유지한다.
+API 설명은 TypeScript 소스의 JSDoc에 작성하고 `npm run build && npm run docs:api`로 생성한다. 새 체크아웃에서는 예제의 패키지 자체 참조를 해석할 `dist`가 먼저 필요하다. 생성 문서를 직접 수정하지 않는다. `npm run docs:check`는 공개 export·클라이언트 메서드의 설명 누락과 생성 문서의 최신성을 검사한다. 문서 생성은 안정된 컴파일러 API를 제공하는 별칭 의존성 `typescript-docs`(6.x)를 사용하며, 제품 빌드와 타입 검사는 기존 TypeScript 7을 유지한다.
 
 ## 라이선스
 

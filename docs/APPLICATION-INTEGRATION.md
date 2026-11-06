@@ -30,7 +30,7 @@ eye.track({ name: 'page_view', attributes: { path: '/checkout' } });
 return finish(response);
 ```
 
-`variant`는 원격 응답을 기다리지 않는다. 미준비·오류·서비스가 지원하지 않는 arm이면 fallback 값을 반환하고 armId는 null이다. 이때 expose는 null을 반환하며 아무 노출도 만들지 않는다. 지원하지 않는 arm과 SDK 오류는 onError로 보고한다. 정상적인 미준비는 오류로 보고하지 않으며 기존 decisions.onDecision으로 측정한다.
+기본 `variant`는 원격 응답을 기다리지 않는다. 양수 `maxWaitMs`를 명시하면 그 예산 안에서 정책 준비를 기다린다. 아래 fallback 설명은 `fallback` 정의 기준이며, 명시적 `defaultArm`의 실제 참여는 [빠른 실험 적용](LOW-LATENCY.md)을 따른다. 미준비·오류·서비스가 지원하지 않는 arm이면 fallback 값을 반환하고 armId는 null이다. 이때 expose는 null을 반환하며 아무 노출도 만들지 않는다. 지원하지 않는 arm과 SDK 오류는 onError로 보고한다. 정상적인 미준비는 오류로 보고하지 않으며 기존 decisions.onDecision으로 측정한다.
 
 선택만으로 노출되지 않는다. SSR에서는 해당 응답을 구성한 뒤 expose를 호출한다. 동일 핸들의 반복 expose는 최초 결과를 반환하고 다시 제출하지 않는다. 첫 제출이 실패해도 재시도하지 않는다. 별개의 노출이면 새 선택 핸들을 사용한다. 핸들은 현재 요청에만 사용하며 직렬화하거나 다음 요청으로 넘기지 않는다.
 
@@ -87,7 +87,7 @@ void prepareCheckout(); // 렌더링을 기다리게 하지 않는다.
 
 ## 구매 웹훅과 지연 사건
 
-구매가 확정됐을 때 생성한 업무 사건에 eventId, occurredAt, 원래 cid/uid와 금액을 고정한다. 주문 또는 서비스 outbox에 그 값을 저장하고 재전송에서도 그대로 사용한다. 웹훅 요청의 쿠키로 새 cid를 만들거나 현재 로그인한 관리자의 uid를 사용하지 않는다.
+구매가 확정됐을 때 생성한 업무 사건에 eventId, occurredAt, 원래 cid/uid와 금액을 고정한다. SDK와 Eye 수집 서버에 발생 후 15초 이내 제출해야 한다. 이미 지연된 웹훅·오래된 outbox 사건을 소급 수집할 수 없으며 현재 시각으로 바꿔 제출하지 않는다. Queue 접수 이후 내부 재시도는 최초 서버 수신 시각을 유지한다. 주문 또는 서비스 outbox에 그 값을 저장하고 재전송에서도 그대로 사용한다. 웹훅 요청의 쿠키로 새 cid를 만들거나 현재 로그인한 관리자의 uid를 사용하지 않는다.
 
 [business-events.ts](../examples/business-events.ts)의 reportPaidOrder는 이 경계를 보여준다. 결제 제공자 서명 확인과 업무 중복 처리는 서비스가 먼저 수행한다. Eye가 결제 성공 여부를 판단하지 않는다. cid가 없는 외부 사건을 임의의 cid로 기존 사용자에게 연결하지 말고, 주문 생성 때 신원 문맥을 저장한다.
 

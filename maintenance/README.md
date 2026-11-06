@@ -34,8 +34,9 @@ The script neither drops tables nor deletes R2 objects directly. The locked
 rewriting partitioned Catalog data files; unpartitioned local fixtures alone
 do not exercise that dependency.
 
-**Physical cleanup is a separate step.** Enable Catalog automatic snapshot
-expiration and compaction on this bucket during provisioning. Row deletion
+**Physical cleanup is a separate step.** Provisioning enables Catalog automatic snapshot
+expiration on this bucket. Compaction is not configured by the provisioning
+script; manage it separately if needed. Row deletion
 creates a new snapshot; old snapshots still reference the removed data until
 expiration runs. `--older-than-days 1 --retain-last 1` permits old snapshots to
 expire after a day while retaining the current snapshot. Actual file reclamation
