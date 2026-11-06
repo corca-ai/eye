@@ -1,8 +1,8 @@
 import { EyeError, invariant } from '../core/errors.js';
-import { AnalyticsSQL, TABLES } from './sql.js';
+import { AnalyticsSQL } from './sql.js';
 import type { Cursor, QueryPlan } from './sql.js';
-import type { AnalyticsTable } from './records.js';
-import type { EventListPage, AnalyticsAPI, AnalyticsMeta, AnalyticsPage, ArmQuery, ArmReport, AttributeValuesQuery, AttributeValueRow, GoalQuery, GoalRow, Scalar, SeriesQuery, SeriesRow, EventsQuery, TimelinePage, TimelineQuery, TimelineRow } from './types.js';
+import { object, numeric, armRow, learningRow, trafficRow, policyRow, attributeKeyRow, timelineRow, eventListRow, eventSeriesRow, goalRow, attributeValueRow, type Row } from './query-rows.js';
+import type { EventListPage, AnalyticsAPI, AnalyticsMeta, AnalyticsPage, ArmQuery, ArmReport, AttributeValuesQuery, AttributeValueRow, GoalQuery, GoalRow, SeriesQuery, SeriesRow, EventsQuery, TimelinePage, TimelineQuery, TimelineRow } from './types.js';
 
 /** Internal signal for retrying a smaller result partition, not a transient outage. */
 export class AnalyticsCapacityError extends EyeError {
@@ -14,35 +14,6 @@ export interface AnalyticsEnv {
   EYE_ANALYTICS_WAREHOUSE?: string;
   EYE_ANALYTICS_NAMESPACE?: string;
   EYE_ANALYTICS_TOKEN?: string;
-}
-type Row = Record<string, unknown>;
-function object(value: unknown): Row {
-  invariant(value !== null && typeof value === 'object' && !Array.isArray(value), 'unavailable', 'Malformed analytics response');
-  return value as Row;
-}
-function text(row: Row, key: string): string {
-  const value = row[key]; invariant(typeof value === 'string', 'unavailable', `Invalid analytics column: ${key}`); return value;
-}
-function numeric(row: Row, key: string): number {
-  const value = row[key];
-  invariant(typeof value === 'number' && Number.isFinite(value), 'numeric_range', `Analytics column ${key} is not a finite number`);
-  return value;
-}
-function allocationMode(row: Row): 'policy' | 'default' {
-  // Legacy remote readers/mocks without the added dimension describe policy only.
-  const mode = row.allocation_mode ?? 'policy';
-  invariant(mode === 'policy' || mode === 'default', 'unavailable', 'Invalid allocation mode');
-  return mode;
-}
-function scalar(value: unknown): Scalar {
-  invariant(value === null || typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value)), 'unavailable', 'Invalid analytics scalar');
-  return value;
-}
-function nullableText(row: Row, key: string): string | null { return row[key] === null ? null : text(row, key); }
-function jsonObject(row: Row, key: string): Row {
-  let parsed: unknown;
-  try { parsed = JSON.parse(text(row, key)); } catch { throw new EyeError('unavailable', `Invalid analytics JSON: ${key}`); }
-  return object(parsed);
 }
 async function readResponse(response: Response): Promise<unknown> {
   invariant(response.body, 'unavailable', 'Empty analytics response');
@@ -59,33 +30,6 @@ async function readResponse(response: Response): Promise<unknown> {
     body += decoder.decode();
     try { return JSON.parse(body); } catch { throw new EyeError('unavailable', 'Malformed analytics response'); }
   } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
-}
-function goalRow(row: Row): GoalRow {
-  return { goalId: text(row, 'goal_id'), events: numeric(row, 'events'), totalValue: numeric(row, 'total_value'), latestReceivedAt: numeric(row, 'latest_received_at') };
-}
-function eventPayload(row: Row): Row {
-  const payload = jsonObject(row, 'payload_json');
-  if (row.schema_version !== 2 || row.table_name !== 'events') return payload;
-  invariant(payload.kind === 'track' || payload.kind === 'goal', 'unavailable', 'Invalid compact event kind');
-  const { attributes: hasAttributes, ...details } = payload;
-  return { ...details, occurredAt: numeric(row, 'occurred_at'),
-    subject: { cid: text(row, 'cid'), ...(row.uid === null ? {} : { uid: text(row, 'uid') }) },
-    ...(hasAttributes === true ? { attributes: jsonObject(row, 'attributes_json') } : {}),
-    ...(payload.kind === 'goal' ? { goalId: text(row, 'goal_id'), value: numeric(row, 'value') } : {}),
-    processingStatus: text(row, 'status') };
-}
-function timelineRow(row: Row): TimelineRow {
-  const table = text(row, 'table_name');
-  invariant(table === 'events' || table === 'observations' || table === 'credits' || table === 'decisions' || table === 'identity_links', 'unavailable', 'Unknown analytics table');
-  return {
-    table, recordId: text(row, 'record_id'), revision: numeric(row, 'revision'),
-    occurredAt: numeric(row, 'occurred_at'), receivedAt: numeric(row, 'received_at'),
-    cid: nullableText(row, 'cid'), uid: nullableText(row, 'uid'), subjectKey: text(row, 'subject_key'),
-    experimentId: nullableText(row, 'experiment_id'), armId: nullableText(row, 'arm_id'), goalId: nullableText(row, 'goal_id'),
-    status: nullableText(row, 'status'), value: row.value === null ? null : numeric(row, 'value'),
-    attributes: Object.fromEntries(Object.entries(jsonObject(row, 'attributes_json')).map(([key, value]) => [key, scalar(value)])),
-    payload: eventPayload(row),
-  };
 }
 
 export class BasinAnalytics implements AnalyticsAPI {
@@ -133,74 +77,48 @@ export class BasinAnalytics implements AnalyticsAPI {
       bytesScanned: metrics.bytes_scanned === undefined ? null : numeric(metrics, 'bytes_scanned'),
     } };
   }
-  private async armReport(query: ArmQuery, bucketMs?: number) {
-    const result = await this.execute(this.sql().arms(query, bucketMs));
-    return { rewardBasis: 'raw_attribution' as const, cohortBasis: 'observation_start' as const, meta: result.meta, rows: result.rows.map(row => ({
-      ...(bucketMs === undefined ? {} : { bucketStart: numeric(row, 'bucket_start') }),
-      armId: text(row, 'arm_id'), generation: numeric(row, 'generation'), observationWindowMs: numeric(row, 'window_ms'),
-      groups: (query.groupBy ?? []).map((_, i) => scalar(row[`group_${i}`])), completed: numeric(row, 'completed'), pending: numeric(row, 'pending'),
-      allocationMode: allocationMode(row), subjects: numeric(row, 'subjects'), totalValue: numeric(row, 'total_value'), learningValue: numeric(row, 'learning_value'),
-      meanValue: row.mean_value === null ? null : numeric(row, 'mean_value'), latestReceivedAt: numeric(row, 'latest_received_at'),
-    })) };
+  async arms(query: ArmQuery): Promise<ArmReport> {
+    const result = await this.execute(this.sql().arms(query));
+    return { rewardBasis: 'raw_attribution', cohortBasis: 'observation_start',
+      meta: result.meta, rows: result.rows.map(row => armRow(row, query.groupBy ?? [])) };
   }
   async learning(query: import('./types.js').LearningQuery): Promise<import('./types.js').LearningReport> {
     const result = await this.execute(this.sql().learning(query));
-    return { allocationMode: 'all', rewardBasis: 'closed_learning', cohortBasis: 'observation_start', meta: result.meta, rows: result.rows.map(row => ({
-      experimentId: text(row, 'experiment_id'), armId: text(row, 'arm_id'), generation: numeric(row, 'generation'),
-      observationWindowMs: numeric(row, 'window_ms'), completed: numeric(row, 'completed'), learningValue: numeric(row, 'learning_value'),
-      meanValue: numeric(row, 'mean_value'), latestReceivedAt: numeric(row, 'latest_received_at'),
-    })) };
+    return { allocationMode: 'all', rewardBasis: 'closed_learning', cohortBasis: 'observation_start', meta: result.meta, rows: result.rows.map(learningRow) };
   }
-  async arms(query: ArmQuery): Promise<ArmReport> { return this.armReport(query); }
   async armSeries(query: import('./types.js').ArmSeriesQuery) {
     invariant(Number.isSafeInteger(query.bucketMs) && query.bucketMs > 0, 'invalid_input', 'bucketMs must be positive integer milliseconds');
-    const result = await this.armReport(query, query.bucketMs);
-    return { ...result, rows: result.rows.map(row => ({ ...row, bucketStart: row.bucketStart! })) };
+    const result = await this.execute(this.sql().arms(query, query.bucketMs));
+    return { rewardBasis: 'raw_attribution' as const, cohortBasis: 'observation_start' as const, meta: result.meta,
+      rows: result.rows.map(row => ({ bucketStart: numeric(row, 'bucket_start'), ...armRow(row, query.groupBy ?? []) })) };
   }
   async traffic(query: import('./types.js').TrafficQuery) {
     const result = await this.execute(this.sql().traffic(query));
-    return { meta: result.meta, rows: result.rows.map(row => ({ bucketStart: numeric(row, 'bucket_start'), armId: text(row, 'arm_id'),
-      generation: numeric(row, 'generation'), assignments: numeric(row, 'assignments'), exposures: numeric(row, 'exposures'),
-      allocationMode: allocationMode(row), assignmentShare: row.assignment_share === null ? null : numeric(row, 'assignment_share'), exposureShare: row.exposure_share === null ? null : numeric(row, 'exposure_share') })) };
+    return { meta: result.meta, rows: result.rows.map(trafficRow) };
   }
   async policies(query: import('./types.js').PolicyQuery) {
     const result = await this.execute(this.sql().policies(query));
-    return { meta: result.meta, rows: result.rows.map(row => {
-      const payload = jsonObject(row, 'payload_json');
-      return { occurredAt: numeric(row, 'occurred_at'), recordId: text(row, 'record_id'), armId: text(row, 'arm_id'), generation: numeric(payload, 'generation'),
-        probability: numeric(payload, 'probability'), meanReward: payload.meanReward === null ? null : numeric(payload, 'meanReward'), score: payload.score === null ? null : numeric(payload, 'score'), scoreScale: numeric(payload, 'scoreScale'), reason: text(payload, 'reason'), status: text(payload, 'status') };
-    }) };
+    return { meta: result.meta, rows: result.rows.map(policyRow) };
   }
   async attributeKeys(query: import('./types.js').QueryRange): ReturnType<AnalyticsAPI['attributeKeys']> {
     const result = await this.execute(this.sql().attributeKeys(query));
-    return { coverage: { basis: 'utc_day', from: Math.floor(query.from / 86_400_000) * 86_400_000, to: Math.ceil(query.to / 86_400_000) * 86_400_000 }, meta: result.meta, rows: result.rows.map(row => {
-      const type = text(row, 'attribute_type'), source = text(row, 'attribute_source');
-      invariant(type === 'string' || type === 'number' || type === 'boolean' || type === 'null', 'unavailable', 'Invalid attribute type');
-      invariant(source === 'event' || source === 'user', 'unavailable', 'Invalid attribute source');
-      return { key: text(row, 'attribute_key'), type, source, latestReceivedAt: numeric(row, 'latest_received_at') };
-    }) };
+    return { coverage: { basis: 'utc_day', from: Math.floor(query.from / 86_400_000) * 86_400_000, to: Math.ceil(query.to / 86_400_000) * 86_400_000 }, meta: result.meta, rows: result.rows.map(attributeKeyRow) };
   }
   async timeline(query: TimelineQuery): Promise<TimelinePage> {
-    return this.eventPage(this.sql().timeline(query));
+    return this.eventPage(this.sql().timeline(query), timelineRow, row => row.table);
   }
-  async events(query: EventsQuery): Promise<TimelinePage> { return this.eventPage(this.sql().events(query)); }
+  async events(query: EventsQuery): Promise<TimelinePage> { return this.eventPage(this.sql().events(query), timelineRow, row => row.table); }
   async eventList(query: EventsQuery): Promise<EventListPage> {
-    const plan = this.sql().events(query, true), result = await this.execute(plan);
-    const rows = result.rows.map(row => ({ recordId: text(row, 'record_id'),
-      occurredAt: numeric(row, 'occurred_at'), receivedAt: numeric(row, 'received_at'),
-      name: nullableText(row, 'event_name') ?? nullableText(row, 'goal_id') ?? nullableText(row, 'event_kind') ?? 'event',
-      cid: nullableText(row, 'cid'), uid: nullableText(row, 'uid'), goalId: nullableText(row, 'goal_id'),
-      status: nullableText(row, 'status'), value: row.value === null ? null : numeric(row, 'value'),
-      attributes: Object.fromEntries(Object.entries(jsonObject(row, 'attributes_json')).map(([key, value]) => [key, scalar(value)])),
-    }));
-    const last = rows.at(-1);
-    const cursor: Cursor | null = result.meta.truncated && last ? { fingerprint: plan.fingerprint,
-      receivedBefore: plan.receivedBefore, at: last.occurredAt, table: 'events', id: last.recordId } : null;
-    return { rows, meta: result.meta, nextCursor: cursor ? JSON.stringify(cursor) : null };
+    return this.eventPage(this.sql().events(query, true), eventListRow, () => 'events');
   }
-  private async eventPage(plan: QueryPlan): Promise<TimelinePage> {
-    const result = await this.execute(plan), rows = result.rows.map(timelineRow), last = rows.at(-1);
-    const cursor: Cursor | null = result.meta.truncated && last ? { fingerprint: plan.fingerprint, receivedBefore: plan.receivedBefore, at: last.occurredAt, table: last.table, id: last.recordId } : null;
+  private async eventPage<T extends Pick<TimelineRow, 'recordId' | 'occurredAt'>>(
+    plan: QueryPlan, decode: (row: Row) => T, table: (row: T) => Cursor['table'],
+  ): Promise<AnalyticsPage<T> & { nextCursor: string | null }> {
+    const result = await this.execute(plan), rows = result.rows.map(decode), last = rows.at(-1);
+    const cursor: Cursor | null = result.meta.truncated && last ? {
+      fingerprint: plan.fingerprint, receivedBefore: plan.receivedBefore,
+      at: last.occurredAt, table: table(last), id: last.recordId,
+    } : null;
     return { rows, meta: result.meta, nextCursor: cursor ? JSON.stringify(cursor) : null };
   }
   async goals(query: GoalQuery): Promise<AnalyticsPage<GoalRow>> {
@@ -210,14 +128,13 @@ export class BasinAnalytics implements AnalyticsAPI {
     const result = await this.execute(this.sql().eventSeries(query));
     invariant(!result.meta.truncated, 'unavailable', 'Event series exceeded its bucket budget');
     return { meta: { ...result.meta, cacheHit: false, cacheExpiresAt: result.meta.queriedAt },
-      rows: result.rows.map(row => ({ bucketStart: numeric(row, 'bucket_start'), events: numeric(row, 'events'),
-        latestReceivedAt: numeric(row, 'latest_received_at') })) };
+      rows: result.rows.map(eventSeriesRow) };
   }
   async series(query: SeriesQuery): Promise<AnalyticsPage<SeriesRow>> {
     const result = await this.execute(this.sql().series(query)); return { meta: result.meta, rows: result.rows.map(row => ({ ...goalRow(row), bucketStart: numeric(row, 'bucket_start') })) };
   }
   async attributeValues(query: AttributeValuesQuery): Promise<AnalyticsPage<AttributeValueRow>> {
     const result = await this.execute(this.sql().attributeValues(query));
-    return { meta: result.meta, rows: result.rows.map(row => ({ value: scalar(row.attribute_value), events: numeric(row, 'events'), latestReceivedAt: numeric(row, 'latest_received_at') })) };
+    return { meta: result.meta, rows: result.rows.map(attributeValueRow) };
   }
 }
