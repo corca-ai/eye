@@ -1,6 +1,7 @@
 import { createEye, type EyeClient, type EyeOptions, type EventInput, type Submission } from './client.js';
 import { selectionFallback, selectionValue, isDataDefinition, withinBudget, type SelectionDefinition } from './variant-definition.js';
 import { EyeError } from './core/errors.js';
+import { reportedInBackground } from './decisions.js';
 import type { Attributes, GoalEvent, Subject, TrackEvent } from './core/types.js';
 
 /** 요청마다 생성하며 신원은 생성 당시 값으로 고정한다. 로그인 전환 뒤에는 새 인스턴스를 만든다. */
@@ -125,7 +126,7 @@ export function createEyeRequest(options: EyeRequestOptions): EyeRequest {
         try {
           const prepared = await withinBudget(eye.prepare({ subject, experimentId: definition.experimentId }), wait.maxWaitMs);
           if (prepared) decision = prepared.decision;
-        } catch (error) { report(error); }
+        } catch (error) { if (!reportedInBackground(error)) report(error); }
       }
       if (decision.status === 'assigned') {
         const value = selectionValue(definition, decision.assignment.armId, decision.data);

@@ -26,7 +26,8 @@ selected.expose();
 
 `eye.prepare(['landing'])`으로 준비를 명시적으로 시작하고 기다릴 수도 있다. 선택·노출은
 발생하지 않으며 진행 중인 요청과 상태를 공유한다. 한 번에 최대 20개다. 준비 결과는
-실험별 assigned/inactive/unavailable이며 전송 실패는 onError에도 전달된다.
+실험별 assigned/inactive/unavailable이며 전송 실패는 onError에도 전달된다. 등록되지 않은 실험은
+inactive이고 오류로 보고하지 않는다.
 
 부분 요소처럼 로딩 대기를 원래 갖는 곳에서는 코드·데이터 로딩과 준비를 겹친다.
 `view.variantAsync(definition, { maxWaitMs: 80 })`은 준비를 제한된 시간만 기다린 뒤

@@ -41,23 +41,24 @@ it('reuses policy publication until aging, invalidates on new learning/config, a
   await runInDurableObject(stub, async (actor, state) => {
     const experiment = new ExperimentState(state.storage.sql, state.storage.kv, 'exp');
     let now = Date.now(); const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const read = async (maxAgeMs?: number) => (await actor.publishedPolicy(siteId, 'exp', maxAgeMs))!;
     try {
-      const first = await actor.publishedPolicy(siteId, 'exp');
+      const first = await read();
       now += 20 * 60_000;
-      expect((await actor.publishedPolicy(siteId, 'exp')).sequence).toBe(first.sequence);
+      expect((await read()).sequence).toBe(first.sequence);
       const asOf = now;
       const arms = [{ experimentId: 'exp', armId: 'a', generation: 1, samples: 10, moments: addSample(emptyMoments(asOf), 50, 10) }];
       state.storage.transactionSync(() => experiment.applyMoments({ asOf, arms }));
-      const learned = await actor.publishedPolicy(siteId, 'exp');
+      const learned = await read();
       expect(learned.sequence).toBe(first.sequence + 1); expect(learned.statsAsOf).toBe(asOf);
       state.storage.transactionSync(() => experiment.applyMoments({ asOf, arms }));
-      expect((await actor.publishedPolicy(siteId, 'exp')).sequence).toBe(learned.sequence + 1);
+      expect((await read()).sequence).toBe(learned.sequence + 1);
       now += 3_600_001;
-      const aged = await actor.publishedPolicy(siteId, 'exp');
+      const aged = await read();
       expect(aged.sequence).toBe(learned.sequence + 2); expect(aged.statsAsOf).toBe(asOf);
-      actor.addExperimentArm(siteId, 'exp', 'b'); expect((await actor.publishedPolicy(siteId, 'exp')).activeArms).toEqual(['a', 'b']);
+      actor.addExperimentArm(siteId, 'exp', 'b'); expect((await read()).activeArms).toEqual(['a', 'b']);
       now += 1001;
-      expect((await actor.publishedPolicy(siteId, 'exp', 1000)).sequence).toBe(aged.sequence + 2);
+      expect((await read(1000)).sequence).toBe(aged.sequence + 2);
     } finally { clock.mockRestore(); }
   });
 });

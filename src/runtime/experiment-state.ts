@@ -53,6 +53,8 @@ export class ExperimentState {
     this.kv.put('definition', parsed); this.kv.put('config', config); this.kv.put('generation:1', config.settings);
     return config;
   }
+  /** Request paths ask about IDs no operator has registered yet; management reads keep throwing not_found. */
+  exists(): boolean { return this.kv.get('config') !== undefined; }
   getConfig(): Experiment {
     const config = this.kv.get<Experiment>('config');
     invariant(config, 'not_found', 'Experiment does not exist');

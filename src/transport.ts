@@ -21,8 +21,9 @@ export interface PublishedPolicy extends PolicySnapshot {
   /** 실험 전체의 상태와 신규 선택 가능한 arm ID 목록. */
   status: ArmStatus; activeArms: string[];
 }
-/** reuseUntil은 이번 결정의 적용 기한(Unix 밀리초)이다. 정책 유효기간과 유지·관측 조건으로 결정하며 저장 문맥의 삭제 시각은 아니다. */
-export interface PreparedDecision { decision: Decision; reuseUntil: number; policy: PublishedPolicy }
+/** reuseUntil은 이번 결정의 적용 기한(Unix 밀리초)이다. 정책 유효기간과 유지·관측 조건으로 결정하며 저장 문맥의 삭제 시각은 아니다.
+ * policy가 null이면 등록되지 않은 실험이며 decision은 no_active_arm이다. */
+export interface PreparedDecision { decision: Decision; reuseUntil: number; policy: PublishedPolicy | null }
 /** 호스트 Worker의 Service Binding 타입. 바인딩 이름은 자유이며 일반 연동은 createEye로 호출한다.
  * 저수준 RPC 계약이며 호스트의 사용자 인증이나 HTTP 라우팅을 대신하지 않는다. */
 export interface EyeService {
@@ -41,7 +42,8 @@ export interface EyeService {
   analyticsJobPage(input: Parameters<AnalyticsJobsAPI['page']>[0]): Promise<string>;
   analyticsJobCancel(input: Parameters<AnalyticsJobsAPI['cancel']>[0]): ReturnType<AnalyticsJobsAPI['cancel']>;
 
-  getPublishedPolicy(experimentId: string, maxAgeMs?: number): Promise<PublishedPolicy>;
+  /** 등록되지 않은 실험은 오류가 아니라 null이다. 요청 경로가 등록 전의 ID를 조회할 수 있다. */
+  getPublishedPolicy(experimentId: string, maxAgeMs?: number): Promise<PublishedPolicy | null>;
   ingest(events: readonly Omit<EventEnvelope, 'siteId'>[]): Promise<void>;
   createExperiment(input: CreateExperiment): Promise<Experiment>;
   getExperiment(experimentId: string): Promise<Experiment>;

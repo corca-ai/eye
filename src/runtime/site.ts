@@ -79,9 +79,12 @@ export class SiteControl extends StoredObject {
   getExperimentPolicy(siteId: string, experimentId: string) {
     this.checkSite(siteId); return this.state(experimentId).getPolicy();
   }
+  /** null: no such experiment. Hosts ask on ordinary requests before an operator registers one,
+   * so this is an answer they cache, not a failure they report. */
   async publishedPolicy(siteId: string, experimentId: string, maxAgeMs = POLICY_REEVALUATION_MS) {
     this.checkSite(siteId);
-    const state = this.state(experimentId), cached = state.cachedPolicy(maxAgeMs); if (cached) return cached;
+    const state = this.state(experimentId); if (!state.exists()) return null;
+    const cached = state.cachedPolicy(maxAgeMs); if (cached) return cached;
     await this.wakeAt(Date.now() + 1000);
     const result = this.atomic(() => state.publish(siteId, maxAgeMs));
     await this.scheduleLearning(Date.now()); return result;
