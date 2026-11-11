@@ -33,7 +33,7 @@ it('retains immutable data across idempotent adds, pause/resume/delete and new p
   });
   expect((await f.admin.experiments.addArm('copy', 'b')).arms.find(a => a.armId === 'b')!.data).toEqual({ headline: 'Remote B' });
   await f.admin.experiments.pauseArm('copy', 'b'); await f.admin.experiments.resumeArm('copy', 'b');
-  const published = await f.options.service.getPublishedPolicy('copy'); expect(published.armData).toEqual({ b: { headline: 'Remote B' } });
+  const published = (await f.options.service.getPublishedPolicy('copy'))!; expect(published.armData).toEqual({ b: { headline: 'Remote B' } });
   await f.admin.experiments.deleteArm('copy', 'b');
   await runInDurableObject(stub, (_actor, state) => {
     const experiment = new ExperimentState(state.storage.sql, state.storage.kv, 'copy');
@@ -64,7 +64,7 @@ it('sends only selected data in browser snapshots and keeps receipts small, then
 });
 it('records the host default instead of a rejected data arm and honors disabled experiments', async () => {
   const f = await fixture(); await f.admin.experiments.resumeArm('copy', 'control');
-  const published = await f.options.service.getPublishedPolicy('copy');
+  const published = (await f.options.service.getPublishedPolicy('copy'))!;
   const policy = { ...published, arms: published.arms.map(a => ({ ...a, probability: a.armId === 'b' ? 1 : 0 })) };
   const request = createEyeRequest({ ...f.options, decisions: { secret, cache: new DecisionCache(), initialPolicies: [policy] } }), rejected = await request.data({ ...definition, parse() { throw Error('bad content'); } });
   expect(rejected.armId).toBe('control'); expect(rejected.value).toBe(baseline); rejected.expose(); await waitOnExecutionContext(f.options.ctx);
@@ -83,13 +83,13 @@ it('creates paused experiments and arms without ever publishing an active prepar
   const ctx = createExecutionContext(), admin = createEye({ service: exports.default, ctx });
   const input = { experimentId: 'draft', initialStatus: 'paused' as const, arms: ['control'], settings: { minHoldMs: 0 } };
   expect((await admin.experiments.create(input)).status).toBe('paused');
-  expect((await exports.default.getPublishedPolicy('draft')).status).toBe('paused');
+  expect((await exports.default.getPublishedPolicy('draft'))!.status).toBe('paused');
   await admin.experiments.resume('draft');
   // A retry of the original create must not undo an operator's later start.
   expect((await admin.experiments.create(input)).status).toBe('active');
   const arm = { armId: 'candidate', initialStatus: 'paused' as const, data: { en: 'Candidate' } };
   expect((await admin.experiments.addArm('draft', arm)).arms.find(a => a.armId === 'candidate')?.status).toBe('paused');
-  expect((await exports.default.getPublishedPolicy('draft')).activeArms).toEqual(['control']);
+  expect((await exports.default.getPublishedPolicy('draft'))!.activeArms).toEqual(['control']);
   await admin.experiments.resumeArm('draft', 'candidate');
   expect((await admin.experiments.addArm('draft', arm)).arms.find(a => a.armId === 'candidate')?.status).toBe('active');
   expect(() => admin.experiments.create({ ...input, experimentId: 'bad', initialStatus: 'deleted' as 'paused' })).toThrow('initial status');

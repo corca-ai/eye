@@ -26,7 +26,7 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
   }
   async getInstallationId(): Promise<string> { return this.installationId; }
   override fetch(): Response { return new Response('Not found', { status: 404 }); }
-  async getPublishedPolicy(experimentId: string, maxAgeMs?: number): Promise<PublishedPolicy> { return this.site().publishedPolicy(this.installationId, id(experimentId, 'experimentId'), maxAgeMs); }
+  async getPublishedPolicy(experimentId: string, maxAgeMs?: number): Promise<PublishedPolicy | null> { return this.site().publishedPolicy(this.installationId, id(experimentId, 'experimentId'), maxAgeMs); }
   async ingest(inputs: readonly Omit<EventEnvelope, 'siteId'>[]): Promise<void> {
     invariant(Array.isArray(inputs) && inputs.length <= 100, 'invalid_input', 'An ingestion batch must contain at most 100 events');
     const receivedAt = Date.now();

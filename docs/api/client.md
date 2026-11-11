@@ -778,18 +778,20 @@ getOrCreateCid(request: Request, options?: CidCookieOptions): CidCookie
 
 임포트: `@eye/workers`
 
-정책만 저장하는 isolate 캐시. capacity 기본 1000, 양의 정수. 호스트는 생성 후 decisions.cache에 전달하며 read/checkedAt/begin/put은 SDK 내부 갱신용이다.
+정책과 미등록 실험 응답만 저장하는 isolate 캐시. capacity 기본 1000, 양의 정수. 호스트는 생성 후 decisions.cache에 전달하며 read/absent/checkedAt/begin/put은 SDK 내부 갱신용이다.
 
 ```ts
 constructor(capacity?: number): DecisionCache
 /** SDK 갱신용. 키에 저장된 정책을 읽으며 최신성을 보장하지 않는다. */
 read: (key: string) => PublishedPolicy | undefined
+/** SDK 갱신용. 마지막 확인에서 런타임이 등록되지 않은 실험이라고 답했으면 true. */
+absent: (key: string) => boolean
 /** SDK 갱신용. 마지막 정책 확인 시각(Unix ms); 확인 이력이 없으면 undefined. */
 checkedAt: (key: string) => number | undefined
 /** SDK 갱신용. 키별 조회 시작을 10초 간격으로 제한하며 허용되면 true. */
 begin: (key: string, now: number) => boolean
-/** SDK 갱신용. 더 오래된 sequence는 무시한다. 채택한 정책은 확인 시각을 기록한다. */
-put: (key: string, policy: PublishedPolicy, checkedAt?: number) => void
+/** SDK 갱신용. 더 오래된 sequence는 무시한다. null은 등록되지 않은 실험이며 순서를 비교할 수 없어 저장된 정책을 대체한다. 채택한 응답은 확인 시각을 기록한다. */
+put: (key: string, policy: PublishedPolicy | null, checkedAt?: number) => void
 ```
 
 타입: [PublishedPolicy](types.md#publishedpolicy)

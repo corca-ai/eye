@@ -37,12 +37,14 @@ export interface DecisionOptions {
   /** 로컬 배정 또는 실제 노출로 상태가 바뀌면 서명 후 호출한다. 다음 요청이 읽을 서버 세션에 저장한다. 쿠키는 state()를 기다린 뒤 응답에 쓴다. */
   onPrepared?: (experimentId: string, token: string) => Promise<void> | void;
 }
-/** 정책만 저장하는 isolate 캐시. capacity 기본 1000, 양의 정수. 호스트는 생성 후 decisions.cache에 전달하며 read/checkedAt/begin/put은 SDK 내부 갱신용이다. */
+/** 정책과 미등록 실험 응답만 저장하는 isolate 캐시. capacity 기본 1000, 양의 정수. 호스트는 생성 후 decisions.cache에 전달하며 read/absent/checkedAt/begin/put은 SDK 내부 갱신용이다. */
 export class DecisionCache {
-  private readonly entries = new Map<string, { policy?: PublishedPolicy; retryAt: number; checkedAt?: number }>();
+  private readonly entries = new Map<string, { policy?: PublishedPolicy; absent?: true; retryAt: number; checkedAt?: number }>();
   constructor(private readonly capacity = 1000) { invariant(Number.isSafeInteger(capacity) && capacity > 0, 'invalid_input', 'Invalid policy cache capacity'); }
   /** SDK 갱신용. 키에 저장된 정책을 읽으며 최신성을 보장하지 않는다. */
   read(key: string): PublishedPolicy | undefined { return this.entries.get(key)?.policy; }
+  /** SDK 갱신용. 마지막 확인에서 런타임이 등록되지 않은 실험이라고 답했으면 true. */
+  absent(key: string): boolean { return this.entries.get(key)?.absent === true; }
   /** SDK 갱신용. 마지막 정책 확인 시각(Unix ms); 확인 이력이 없으면 undefined. */
   checkedAt(key: string): number | undefined { return this.entries.get(key)?.checkedAt; }
   /** SDK 갱신용. 키별 조회 시작을 10초 간격으로 제한하며 허용되면 true. */
@@ -54,11 +56,12 @@ export class DecisionCache {
     while (this.entries.size > this.capacity) this.entries.delete(this.entries.keys().next().value!);
     return true;
   }
-  /** SDK 갱신용. 더 오래된 sequence는 무시한다. 채택한 정책은 확인 시각을 기록한다. */
-  put(key: string, policy: PublishedPolicy, checkedAt = Date.now()): void {
+  /** SDK 갱신용. 더 오래된 sequence는 무시한다. null은 등록되지 않은 실험이며 순서를 비교할 수 없어 저장된 정책을 대체한다. 채택한 응답은 확인 시각을 기록한다. */
+  put(key: string, policy: PublishedPolicy | null, checkedAt = Date.now()): void {
     const old = this.entries.get(key);
-    if (old?.policy && old.policy.sequence > policy.sequence) return;
-    this.entries.set(key, { policy: old?.policy?.sequence === policy.sequence ? old.policy : policy, retryAt: 0, checkedAt });
+    if (policy === null) this.entries.set(key, { absent: true, retryAt: 0, checkedAt });
+    else if (old?.policy && old.policy.sequence > policy.sequence) return;
+    else this.entries.set(key, { policy: old?.policy?.sequence === policy.sequence ? old.policy : policy, retryAt: 0, checkedAt });
     while (this.entries.size > this.capacity) this.entries.delete(this.entries.keys().next().value!);
   }
 }
@@ -82,7 +85,11 @@ export function validateDecisionOptions(options: DecisionOptions | undefined): v
   if (options) invariant(typeof options.secret === 'string' && encoder.encode(options.secret).length >= 32,
     'invalid_input', 'Configure a decision secret of at least 32 UTF-8 bytes');
 }
-const policyLoads = new WeakMap<DecisionCache, Map<string, { work: Promise<PublishedPolicy>; expiresAt: number }>>();
+const policyLoads = new WeakMap<DecisionCache, Map<string, { work: Promise<PublishedPolicy | null>; expiresAt: number }>>();
+const reported = new WeakSet<object>();
+/** True when background work already delivered this failure to the host's onError.
+ * A caller that also receives the rejection skips it, so one failed lookup is reported once. */
+export function reportedInBackground(error: unknown): boolean { return typeof error === 'object' && error !== null && reported.has(error); }
 function b64(bytes: Uint8Array): string { return btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', ''); }
 function unb64(text: string): Uint8Array { return Uint8Array.from(atob(text.replaceAll('-', '+').replaceAll('_', '/')), c => c.charCodeAt(0)); }
 export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionContext, 'waitUntil'>, options: DecisionOptions | undefined, report: (error: unknown) => void) {
@@ -123,8 +130,8 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
     if (!cache.read(key(policy.experimentId)) || cache.read(key(policy.experimentId))!.sequence < policy.sequence)
       cache.put(key(policy.experimentId), policy, policy.publishedAt);
   }
-  const background = (work: Promise<unknown>) => ctx.waitUntil(work.catch(report));
-  const fetchPolicy = (experimentId: string, force = false): Promise<PublishedPolicy> => {
+  const background = (work: Promise<unknown>) => ctx.waitUntil(work.catch(error => { if (typeof error === 'object' && error !== null) reported.add(error); report(error); }));
+  const fetchPolicy = (experimentId: string, force = false): Promise<PublishedPolicy | null> => {
     let loads = policyLoads.get(cache);
     if (!loads) { loads = new Map(); policyLoads.set(cache, loads); }
     const loadKey = JSON.stringify([bindingKey, experimentId, maxAge]);
@@ -133,7 +140,7 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
     const work = (async () => {
       const policy = await service.getPublishedPolicy(experimentId, maxAge);
       cache.put(key(experimentId), policy);
-      return cache.read(key(experimentId))!;
+      return policy === null ? null : cache.read(key(experimentId))!;
     })();
     if (!force) {
       loads.delete(loadKey);
@@ -145,6 +152,16 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
     return work;
   };
   const refresh = (experimentId: string) => { if (cache.begin(key(experimentId), Date.now())) background(fetchPolicy(experimentId)); };
+  /** null: the runtime answered that no such experiment is registered. That answer is reused
+   * and rechecked on the policy schedule: in the background after freshMs, dropped after maxAgeMs. */
+  const known = (experimentId: string): PublishedPolicy | null | undefined => {
+    const slot = key(experimentId), policy = cache.read(slot);
+    if (policy || !cache.absent(slot)) return policy;
+    const checked = cache.checkedAt(slot) ?? 0, now = Date.now();
+    if (now >= checked + maxAge) return undefined;
+    if (now >= checked + fresh) refresh(experimentId);
+    return null;
+  };
   const seal = async (context: LocalAssignmentContext) => {
     const payload = b64(encoder.encode(JSON.stringify({ version: 2, context })));
     const signature = b64(new Uint8Array(await crypto.subtle.sign('HMAC', await signingKey(), encoder.encode(`eye/local/v2/${payload}`))));
@@ -191,10 +208,11 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
       if (!session.context) { session.context = context; session.token = token; }
     } catch (error) { report(error); }
   };
-  const choose = (subject: Subject, experimentId: string, policy: PublishedPolicy | undefined): { decision: Decision; selection: LocalSelection } => {
+  const choose = (subject: Subject, experimentId: string, policy: PublishedPolicy | null | undefined): { decision: Decision; selection: LocalSelection } => {
     const previous = sessions.get(experimentId)?.context, now = Date.now();
     const siteId = policy?.installationId ?? 'unprepared';
-    const selection = selectLocal({ siteId, experimentId, subject, now, newId: () => crypto.randomUUID(),
+    // An unregistered experiment has nothing to select; known() owns its recheck.
+    const selection: LocalSelection = policy === null ? { status: 'no_active_arm', refreshPolicy: false } : selectLocal({ siteId, experimentId, subject, now, newId: () => crypto.randomUUID(),
       ...(previous === undefined ? {} : { previous }), ...(policy === undefined ? {} : { policy: {
         ...policy, siteId, active: policy.status === 'active', freshUntil: (cache.checkedAt(key(experimentId)) ?? policy.publishedAt) + fresh, usableUntil: policy.publishedAt + maxAge,
         attributionWindowMs: policy.settings.attributionWindowMs ?? 7 * 86_400_000,
@@ -207,7 +225,7 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
     } : { status: selection.status, experimentId };
     if (selection.status === 'assigned' && selection.context !== previous) persist(experimentId, selection.context);
     try { options?.onDecision?.({ experimentId, outcome: selection.status === 'unavailable' ? 'skipped' : selection.status,
-      reason: !policy ? 'cold' : now >= policy.publishedAt + maxAge ? 'expired' : selection.status === 'no_active_arm' ? 'inactive' : selection.refreshPolicy ? 'stale' : 'fresh', authenticated: subject.uid !== undefined, at: now }); } catch (error) { report(error); }
+      reason: policy === undefined ? 'cold' : policy !== null && now >= policy.publishedAt + maxAge ? 'expired' : selection.status === 'no_active_arm' ? 'inactive' : selection.refreshPolicy ? 'stale' : 'fresh', authenticated: subject.uid !== undefined, at: now }); } catch (error) { report(error); }
     return { decision, selection };
   };
   const decide = async (subject: Subject, experimentId: string, supplied?: LocalAssignmentContext): Promise<Decision> => {
@@ -219,15 +237,15 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
         && context.subject.cid === subject.cid && context.subject.uid === subject.uid, 'invalid_input', 'Policy context mismatch');
       sessionFor(experimentId).context = context;
     }
-    return choose(subject, experimentId, cache.read(key(experimentId))).decision;
+    return choose(subject, experimentId, known(experimentId)).decision;
   };
   const prepare = async (subject: Subject, experimentId: string, context?: LocalAssignmentContext, forceRefresh = false): Promise<PreparedDecision & { token: string | null }> => {
     invariant(options, 'invalid_input', 'Configure decisions.secret');
     await restore(experimentId);
     const supplied = context === undefined ? undefined : parseLocalContext(context);
     if (supplied) sessionFor(experimentId).context = supplied;
-    const cached = cache.read(key(experimentId)), now = Date.now();
-    const policy = !forceRefresh && cached && cached.publishedAt <= now && now < cached.publishedAt + maxAge
+    const cached = forceRefresh ? undefined : known(experimentId), now = Date.now();
+    const policy = cached === null || (cached !== undefined && cached.publishedAt <= now && now < cached.publishedAt + maxAge)
       ? cached : await fetchPolicy(experimentId, forceRefresh);
     const result = choose(subject, experimentId, policy);
     // choose() persists new selections, but a supplied held context also needs
@@ -249,7 +267,8 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
         && context.subject.cid === subject.cid && context.subject.uid === subject.uid, 'invalid_input', 'Default context mismatch');
       sessionFor(slot).context = context;
     }
-    const policy = cache.read(key(experimentId));
+    const policy = known(experimentId);
+    if (policy === null) return { status: 'no_active_arm', experimentId };
     const previous = sessions.get(slot)?.context;
     const selection = selectDefault({ siteId: policy?.installationId ?? 'unprepared', experimentId, subject,
       now: Date.now(), defaultArm, newId: () => crypto.randomUUID(),

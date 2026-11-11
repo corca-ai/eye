@@ -121,7 +121,7 @@ if (applied) {
 eye.track({ subject, name: 'page_view', attributes: { path: '/checkout' } });
 ```
 
-`decide`는 원격 응답을 기다리지 않는다. cold·만료 정책은 `unavailable`, 비활성 실험이나 활성 arm이 없는 경우는 `no_active_arm`이다. 기본 화면을 사용하고 미참여 노출은 기록하지 않는다. 정책이 유효하면 이전 토큰 없이도 로컬 배정할 수 있다. 정책은 마지막 확인 후 15분에 백그라운드 재확인하고 발행 후 최대 6시간까지 재사용한다. freshMs/maxAgeMs로 줄일 수 있으며 새 확인이 원래 발행 시각을 연장하지 않는다. `onPrepared`는 배정·실제 노출로 바뀐 문맥을 저장한다.
+`decide`는 원격 응답을 기다리지 않는다. cold·만료 정책은 `unavailable`, 비활성 실험이나 활성 arm이 없는 경우는 `no_active_arm`이다. 아직 등록하지 않은 실험도 `no_active_arm`이다. 런타임이 오류 없이 미등록이라고 답하고 캐시가 그 응답을 정책과 같은 간격으로 재사용하므로, 등록 전의 요청은 매번 조회하거나 실패를 보고하지 않는다. 나중에 등록한 실험은 다음 재확인부터 적용된다. 기본 화면을 사용하고 미참여 노출은 기록하지 않는다. 정책이 유효하면 이전 토큰 없이도 로컬 배정할 수 있다. 정책은 마지막 확인 후 15분에 백그라운드 재확인하고 발행 후 최대 6시간까지 재사용한다. freshMs/maxAgeMs로 줄일 수 있으며 새 확인이 원래 발행 시각을 연장하지 않는다. `onPrepared`는 배정·실제 노출로 바뀐 문맥을 저장한다.
 
 ### 장애 시 기본 화면으로 돌아가기
 
@@ -204,7 +204,7 @@ if (!result.accepted) console.error(result.error.code, result.error.message);
 | 증상 | 먼저 확인할 것 |
 | --- | --- |
 | 계속 unavailable | secret, 정책 조회 실패·캐시 갱신, onPrepared 오류. 설정 없는 decide는 자동 참여하지 않음 |
-| no_active_arm | 실험 상태와 활성 arm, 로컬 정책 갱신 대기 |
+| no_active_arm | 실험 등록 여부와 상태, 활성 arm, 로컬 정책 갱신 대기 |
 | 골은 있는데 arm 완료 평균이 없음 | 실제 expose, 관측 종료 후 고정 1분 유예, 귀속 범위, 마감 전 학습 처리 여부 |
 | 속성별 결과가 예상과 다름 | expose.userAttributes와 사건 attributes 구분, 최초 노출 시점의 값 |
 | 분석 결과가 비거나 이전 값임 | 같은 Eye 바인딩, 분석 토큰·파이프라인, 최종 일관성, 최근 60일 범위 |

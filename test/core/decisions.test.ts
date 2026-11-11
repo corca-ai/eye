@@ -110,7 +110,7 @@ function fixture() {
     settings: settings({ minHoldMs: 100000 }), asOf: now, scoreScale: 1,
     arms: [{ armId: 'a', weight: 0, meanReward: 0, score: 1, probability: 1 }],
     publishedAt: now, sequence: 1, status: 'active', activeArms: ['a'] };
-  const service = { getPublishedPolicy: vi.fn(async (_experimentId: string) => policy) };
+  const service = { getPublishedPolicy: vi.fn(async (_experimentId: string): Promise<PublishedPolicy | null> => policy) };
   const pending: Promise<unknown>[] = [], ctx = { waitUntil: (p: Promise<unknown>) => { pending.push(p); } };
   const cache = new DecisionCache();
   return { policy, service, cache, pending, ctx, advance: (ms: number) => { clock += ms; } };
@@ -330,6 +330,24 @@ it('shares concurrent cold preparation but retries a failed load', async () => {
   const result = await Promise.all(Array.from({ length: 20 }, () => runtime().prepare({ cid: 'c' }, 'exp')));
   expect(result.every(r => r.decision.status === 'assigned')).toBe(true);
   expect(f.service.getPublishedPolicy).toHaveBeenCalledTimes(2);
+  await Promise.all(f.pending);
+});
+
+it('reuses an unregistered answer, rechecks it in the background and adopts the experiment once registered', async () => {
+  const f = fixture(), report = vi.fn(), onDecision = vi.fn();
+  const make = () => decisionRuntime(f.service, f.ctx, { secret, cache: f.cache, freshMs: 1000, maxAgeMs: 5000, onDecision }, report);
+  f.service.getPublishedPolicy.mockResolvedValue(null);
+  expect(await make().prepare({ cid: 'c' }, 'exp')).toMatchObject({ decision: { status: 'no_active_arm', experimentId: 'exp' }, policy: null, token: null });
+  expect(await make().decide({ cid: 'c' }, 'exp')).toEqual({ status: 'no_active_arm', experimentId: 'exp' });
+  expect(onDecision).toHaveBeenLastCalledWith(expect.objectContaining({ outcome: 'no_active_arm', reason: 'inactive' }));
+  expect(await make().decideDefault({ cid: 'c' }, 'exp', 'a')).toEqual({ status: 'no_active_arm', experimentId: 'exp' });
+  expect(f.service.getPublishedPolicy).toHaveBeenCalledTimes(1);
+  f.advance(1001); f.service.getPublishedPolicy.mockResolvedValue(f.policy);
+  // The stale answer still decides this request; the recheck is not awaited.
+  expect((await make().decide({ cid: 'c' }, 'exp')).status).toBe('no_active_arm');
+  await Promise.all(f.pending);
+  expect((await make().decide({ cid: 'c' }, 'exp')).status).toBe('assigned');
+  expect(f.service.getPublishedPolicy).toHaveBeenCalledTimes(2); expect(report).not.toHaveBeenCalled();
   await Promise.all(f.pending);
 });
 

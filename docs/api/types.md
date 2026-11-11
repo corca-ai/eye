@@ -539,7 +539,7 @@ export type ArmStatus = 'active' | 'paused' | 'deleted';
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L73)
+[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L75)
 
 ```ts
 /** 실제 적용·노출 가능한 결정. decide/prepare의 status를 확인해 좁히고 원본 객체를 expose에 전달한다. */
@@ -1402,7 +1402,7 @@ export type ExposureEvent = EventBase & {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/request.ts#L18)
+[소스](https://github.com/corca-ai/eye/blob/main/src/request.ts#L19)
 
 ```ts
 /** 실제 표시 시점의 노출 정보. 생략한 ID·시각은 SDK가 생성한다. */
@@ -1483,7 +1483,7 @@ export interface EyeOptions {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/request.ts#L37)
+[소스](https://github.com/corca-ai/eye/blob/main/src/request.ts#L38)
 
 ```ts
 /** 사용자 요청용 API. 관리·분석·명시적 준비·신원 전환에는 기존 createEye를 사용한다. */
@@ -1514,7 +1514,7 @@ export interface EyeRequest {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/request.ts#L7)
+[소스](https://github.com/corca-ai/eye/blob/main/src/request.ts#L8)
 
 ```ts
 /** 요청마다 생성하며 신원은 생성 당시 값으로 고정한다. 로그인 전환 뒤에는 새 인스턴스를 만든다. */
@@ -1534,7 +1534,7 @@ export interface EyeRequestOptions extends EyeOptions {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L28)
+[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L29)
 
 ```ts
 /** 호스트 Worker의 Service Binding 타입. 바인딩 이름은 자유이며 일반 연동은 createEye로 호출한다.
@@ -1554,7 +1554,8 @@ export interface EyeService {
     analyticsJobStatus(input: Parameters<AnalyticsJobsAPI['status']>[0]): ReturnType<AnalyticsJobsAPI['status']>;
     analyticsJobPage(input: Parameters<AnalyticsJobsAPI['page']>[0]): Promise<string>;
     analyticsJobCancel(input: Parameters<AnalyticsJobsAPI['cancel']>[0]): ReturnType<AnalyticsJobsAPI['cancel']>;
-    getPublishedPolicy(experimentId: string, maxAgeMs?: number): Promise<PublishedPolicy>;
+    /** 등록되지 않은 실험은 오류가 아니라 null이다. 요청 경로가 등록 전의 ID를 조회할 수 있다. */
+    getPublishedPolicy(experimentId: string, maxAgeMs?: number): Promise<PublishedPolicy | null>;
     ingest(events: readonly Omit<EventEnvelope, 'siteId'>[]): Promise<void>;
     createExperiment(input: CreateExperiment): Promise<Experiment>;
     getExperiment(experimentId: string): Promise<Experiment>;
@@ -1967,14 +1968,15 @@ export interface PolicySnapshot extends UnreservedPolicyEvaluation {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L25)
+[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L26)
 
 ```ts
-/** reuseUntil은 이번 결정의 적용 기한(Unix 밀리초)이다. 정책 유효기간과 유지·관측 조건으로 결정하며 저장 문맥의 삭제 시각은 아니다. */
+/** reuseUntil은 이번 결정의 적용 기한(Unix 밀리초)이다. 정책 유효기간과 유지·관측 조건으로 결정하며 저장 문맥의 삭제 시각은 아니다.
+ * policy가 null이면 등록되지 않은 실험이며 decision은 no_active_arm이다. */
 export interface PreparedDecision {
     decision: Decision;
     reuseUntil: number;
-    policy: PublishedPolicy;
+    policy: PublishedPolicy | null;
 }
 ```
 
@@ -2482,7 +2484,7 @@ export interface VariantDefinitionBase<T> {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/request.ts#L27)
+[소스](https://github.com/corca-ai/eye/blob/main/src/request.ts#L28)
 
 ```ts
 /** 실제 적용한 뒤 expose를 호출한다. 한 핸들은 한 노출이며 재호출은 첫 결과(거절 포함)를 반환한다. */

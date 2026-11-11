@@ -1,7 +1,7 @@
 import { DEFAULT_POLICY_MAX_AGE_MS, policyFreshMs } from './policy-timing.js';
 import { createEye, type EyeOptions } from './client.js';
 import { parseAssignment } from './core/events.js';
-import { parseLocalContext } from './decisions.js';
+import { parseLocalContext, reportedInBackground } from './decisions.js';
 import type { LocalAssignmentContext } from './core/local-assignment.js';
 import { attributes, id, record, subject as parseSubject, timestamp } from './core/validation.js';
 import { invariant } from './core/errors.js';
@@ -126,7 +126,7 @@ export function createEyeBrowserServer(options: BrowserServerOptions) {
             if (value) defaults.push(value);
           }
         }
-      } catch (error) { statuses[experimentId] = 'unavailable'; try { options.onError?.(error); } catch {} }
+      } catch (error) { statuses[experimentId] = 'unavailable'; if (!reportedInBackground(error)) try { options.onError?.(error); } catch {} }
     }
     const serverNow = Date.now();
     return { scope, serverNow, choices: choices.filter(c => c.applyUntil > serverNow),

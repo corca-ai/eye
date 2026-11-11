@@ -152,6 +152,26 @@ it('omits choices that expire while later experiments are being prepared', async
   } finally { clock.mockRestore(); }
 });
 
+it('prepares an unregistered experiment as inactive: no error, no default, one runtime lookup', async () => {
+  const f = await fixture();
+  const read = vi.fn((experimentId: string, maxAgeMs?: number) => f.options.service.getPublishedPolicy(experimentId, maxAgeMs));
+  const service = new Proxy(f.options.service, { get(target, property) { return property === 'getPublishedPolicy' ? read : Reflect.get(target, property); } });
+  const options = { ...f.options, service, defaultArms: { later: 'control' } };
+  for (let request = 0; request < 2; request++)
+    expect(await createEyeBrowserServer(options).prepare(['later'])).toMatchObject({ choices: [], defaults: [], statuses: { later: 'inactive' } });
+  expect(read).toHaveBeenCalledTimes(1); expect(f.options.onError).not.toHaveBeenCalled();
+  await waitOnExecutionContext(f.options.ctx);
+});
+
+it('reports a failed policy lookup once when the background load and the awaited preparation share it', async () => {
+  const f = await fixture(), read = vi.fn(async () => { await scheduler.wait(5); throw new Error('offline'); });
+  const service = new Proxy(f.options.service, { get(target, property) { return property === 'getPublishedPolicy' ? read : Reflect.get(target, property); } });
+  const prepared = await createEyeBrowserServer({ ...f.options, service, defaultArms: { later: 'control' } }).prepare(['later']);
+  expect(prepared.statuses).toEqual({ later: 'unavailable' });
+  await waitOnExecutionContext(f.options.ctx);
+  expect(read).toHaveBeenCalledTimes(1); expect(f.options.onError).toHaveBeenCalledTimes(1);
+});
+
 it('rejects a non-array preparation batch instead of iterating a string as experiment IDs', async () => {
   const f = await fixture();
   // @ts-expect-error Exercise unvalidated JSON at the public boundary.
@@ -176,7 +196,7 @@ afterEach(async () => { vi.restoreAllMocks(); await reset(); });
 
 it('issues counted default authority locally and renews the original default observation independently', async () => {
   const f = await fixture(1000);
-  const policy = await f.options.service.getPublishedPolicy('checkout');
+  const policy = (await f.options.service.getPublishedPolicy('checkout'))!;
   const policyRead = vi.fn(() => { throw new Error('Unexpected policy lookup'); });
   const installRead = vi.fn(() => { throw new Error('Unexpected installation lookup'); });
   const service = new Proxy(f.options.service, { get(target, property) {
@@ -206,7 +226,7 @@ it('issues counted default authority locally and renews the original default obs
 it('server replacement cannot count an unsupported policy arm as a performance default', async () => {
   const f = await fixture();
   await createEye(f.options).experiments.addArm('checkout', 'unsupported');
-  const original = await f.options.service.getPublishedPolicy('checkout');
+  const original = (await f.options.service.getPublishedPolicy('checkout'))!;
   const policy = { ...original, arms: original.arms.map(arm => ({ ...arm, probability: arm.armId === 'unsupported' ? 1 : 0 })) };
   const { createEyeRequest } = await import('../../src/request.js');
   const eye = createEyeRequest({ ...f.options, decisions: { secret, initialPolicies: [policy] } });
@@ -218,7 +238,7 @@ it('server replacement cannot count an unsupported policy arm as a performance d
 
 it('collection rejection does not allow an applied server action to be retried through default', async () => {
   const f = await fixture();
-  const policy = await f.options.service.getPublishedPolicy('checkout');
+  const policy = (await f.options.service.getPublishedPolicy('checkout'))!;
   const { createEyeRequest } = await import('../../src/request.js');
   const eye = createEyeRequest({ ...f.options, collectionLimits: { maxEvents: 1 }, decisions: { secret, initialPolicies: [policy] } });
   const selected = await eye.variant({ experimentId: 'checkout', defaultArm: 'compact', variants: { compact: 'a' } });
