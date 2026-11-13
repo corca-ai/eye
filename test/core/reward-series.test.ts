@@ -38,8 +38,8 @@ it('validates buckets and time ranges before executing SQL', async () => {
   await expect(api.rewardSeries({experimentId: 'exp', from: start, to: now + 1, bucketMs: day})).rejects.toMatchObject({code: 'outside_retention'});
 });
 it('keeps valid occurrence-time attribution after observation end rather than dropping it from the activity view', async () => {
-  const shown = exposure('short');
-  shown.assignment = {...shown.assignment, settings: {...config, observationWindowMs: 3600000}};
+  const initial = exposure('short');
+  const shown: ExposureEvent = {...initial, assignment: {...initial.assignment, settings: {...config, observationWindowMs: 3600000}}};
   const earned = goal('later-goal', 100, start + 3 * day);
   const db = database([shown, earned].flatMap(event => rawRecords({siteId: 'site', event, receivedAt: now - 1})));
   try {

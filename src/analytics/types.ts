@@ -22,6 +22,7 @@ export interface ArmQuery extends QueryRange {
 export interface RewardSeriesQuery extends QueryRange {
   experimentId: string; bucketMs: number; armId?: string; generation?: number; goalId?: string;
 }
+/** Signed attributed goal count and value for one occurrence-time bucket, arm and learning generation. */
 export interface RewardSeriesRow {
   bucketStart: number; armId: string; generation: number;
   goals: number; totalValue: number; latestReceivedAt: number;
