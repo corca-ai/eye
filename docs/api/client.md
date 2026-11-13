@@ -23,11 +23,13 @@ createEye(options: EyeOptions): EyeClient
 - [eye.goal](#eyegoal)
 - [eye.expose](#eyeexpose)
 - [eye.identify](#eyeidentify)
+- [eye.anonymous](#eyeanonymous)
 - [eye.logout](#eyelogout)
 - [eye.decide](#eyedecide)
 - [eye.decideDefault](#eyedecidedefault)
 - [eye.defaultState](#eyedefaultstate)
 - [eye.flush](#eyeflush)
+- [eye.analytics.summaries.dashboard](#eyeanalyticssummariesdashboard)
 - [eye.analytics.summaries.hours](#eyeanalyticssummarieshours)
 - [eye.analytics.summaries.series](#eyeanalyticssummariesseries)
 - [eye.analytics.summaries.configure](#eyeanalyticssummariesconfigure)
@@ -76,6 +78,7 @@ createEye(options: EyeOptions): EyeClient
 - [request.defaultState](#requestdefaultstate)
 - [request.variant](#requestvariant)
 - [request.data](#requestdata)
+- [request.anonymous](#requestanonymous)
 - [request.track](#requesttrack)
 - [request.goal](#requestgoal)
 - [browser.prepare](#browserprepare)
@@ -145,6 +148,16 @@ eye.identify(input: EventInput<IdentityEvent> & { subject: Subject & { uid: stri
 
 타입: [EventInput](types.md#eventinput) · [IdentityEvent](types.md#identityevent) · [Subject](types.md#subject) · [Submission](types.md#submission)
 
+## eye.anonymous
+
+Confirm a signed-out state. Preserves an existing anonymous segment; ends a previous authenticated one.
+
+```ts
+eye.anonymous(input: EventInput<IdentityEvent>): Submission
+```
+
+타입: [EventInput](types.md#eventinput) · [IdentityEvent](types.md#identityevent) · [Submission](types.md#submission)
+
 ## eye.logout
 
 uid 없이 현재 cid를 기록해 새 익명 구간을 시작한다. 호스트가 이전 배정 토큰을 비우고 새 신원으로 요청 클라이언트를 만든다.
@@ -190,6 +203,16 @@ eye.defaultState(): Promise<Record<string, string>>
 ```ts
 eye.flush(): Promise<void>
 ```
+
+## eye.analytics.summaries.dashboard
+
+Processing-order reward matrix, exposure and policy history without raw SQL.
+
+```ts
+eye.analytics.summaries.dashboard(query: DashboardQuery): Promise<DashboardReport>
+```
+
+타입: [DashboardQuery](types.md#dashboardquery) · [DashboardReport](types.md#dashboardreport)
 
 ## eye.analytics.summaries.hours
 
@@ -665,6 +688,16 @@ request.data<T>(definition: DataDefinition<T>, options?: { maxWaitMs: number; })
 ```
 
 타입: [DataDefinition](types.md#datadefinition) · [VariantSelection](types.md#variantselection)
+
+## request.anonymous
+
+Confirm an anonymous request before recording an exposure. Does not reset an existing anonymous segment.
+
+```ts
+request.anonymous(input?: { eventId?: string; occurredAt?: number; }): Submission
+```
+
+타입: [Submission](types.md#submission)
 
 ## request.track
 

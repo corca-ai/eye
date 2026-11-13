@@ -1,6 +1,6 @@
 import { anonymousExposureSQL } from './ownership-sql.js';
 import { intervalAttributionCTEs } from './interval-attribution-sql.js';
-import { identityBoundaryCTEs } from './identity-boundaries-sql.js';
+import { identityBoundaryCTEs, normalizedIdentityCTEs } from './identity-boundaries-sql.js';
 
 /** Internal query scope; values and identifiers are already validated/quoted. */
 export interface AttributionScope { key: 'cid' | 'uid'; value: string; includeLinked: boolean }
@@ -33,8 +33,9 @@ UNION SELECT uid FROM ac_links WHERE cid = ${scope.value} AND uid IS NOT NULL`;
   return [
     `ac_events AS (SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY record_id ORDER BY received_at ASC) AS rn FROM ${table}.events
 WHERE table_name = 'events' AND site_id = ${site} AND occurred_at >= ${min} AND occurred_at < ${to} AND received_at <= ${receivedBefore} AND status = 'accepted') a WHERE rn = 1)`,
-    `ac_links AS (SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY record_id ORDER BY received_at ASC) AS rn FROM ${table}.projections
-WHERE table_name = 'identity_links' AND site_id = ${site} AND occurred_at >= ${min} AND occurred_at < ${to} AND received_at <= ${receivedBefore} AND status IN ('identify','logout')) a WHERE rn = 1)`,
+    `ac_links_dedup AS (SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY record_id ORDER BY received_at ASC) AS rn FROM ${table}.projections
+WHERE table_name = 'identity_links' AND site_id = ${site} AND occurred_at >= ${min} AND occurred_at < ${to} AND received_at <= ${receivedBefore} AND status IN ('identify','logout','anonymous')) a WHERE rn = 1)`,
+    ...normalizedIdentityCTEs('ac_links_dedup', 'ac_links'),
     ...scopeCTEs,
     // Scope goals first, but retain all experiments capable of competing for them.
     `ac_goals AS (SELECT * FROM ac_events WHERE json_get_str(payload_json, 'kind') = 'goal' AND occurred_at >= ${from}${goalScope})`,
@@ -89,11 +90,12 @@ base_value * decay_factor AS value, '{}' AS attributes_json,
 
 /** Precompute identity boundaries outside correlated subqueries for Basin. */
 export function identitySegments(links: string, alias: string): string {
-  return `${alias} AS (SELECT cid, uid, status, occurred_at, record_id,
+  const normalized = `${alias}_normalized`;
+  return `${normalizedIdentityCTEs(links, normalized).join(',\n')},\n${alias} AS (SELECT cid, uid, status, occurred_at, record_id,
 LAG(status) OVER (PARTITION BY cid ORDER BY occurred_at, record_id) AS previous_kind,
 LAG(occurred_at) OVER (PARTITION BY cid ORDER BY occurred_at, record_id) AS previous_at,
 LAG(record_id) OVER (PARTITION BY cid ORDER BY occurred_at, record_id) AS previous_id
-FROM ${links})`;
+FROM ${normalized})`;
 }
 
 /** Claim only the anonymous interval immediately before its first login. */

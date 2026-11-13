@@ -45,6 +45,8 @@ export interface EyeRequest {
   variant<T>(definition: VariantDefinition<T>, options?: { maxWaitMs: number }): Promise<VariantSelection<T>>;
   /** Select remote data with a host-owned default and parser; no per-arm code mapping. */
   data<T>(definition: DataDefinition<T>, options?: { maxWaitMs: number }): Promise<VariantSelection<T>>;
+  /** Confirm an anonymous request before recording an exposure. Does not reset an existing anonymous segment. */
+  anonymous(input?: {eventId?: string; occurredAt?: number}): Submission;
   /** 신원을 다시 전달하지 않는다. 접수 거절과 비동기 전송 실패 모두 onError로 보고한다. */
   track(input: Omit<EventInput<TrackEvent>, 'subject'>): Submission;
   /** 사이트가 확정한 값. 재전송은 원래 eventId·occurredAt·subject·payload를 보존한다. */
@@ -77,6 +79,7 @@ export function createEyeRequest(options: EyeRequestOptions): EyeRequest {
   return {
     state: async () => eye ? eye.state() : {},
     defaultState: async () => eye ? eye.defaultState() : {},
+    anonymous: (input = {}) => submit(client => client.anonymous({ ...input, subject })),
     track: input => submit(client => client.track({ ...input, subject })),
     goal: input => submit(client => client.goal({ ...input, subject })),
     variant: (definition, wait) => select(definition, wait),

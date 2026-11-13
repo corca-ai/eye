@@ -138,6 +138,8 @@ export function createEye(options: EyeOptions) {
     },
     /** 로그인 시 cid와 인증된 uid를 기록해 익명 노출의 귀속을 연결한다. 호스트가 이전 배정 토큰을 비워야 하며 이 호출이 세션을 수정하지는 않는다. */
     identify: (input: EventInput<IdentityEvent> & { subject: Subject & { uid: string } }): Submission => submit(() => ({ ...base(input), kind: 'identify' })),
+    /** Confirm a signed-out state. Preserves an existing anonymous segment; ends a previous authenticated one. */
+    anonymous: (input: EventInput<IdentityEvent>): Submission => submit(() => ({ ...base(input), kind: 'anonymous' })),
     /** uid 없이 현재 cid를 기록해 새 익명 구간을 시작한다. 호스트가 이전 배정 토큰을 비우고 새 신원으로 요청 클라이언트를 만든다. */
     logout: (input: EventInput<IdentityEvent>): Submission => submit(() => ({ ...base(input), kind: 'logout' })),
     /** 유효한 로컬 정책으로 선택·재사용한다. 서명 검증은 기다리지만 원격 조회는 기다리지 않는다. assigned가 아니면 기본 화면을 사용하고 expose하지 않는다. */
@@ -150,6 +152,8 @@ export function createEye(options: EyeOptions) {
     flush,
     analytics: {
       summaries: {
+        /** Processing-order reward matrix, exposure and policy history without raw SQL. */
+        dashboard: query => service.experimentDashboard(query),
         /** Read automatic receipt-hour coverage and the immutable cutoff. */
         hours: () => service.hourlyGoalStatus(),
         /** Read all accepted goals by finalized receipt hour without raw SQL. */

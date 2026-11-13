@@ -29,6 +29,7 @@ export interface PreparedDecision { decision: Decision; reuseUntil: number; poli
 export interface EyeService {
   /** Runtime-generated identity for server-side receipt verification; never configured by the caller. */
   getInstallationId(): Promise<string>;
+  experimentDashboard(input: Parameters<SummariesAPI['dashboard']>[0]): ReturnType<SummariesAPI['dashboard']>;
   hourlyGoalStatus(): ReturnType<SummariesAPI['hours']>;
   hourlyGoals(input: Parameters<SummariesAPI['series']>[0]): ReturnType<SummariesAPI['series']>;
   configureSummaries(input: Parameters<SummariesAPI['configure']>[0]): ReturnType<SummariesAPI['configure']>;

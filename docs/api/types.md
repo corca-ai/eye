@@ -50,6 +50,9 @@
 - [CidCookieOptions](#cidcookieoptions)
 - [CollectionLimits](#collectionlimits)
 - [CreateExperiment](#createexperiment)
+- [DashboardDiagnostics](#dashboarddiagnostics)
+- [DashboardQuery](#dashboardquery)
+- [DashboardReport](#dashboardreport)
 - [DataDefinition](#datadefinition)
 - [Decision](#decision)
 - [DecisionMetric](#decisionmetric)
@@ -543,7 +546,7 @@ export type ArmStatus = 'active' | 'paused' | 'deleted';
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L76)
+[소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L77)
 
 ```ts
 /** 실제 적용·노출 가능한 결정. decide/prepare의 status를 확인해 좁히고 원본 객체를 expose에 전달한다. */
@@ -1021,6 +1024,96 @@ export interface CreateExperiment {
 
 타입: [ArmInput](types.md#arminput) · [CreateExperiment](types.md#createexperiment) · [ExperimentSettings](types.md#experimentsettings)
 
+## DashboardDiagnostics
+
+임포트: `@eye/workers`
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/dashboard.ts#L6)
+
+```ts
+/** Cumulative site-wide processing diagnostics since this materialization was installed; not per-experiment errors or an error bound. */
+export interface DashboardDiagnostics {
+    staleExposures: number;
+    staleIdentities: number;
+    futureExposures: number;
+    closedGoals: number;
+}
+```
+
+타입: [DashboardDiagnostics](types.md#dashboarddiagnostics)
+
+## DashboardQuery
+
+임포트: `@eye/workers`
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/dashboard.ts#L4)
+
+```ts
+/** Whole-minute boundaries in ascending order, at most 60 days/256 buckets.
+ * A caller can supply local midnight boundaries, including DST and half-hour zones.
+ * Queries read only durable aggregates; no raw SQL, cache miss work or backfill. */
+export interface DashboardQuery {
+    experimentId: string;
+    boundaries: number[];
+}
+```
+
+타입: [DashboardQuery](types.md#dashboardquery)
+
+## DashboardReport
+
+임포트: `@eye/workers`
+
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/dashboard.ts#L10)
+
+```ts
+/** Actual processing-order attribution, with the same split, decay and observation eligibility as learning.
+ * Rewards include still-open observations; learning rows contain closed observations only.
+ * No retroactive correction of inter-batch event disorder. Coverage never implies ingestion completeness. */
+export interface DashboardReport {
+    rewards: {
+        bucketStart: number;
+        goalId: string;
+        armId: string;
+        generation: number;
+        goals: number;
+        totalValue: number;
+    }[];
+    traffic: {
+        bucketStart: number;
+        armId: string;
+        generation: number;
+        assignments: number;
+        exposures: number;
+    }[];
+    learning: {
+        armId: string;
+        generation: number;
+        completed: number;
+        learningValue: number;
+    }[];
+    policies: {
+        occurredAt: number;
+        armId: string;
+        generation: number;
+        status: string;
+        probability: number;
+        meanReward: number | null;
+        score: number | null;
+        scoreScale: number;
+    }[];
+    meta: {
+        basis: 'processed_learning';
+        coverageFrom: number;
+        queriedAt: number;
+        lastProcessedAt: number | null;
+        diagnostics: DashboardDiagnostics;
+    };
+}
+```
+
+타입: [DashboardDiagnostics](types.md#dashboarddiagnostics) · [DashboardReport](types.md#dashboardreport)
+
 ## DataDefinition
 
 임포트: `@eye/workers` · `@eye/workers/browser`
@@ -1166,7 +1259,7 @@ interface EventBase {
 
 보조 타입: 공개 API의 입력·반환형에 포함되지만 패키지에서 직접 export하지 않는다.
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L113)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L114)
 
 ```ts
 export interface EventEnvelope {
@@ -1450,7 +1543,7 @@ export interface EyeBrowser {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L112)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L113)
 
 ```ts
 /** 수집 가능한 사건 원본의 구분 유니온. 일반 호출에는 EventInput을 사용하는 SDK 메서드를 쓴다. */
@@ -1505,6 +1598,11 @@ export interface EyeRequest {
     data<T>(definition: DataDefinition<T>, options?: {
         maxWaitMs: number;
     }): Promise<VariantSelection<T>>;
+    /** Confirm an anonymous request before recording an exposure. Does not reset an existing anonymous segment. */
+    anonymous(input?: {
+        eventId?: string;
+        occurredAt?: number;
+    }): Submission;
     /** 신원을 다시 전달하지 않는다. 접수 거절과 비동기 전송 실패 모두 onError로 보고한다. */
     track(input: Omit<EventInput<TrackEvent>, 'subject'>): Submission;
     /** 사이트가 확정한 값. 재전송은 원래 eventId·occurredAt·subject·payload를 보존한다. */
@@ -1546,6 +1644,7 @@ export interface EyeRequestOptions extends EyeOptions {
 export interface EyeService {
     /** Runtime-generated identity for server-side receipt verification; never configured by the caller. */
     getInstallationId(): Promise<string>;
+    experimentDashboard(input: Parameters<SummariesAPI['dashboard']>[0]): ReturnType<SummariesAPI['dashboard']>;
     hourlyGoalStatus(): ReturnType<SummariesAPI['hours']>;
     hourlyGoals(input: Parameters<SummariesAPI['series']>[0]): ReturnType<SummariesAPI['series']>;
     configureSummaries(input: Parameters<SummariesAPI['configure']>[0]): ReturnType<SummariesAPI['configure']>;
@@ -1774,12 +1873,13 @@ export interface HourlyGoalStatus {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L110)
+[소스](https://github.com/corca-ai/eye/blob/main/src/core/types.ts#L111)
 
 ```ts
-/** identify는 인증된 cid+uid, logout은 cid만 전달한다. 호스트의 로그인·세션 상태를 변경하지 않는다. */
+/** identify links cid+uid; logout deliberately starts a new anonymous segment.
+ * anonymous confirms signed-out state without cutting an already-anonymous segment. None changes host sessions. */
 export type IdentityEvent = EventBase & {
-    readonly kind: 'identify' | 'logout';
+    readonly kind: 'identify' | 'logout' | 'anonymous';
 };
 ```
 
@@ -2216,6 +2316,8 @@ export type Submission = {
 ```ts
 /** 원본 SQL 없이 기본 합계를 읽는다. 범위 부족을 빈 성공 결과나 원본 조회로 자동 대체하지 않는다. */
 export interface SummariesAPI {
+    /** All-goal experiment dashboard from processing-order durable materializations. No raw query or backfill. */
+    dashboard(query: import('./dashboard.js').DashboardQuery): Promise<import('./dashboard.js').DashboardReport>;
     /** Automatic receipt-hour coverage and immutable cutoff; no configure call needed. Returns status, not totals. */
     hours(): Promise<import('./hourly-goals.js').HourlyGoalStatus>;
     /** Read immutable receipt-hour goal totals within coverage, on whole UTC hours, at most 59 days. */
@@ -2230,7 +2332,7 @@ export interface SummariesAPI {
 }
 ```
 
-타입: [HourlyGoalQuery](types.md#hourlygoalquery) · [HourlyGoalReport](types.md#hourlygoalreport) · [HourlyGoalStatus](types.md#hourlygoalstatus) · [SummariesAPI](types.md#summariesapi) · [SummaryConfig](types.md#summaryconfig) · [SummaryQuery](types.md#summaryquery) · [SummaryReport](types.md#summaryreport) · [SummaryStatus](types.md#summarystatus)
+타입: [DashboardQuery](types.md#dashboardquery) · [DashboardReport](types.md#dashboardreport) · [HourlyGoalQuery](types.md#hourlygoalquery) · [HourlyGoalReport](types.md#hourlygoalreport) · [HourlyGoalStatus](types.md#hourlygoalstatus) · [SummariesAPI](types.md#summariesapi) · [SummaryConfig](types.md#summaryconfig) · [SummaryQuery](types.md#summaryquery) · [SummaryReport](types.md#summaryreport) · [SummaryStatus](types.md#summarystatus)
 
 ## SummaryConfig
 

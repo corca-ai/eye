@@ -32,6 +32,7 @@ export class IdentityHistory {
         if (previous.uid === undefined) previous.claim = { uid, at: event };
         segments.push({ start: event, uid });
       } else {
+        if (event.kind === 'anonymous' && previous.uid === undefined) continue;
         segments.push({ start: event, uid: undefined });
       }
       this.browsers.set(cid, segments);

@@ -163,6 +163,7 @@ export class SiteControl extends StoredObject {
   }
   summaryStatus(): SummaryStatus { return this.learning.summaries.status(Date.now()); }
   querySummary(input: SummaryQuery): SummaryReport { return this.learning.summaries.query(input, Date.now()); }
+  experimentDashboard(input: import('../analytics/dashboard.js').DashboardQuery) { return this.learning.dashboard.query(input, Date.now()); }
   hourlyGoalStatus() { return this.learning.hourlyGoals.status(Date.now()); }
   hourlyGoals(input: HourlyGoalQuery) { return this.learning.hourlyGoals.query(input, Date.now()); }
   /** Queue ingestion and reward updates commit together. Only this batch is sorted. */

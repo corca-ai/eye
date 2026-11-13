@@ -1,3 +1,12 @@
+/** Ignore no-op anonymous checks, retaining real logout boundaries. Shared by attribution and linked timelines. */
+export function normalizedIdentityCTEs(source: string, alias: string): string[] {
+  return [
+    `${alias}_ordered AS (SELECT *, LAG(status) OVER (PARTITION BY cid ORDER BY occurred_at,record_id) AS previous_status FROM ${source})`,
+    `${alias} AS (SELECT cid,uid,occurred_at,record_id, CASE WHEN status='anonymous' THEN 'logout' ELSE status END AS status
+FROM ${alias}_ordered WHERE status IN ('identify','logout') OR (status='anonymous' AND previous_status='identify'))`,
+  ];
+}
+
 /** Number identity boundaries on a merged event-time stream. The link at the
  * same position precedes an exposure, matching the attribution <= boundary. */
 export function identityBoundaryCTEs(): string[] {
