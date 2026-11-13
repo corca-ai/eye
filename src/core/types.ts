@@ -106,8 +106,9 @@ export type ExposureEvent = EventBase & {
   readonly kind: 'exposure'; readonly assignment: Assignment; readonly userAttributes?: Attributes; readonly defaultReason?: DefaultReason;
   readonly sample?: { readonly sampleId: string; readonly startAt: number }; readonly attributionWindowMs?: number;
 };
-/** identify는 인증된 cid+uid, logout은 cid만 전달한다. 호스트의 로그인·세션 상태를 변경하지 않는다. */
-export type IdentityEvent = EventBase & { readonly kind: 'identify' | 'logout' };
+/** identify links cid+uid; logout deliberately starts a new anonymous segment.
+ * anonymous confirms signed-out state without cutting an already-anonymous segment. None changes host sessions. */
+export type IdentityEvent = EventBase & { readonly kind: 'identify' | 'logout' | 'anonymous' };
 /** 수집 가능한 사건 원본의 구분 유니온. 일반 호출에는 EventInput을 사용하는 SDK 메서드를 쓴다. */
 export type EyeEvent = TrackEvent | GoalEvent | ExposureEvent | IdentityEvent;
 export interface EventEnvelope {

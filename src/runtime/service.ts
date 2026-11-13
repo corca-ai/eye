@@ -112,6 +112,7 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
   async getGoal(goalId: string) { return this.env.SITES.getByName(this.installationId).getGoal(goalId); }
   async listGoals(after = '', limit = 100) { return this.env.SITES.getByName(this.installationId).listGoals(after, limit); }
   async setGoalStatus(goalId: string, status: GoalStatus) { return this.env.SITES.getByName(this.installationId).setGoalStatus(goalId, status); }
+  async experimentDashboard(input: Parameters<SummariesAPI['dashboard']>[0]) { return this.site().experimentDashboard(input); }
   async hourlyGoalStatus() { return this.site().hourlyGoalStatus(); }
   async hourlyGoals(input: Parameters<SummariesAPI['series']>[0]) { return this.site().hourlyGoals(input); }
   async configureSummaries(input: Parameters<SummariesAPI['configure']>[0]) { return this.env.SITES.getByName(this.installationId).configureSummaries(this.installationId, input); }

@@ -1,3 +1,4 @@
+import { Dashboard, type DashboardBatch } from './dashboard.js';
 import { HourlyGoals } from './hourly-goals.js';
 import { IncrementalSummaries } from './summaries.js';
 import { compareEvents } from '../core/attribution.js';
@@ -10,10 +11,11 @@ import type { ExposureEvent, EyeEvent, GoalEvent, IdentityEvent } from '../core/
 import { RETENTION_MS, OBSERVATION_GRACE_MS, subjectKey } from '../core/validation.js';
 import { analyticsRecord, type AnalyticsRecord } from '../analytics/records.js';
 
+type IdentityOrder = { occurred_at: number; event_id: string };
 type IdentityRow = { uid: string | null; occurred_at: number; event_id: string };
 type Last = { occurredAt: number; eventId: string; sampleId: string; attributionWindowMs: number };
 type SampleRow = RewardSum & { sample_id: string; data: string; definition: string; close_at: number };
-type RewardRow = RewardSum & { sample_id: string; close_at: number; start_at: number; end_at: number; half_life: number };
+type RewardRow = RewardSum & { sample_id: string; close_at: number; start_at: number; end_at: number; half_life: number; experiment_id: string; arm_id: string; generation: number };
 type SampleDetail = { event: SampledExposureEvent; data: string; definition: string; changed: boolean };
 type SampleState = { row: RewardRow; detail: SampleDetail | null; inserted: boolean; rewardChanged: boolean };
 type FullSampleState = SampleState & { detail: SampleDetail };
@@ -45,6 +47,8 @@ function lastReference(event: SampledExposureEvent): Last {
 class LearningBatch {
   private readonly identities = new Map<string, IdentityRow | null>();
   private readonly dirtyIdentities = new Set<string>();
+  private readonly identityOrders = new Map<string, IdentityOrder | null>();
+  private readonly dirtyIdentityOrders = new Set<string>();
   private referencesExist: boolean | undefined;
   hasReferences(): boolean {
     return this.referencesExist ??= this.sql.exec('SELECT 1 FROM learning_last LIMIT 1').toArray().length > 0;
@@ -56,6 +60,14 @@ class LearningBatch {
     if (!this.identities.has(cid)) this.identities.set(cid, this.sql.exec<IdentityRow>(
       'SELECT uid, occurred_at, event_id FROM learning_identity WHERE cid = ?', cid).toArray()[0] ?? null);
     return this.identities.get(cid)!;
+  }
+  identityOrder(cid: string): IdentityOrder | null {
+    if (!this.identityOrders.has(cid)) this.identityOrders.set(cid, this.sql.exec<IdentityOrder>(
+      'SELECT occurred_at,event_id FROM learning_identity_order WHERE cid=?', cid).toArray()[0] ?? this.identity(cid));
+    return this.identityOrders.get(cid)!;
+  }
+  setIdentityOrder(cid: string, event: IdentityEvent): void {
+    this.identityOrders.set(cid, {occurred_at:event.occurredAt,event_id:event.eventId}); this.dirtyIdentityOrders.add(cid);
   }
   setIdentity(cid: string, value: IdentityRow): void { this.identities.set(cid, value); this.dirtyIdentities.add(cid); }
   private owner(owner: string): OwnerState {
@@ -110,7 +122,10 @@ class LearningBatch {
         const row = this.sql.exec<RewardRow>(`SELECT sample_id, close_at, scale, sum, correction,
           json_extract(definition, '$[1]') AS start_at,
           json_extract(definition, '$[1]') + json_extract(definition, '$[0].settings.observationWindowMs') AS end_at,
-          json_extract(definition, '$[0].settings.attributionHalfLifeMs') AS half_life
+          json_extract(definition, '$[0].settings.attributionHalfLifeMs') AS half_life,
+          json_extract(definition, '$[0].experimentId') AS experiment_id,
+          json_extract(definition, '$[0].armId') AS arm_id,
+          json_extract(definition, '$[0].generation') AS generation
           FROM learning_samples WHERE sample_id = ?`, id).toArray()[0];
         this.samples.set(id, row ? { row, detail: null, inserted: false, rewardChanged: false } : null);
       }
@@ -125,13 +140,17 @@ class LearningBatch {
   private fullSample(row: SampleRow, event: SampledExposureEvent, inserted: boolean): FullSampleState {
     return { row: { sample_id: row.sample_id, close_at: row.close_at, scale: row.scale, sum: row.sum, correction: row.correction,
       start_at: event.sample.startAt, end_at: observationEndAt(event.sample.startAt, event.assignment.settings.observationWindowMs),
-      half_life: event.assignment.settings.attributionHalfLifeMs },
+      half_life: event.assignment.settings.attributionHalfLifeMs, experiment_id: event.assignment.experimentId, arm_id: event.assignment.armId, generation: event.assignment.generation },
     detail: { event, data: row.data, definition: row.definition, changed: false }, inserted, rewardChanged: false };
   }
   createSample(row: SampleRow, event: SampledExposureEvent): void {
     this.samples.set(row.sample_id, this.fullSample(row, event, true));
   }
   flush(): void {
+    for (const cid of this.dirtyIdentityOrders) {
+      const row = this.identityOrders.get(cid)!;
+      this.sql.exec('INSERT INTO learning_identity_order VALUES (?,?,?) ON CONFLICT(cid) DO UPDATE SET occurred_at=excluded.occurred_at,event_id=excluded.event_id', cid, row.occurred_at, row.event_id);
+    }
     for (const cid of this.dirtyIdentities) {
       const value = this.identities.get(cid)!;
       this.sql.exec(`INSERT INTO learning_identity VALUES (?, ?, ?, ?) ON CONFLICT(cid) DO UPDATE SET
@@ -162,14 +181,17 @@ class LearningBatch {
  * Only the received batch is sorted; there is no global reorder buffer or replay.
  */
 export class IncrementalLearning {
+  readonly dashboard: Dashboard;
   readonly summaries: IncrementalSummaries;
   readonly hourlyGoals: HourlyGoals;
   readonly migratedDeadlines: boolean;
-  constructor(private readonly sql: LearningSQL) {
+  constructor(private readonly sql: LearningSQL, now = Date.now()) {
     sql.exec(`
       CREATE TABLE IF NOT EXISTS learning_seen (event_id TEXT PRIMARY KEY, occurred_at INTEGER NOT NULL, accepted INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS learning_seen_time ON learning_seen(occurred_at);
       CREATE TABLE IF NOT EXISTS learning_identity (cid TEXT PRIMARY KEY, uid TEXT, occurred_at INTEGER NOT NULL, event_id TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS learning_identity_order (cid TEXT PRIMARY KEY, occurred_at INTEGER NOT NULL, event_id TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS learning_identity_order_time ON learning_identity_order(occurred_at);
       CREATE INDEX IF NOT EXISTS learning_identity_time ON learning_identity(occurred_at);
       CREATE TABLE IF NOT EXISTS learning_last (owner TEXT NOT NULL, experiment_id TEXT NOT NULL, occurred_at INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(owner, experiment_id));
       CREATE INDEX IF NOT EXISTS learning_last_time ON learning_last(occurred_at);
@@ -188,13 +210,14 @@ export class IncrementalLearning {
         definition=json_remove(definition,'$[0].settings.allowedLatenessMs')`, OBSERVATION_GRACE_MS);
       sql.exec('INSERT OR REPLACE INTO learning_runtime_version VALUES (1,1)');
     }
+    this.dashboard = new Dashboard(sql, now);
     this.summaries = new IncrementalSummaries(sql);
     this.hourlyGoals = new HourlyGoals(sql);
   }
   accept(events: readonly EyeEvent[], now: number, goalActive: (goal: GoalEvent) => boolean = () => true, receivedAt?: readonly number[], exposureValid: (event: ExposureEvent) => boolean = () => true): LearningReceipt {
     const diagnostics: LearningDiagnostics = { staleExposures: 0, staleIdentities: 0, futureExposures: 0, closedGoals: 0 };
     const accepted = events.map(() => true);
-    const batch = new LearningBatch(this.sql), summaries = this.summaries.batch(now);
+    const batch = new LearningBatch(this.sql), summaries = this.summaries.batch(now), dashboard = this.dashboard.batch(now);
     let hourly: ReturnType<HourlyGoals['batch']> | undefined;
     for (const { event, index } of events.map((event, index) => ({ event, index })).sort((a, b) => compareEvents(a.event, b.event))) {
       if (event.kind === 'track') continue;
@@ -207,11 +230,14 @@ export class IncrementalLearning {
           continue;
         }
         accepted[index] = status;
-        if (status) { this.goal(batch, event, now, diagnostics); summaries.goal(event); (hourly ??= this.hourlyGoals.batch(now)).add(event, receivedAt?.[index] ?? now); }
-      } else if (event.kind === 'identify' || event.kind === 'logout') this.identity(batch, event, diagnostics);
-      else if (event.kind === 'exposure') accepted[index] = exposureValid(event) && this.exposure(batch, event, now, diagnostics);
+        if (status) { this.goal(batch, event, now, diagnostics, dashboard); summaries.goal(event); (hourly ??= this.hourlyGoals.batch(now)).add(event, receivedAt?.[index] ?? now); }
+      } else if (event.kind === 'identify' || event.kind === 'logout' || event.kind === 'anonymous') this.identity(batch, event, diagnostics);
+      else if (event.kind === 'exposure') {
+        accepted[index] = exposureValid(event) && this.exposure(batch, event, now, diagnostics);
+        if (accepted[index]) dashboard.exposure(event);
+      }
     }
-    batch.flush(); summaries.flush(); hourly?.flush();
+    batch.flush(); summaries.flush(); hourly?.flush(); dashboard.flush(); this.dashboard.progress(now, diagnostics);
     const retained = events.filter(event => event.kind !== 'track');
     if (retained.length) {
       // A conservative lower bound also covers receipt-hour and observation-start buckets.
@@ -225,11 +251,15 @@ export class IncrementalLearning {
   }
   private identity(batch: LearningBatch, event: IdentityEvent, diagnostics: LearningDiagnostics): void {
     const { cid } = event.subject, current = batch.identity(cid);
-    if (current) {
-      const order = compareEvents({ occurredAt: current.occurred_at, eventId: current.event_id }, event);
+    const latest = batch.identityOrder(cid);
+    if (latest) {
+      const order = compareEvents({ occurredAt: latest.occurred_at, eventId: latest.event_id }, event);
       if (order > 0) diagnostics.staleIdentities++;
       if (order >= 0) return;
     }
+    batch.setIdentityOrder(cid, event);
+    // A state check is not a logout: preserve an already-anonymous segment.
+    if (event.kind === 'anonymous' && current?.uid == null) return;
     const anonymous = ownerKey('cid', cid);
     if (event.kind === 'identify') {
       const uid = event.subject.uid!;
@@ -277,7 +307,7 @@ export class IncrementalLearning {
     }
     batch.setLast(owner, experimentId, event);
   }
-  private goal(batch: LearningBatch, goal: GoalEvent, now: number, diagnostics: LearningDiagnostics): void {
+  private goal(batch: LearningBatch, goal: GoalEvent, now: number, diagnostics: LearningDiagnostics, dashboard: DashboardBatch): void {
     if (!batch.hasReferences()) return;
     const owner = goal.subject.uid === undefined ? ownerKey('cid', goal.subject.cid) : ownerKey('uid', goal.subject.uid);
     const eligible: Last[] = [];
@@ -292,6 +322,7 @@ export class IncrementalLearning {
       const baseValue = goal.value / eligible.length;
       const factor = decayFactor(goal.occurredAt - event.occurredAt, sample.row.half_life);
       addReward(sample.row, baseValue * factor);
+      dashboard.reward(goal, { experimentId: sample.row.experiment_id, armId: sample.row.arm_id, generation: sample.row.generation }, baseValue * factor);
       sample.rewardChanged = true;
     }
   }
@@ -299,7 +330,7 @@ export class IncrementalLearning {
   close(siteId: string, now: number, apply: (cohort: Pick<ClosedCohort, 'asOf' | 'arms'>) => void): number {
     const rows = this.sql.exec<SampleRow>('SELECT * FROM learning_samples WHERE close_at <= ? ORDER BY close_at, sample_id LIMIT ?', now, CLOSE_LIMIT);
     const records: AnalyticsRecord[] = [], samples: ClosedSample[] = [];
-    const summaries = this.summaries.batch(now);
+    const summaries = this.summaries.batch(now), dashboard = this.dashboard.batch(now);
     let bytes = 0;
     for (const row of rows) {
       const event = decode<SampledExposureEvent>(row.data), a = event.assignment;
@@ -316,13 +347,14 @@ export class IncrementalLearning {
       if (records.length && bytes + size > CLOSE_BYTES) break;
       bytes += size; records.push(record);
       summaries.observation(a, event.sample.startAt, reward);
+      dashboard.observation(a, event.sample.startAt, reward);
       samples.push({ sampleId: row.sample_id, assignment: a, startAt: event.sample.startAt, endAt, reward });
     }
     for (let offset = 0; offset < samples.length; offset += 100) {
       const ids = samples.slice(offset, offset + 100).map(sample => sample.sampleId);
       this.sql.exec(`DELETE FROM learning_samples WHERE sample_id IN (${ids.map(() => '?').join(',')})`, ...ids);
     }
-    summaries.flush();
+    summaries.flush(); dashboard.flush();
     if (records.length) {
       apply({ asOf: now, arms: closedSampleMoments(samples, now) });
       this.enqueue({ records });
@@ -352,13 +384,19 @@ export class IncrementalLearning {
   private retentionWake(): number | null {
     const cached = this.sql.exec<{ at: number | null }>('SELECT at FROM learning_retention WHERE id=1').toArray()[0];
     if (cached) return cached.at;
-    const first = this.sql.exec<{ at: number | null }>(`SELECT MIN(at) AS at FROM (
+    const existing = this.sql.exec<{ at: number | null }>(`SELECT MIN(at) AS at FROM (
       SELECT MIN(occurred_at) AS at FROM learning_seen UNION ALL
       SELECT MIN(occurred_at) AS at FROM learning_identity UNION ALL
       SELECT MIN(occurred_at) AS at FROM learning_last UNION ALL
       SELECT MIN(bucket) AS at FROM summary_buckets UNION ALL
       SELECT MIN(bucket) AS at FROM hourly_goals)`).toArray()[0]!.at;
-    const at = first === null ? null : first + RETENTION_MS + 1;
+    const candidates = [existing,
+      this.sql.exec<{ at: number | null }>('SELECT MIN(occurred_at) AS at FROM learning_identity_order').toArray()[0]!.at,
+      this.sql.exec<{ at: number | null }>('SELECT MIN(bucket) AS at FROM dashboard_buckets').toArray()[0]!.at,
+      this.sql.exec<{ at: number | null }>('SELECT MIN(occurred_at) AS at FROM dashboard_seen').toArray()[0]!.at,
+      this.sql.exec<{ at: number | null }>('SELECT MIN(occurred_at) AS at FROM dashboard_policies').toArray()[0]!.at
+    ].filter((value): value is number => value !== null);
+    const at = candidates.length ? Math.min(...candidates) + RETENTION_MS + 1 : null;
     this.sql.exec('INSERT INTO learning_retention VALUES (1, ?)', at);
     return at;
   }
@@ -366,11 +404,12 @@ export class IncrementalLearning {
   prune(now: number): boolean {
     this.sql.exec('DELETE FROM learning_retention WHERE id=1');
     let more = false;
-    for (const [table, key] of [['learning_seen', 'event_id'], ['learning_identity', 'cid'], ['learning_last', 'rowid']] as const) {
+    for (const [table, key] of [['learning_seen', 'event_id'], ['learning_identity', 'cid'], ['learning_identity_order', 'cid'], ['learning_last', 'rowid']] as const) {
       const removed = this.sql.exec(`DELETE FROM ${table} WHERE ${key} IN (SELECT ${key} FROM ${table} WHERE occurred_at < ? LIMIT 1000) RETURNING ${key}`, now - RETENTION_MS).toArray();
       more ||= removed.length === 1000;
     }
     const hourlyMore = this.hourlyGoals.prune(now);
-    return this.summaries.prune(now) || hourlyMore || more;
+    const dashboardMore = this.dashboard.prune(now);
+    return this.summaries.prune(now) || hourlyMore || dashboardMore || more;
   }
 }

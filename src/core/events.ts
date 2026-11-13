@@ -55,6 +55,9 @@ export function parseEvent(value: unknown, limits?: CollectionLimits): EyeEvent 
     case 'identify':
       invariant(base.subject.uid !== undefined, 'invalid_input', 'identify requires uid');
       return { ...base, kind: 'identify' };
+    case 'anonymous':
+      invariant(base.subject.uid === undefined, 'invalid_input', 'anonymous must not include uid');
+      return { ...base, kind: 'anonymous' };
     case 'logout': return { ...base, kind: 'logout' };
     default: throw new EyeError('invalid_input', 'Unknown event kind');
   }

@@ -1,3 +1,4 @@
+import { Dashboard } from './dashboard.js';
 import { parseArm, checkExperimentData, initialStatus } from '../core/arm-data.js';
 import { POLICY_REEVALUATION_MS } from '../policy-timing.js';
 import { analyticsRecord } from '../analytics/records.js';
@@ -168,6 +169,7 @@ export class ExperimentState {
     const data = Object.fromEntries(config.arms.filter(a => a.status === 'active' && a.data !== undefined).map(a => [a.armId, a.data!]));
     const result = { ...policy, ...(Object.keys(data).length ? { armData: data } : {}), installationId: siteId, settings: config.settings, publishedAt: Date.now(), sequence: (previous?.sequence ?? 0) + 1,
       status: config.status, activeArms: config.arms.filter(a => a.status === 'active').map(a => a.armId) };
+    Dashboard.recordPolicy(this.sql, result, config.arms);
     this.kv.put('publishedPolicy', result); if (this.kv.get('policyDirty')) this.kv.delete('policyDirty');
     const history = config.arms.map(configured => result.arms.find(a => a.armId === configured.armId) ?? { armId: configured.armId, probability: 0, meanReward: null, score: null });
     const records = history.map(arm => analyticsRecord({ siteId, subjectKey: '' }, 'policies',

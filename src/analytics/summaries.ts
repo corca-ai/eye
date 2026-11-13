@@ -32,6 +32,8 @@ export interface SummaryReport {
 }
 /** 원본 SQL 없이 기본 합계를 읽는다. 범위 부족을 빈 성공 결과나 원본 조회로 자동 대체하지 않는다. */
 export interface SummariesAPI {
+  /** All-goal experiment dashboard from processing-order durable materializations. No raw query or backfill. */
+  dashboard(query: import('./dashboard.js').DashboardQuery): Promise<import('./dashboard.js').DashboardReport>;
   /** Automatic receipt-hour coverage and immutable cutoff; no configure call needed. Returns status, not totals. */
   hours(): Promise<import('./hourly-goals.js').HourlyGoalStatus>;
   /** Read immutable receipt-hour goal totals within coverage, on whole UTC hours, at most 59 days. */

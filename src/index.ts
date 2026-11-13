@@ -40,3 +40,5 @@ export type { SummaryConfig, SummaryStatus, SummaryTarget, SummaryQuery, Summary
 export type { HourlyGoalQuery, HourlyGoalReport, HourlyGoalStatus } from './analytics/hourly-goals.js';
 
 export type { DataDefinition } from './browser-types.js';
+
+export type { DashboardQuery, DashboardReport, DashboardDiagnostics } from './analytics/dashboard.js';
