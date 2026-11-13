@@ -57,6 +57,7 @@ export interface EyeService {
   getGoal(goalId: string): Promise<GoalDefinition | null>;
   listGoals(after?: string, limit?: number): Promise<GoalDefinition[]>;
   setGoalStatus(goalId: string, status: GoalStatus): Promise<GoalDefinition>;
+  analyticsRewardSeries(query: Parameters<AnalyticsAPI['rewardSeries']>[0]): ReturnType<AnalyticsAPI['rewardSeries']>;
   analyticsArmSeries(query: Parameters<AnalyticsAPI['armSeries']>[0]): ReturnType<AnalyticsAPI['armSeries']>;
   analyticsTraffic(query: Parameters<AnalyticsAPI['traffic']>[0]): ReturnType<AnalyticsAPI['traffic']>;
   analyticsPolicies(query: Parameters<AnalyticsAPI['policies']>[0]): ReturnType<AnalyticsAPI['policies']>;

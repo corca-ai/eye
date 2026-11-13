@@ -197,6 +197,20 @@ cid 조회는 해당 브라우저 이력이다. uid 조회는 해당 uid 행을 
 
 타임라인의 live credits는 learningClosed=false이며 학습 반영 확인서가 아니다. eligible은 관측 구간상 자격을 뜻한다. outside_observation 귀속은 분석에서 보이지만 학습에 들어가지 않는다. 원본 사이트 goal 합계는 한 번만 센다.
 
+## Goal occurrence-time arm rewards
+
+`rewardSeries({ experimentId, from, to, bucketMs, armId?, generation?, goalId?, limit? })`
+groups attributed goal values by the time the goal occurred. It retains last-touch,
+identity linking, cross-experiment splitting and attribution decay, including
+exposures before `from` within retention. It does not wait for observation closure;
+valid credits after observation end also remain included. These are raw attributed
+outcomes, not closed learning or decayed policy estimates. No completed-observation
+denominator is applied. Rows contain `bucketStart`, `armId`, `generation`, `goals`,
+`totalValue` and `latestReceivedAt`. Omitting `goalId` combines all goals, including
+negative values. Partial boundary buckets respect `[from,to)`; missing buckets are
+omitted. Truncated rows must not be presented as complete totals. Jobs support
+`kind: 'rewardSeries'` with the same scope and cache rules.
+
 ## 시간별 arm 성과·트래픽·정책
 
 - `armSeries({ ...armQuery, bucketMs })`: 관측 시작 시각의 bucket별 `arms()` 결과다. goal별 0 분모·속성 필터·groupBy 계약을 그대로 유지한다.

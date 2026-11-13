@@ -124,6 +124,7 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
   async analyticsJobStatus(input: Parameters<AnalyticsJobsAPI['status']>[0]) { this.installationId; return this.env.REPORTS.getByName(this.installationId).status(input); }
   async analyticsJobPage(input: Parameters<AnalyticsJobsAPI['page']>[0]) { this.installationId; return this.env.REPORTS.getByName(this.installationId).page(input); }
   async analyticsJobCancel(input: Parameters<AnalyticsJobsAPI['cancel']>[0]) { this.installationId; return this.env.REPORTS.getByName(this.installationId).cancel(input); }
+  async analyticsRewardSeries(query: Parameters<AnalyticsAPI['rewardSeries']>[0]) { return new BasinAnalytics(this.env, this.installationId).rewardSeries(query); }
   async analyticsArmSeries(query: Parameters<AnalyticsAPI['armSeries']>[0]) { return new BasinAnalytics(this.env, this.installationId).armSeries(query); }
   async analyticsTraffic(query: Parameters<AnalyticsAPI['traffic']>[0]) { return new BasinAnalytics(this.env, this.installationId).traffic(query); }
   async analyticsPolicies(query: Parameters<AnalyticsAPI['policies']>[0]) { return new BasinAnalytics(this.env, this.installationId).policies(query); }

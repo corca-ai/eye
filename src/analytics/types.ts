@@ -17,6 +17,15 @@ export interface ArmQuery extends QueryRange {
   /** Restrict to observations containing a matching track event, without duplicating the denominator. */
   hasEvent?: { name: string; filter?: Filter };
 }
+/** Raw attributed rewards bucketed by goal occurrence time, including open observations.
+ * Values include valid credits outside the observation window; they are not closed learning. */
+export interface RewardSeriesQuery extends QueryRange {
+  experimentId: string; bucketMs: number; armId?: string; generation?: number; goalId?: string;
+}
+export interface RewardSeriesRow {
+  bucketStart: number; armId: string; generation: number;
+  goals: number; totalValue: number; latestReceivedAt: number;
+}
 /** cid 또는 uid 하나의 이력. 다음 페이지는 같은 조회 조건과 응답의 nextCursor를 사용한다. */
 export interface TimelineQuery extends QueryRange {
   subject: { cid: string; uid?: never } | { uid: string; cid?: never };
@@ -118,6 +127,8 @@ export interface AttributeKeyReport extends AnalyticsPage<AttributeKeyRow> { cov
 export interface AnalyticsAPI {
   /** 마감 때 확정한 표본 보상 합계·평균. 원본 귀속을 재계산하지 않는다. */
   learning(query: LearningQuery): Promise<LearningReport>;
+  /** Goal occurrence-time attribution; no completed-observation denominator. */
+  rewardSeries(query: RewardSeriesQuery): Promise<AnalyticsPage<RewardSeriesRow>>;
   /** 관측 시작 bucket별 arm 비교. */
   armSeries(query: ArmSeriesQuery): Promise<AnalyticsPage<ArmSeriesRow>>;
   /** 실제 노출된 배정·노출의 수와 비율. */

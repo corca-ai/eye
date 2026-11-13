@@ -13,7 +13,7 @@ export type { EyeOptions, EyeClient, Submission, EventInput } from './client.js'
 export type { CollectionLimits } from './collection-limits.js';
 export type { EyeService, PolicySnapshot, AssignedDecision, GoalDefinition } from './transport.js';
 export type {
-  Scalar, AttributeField, Filter, QueryRange, ArmQuery, TimelineQuery, EventsQuery, EventSeriesQuery, EventSeriesRow, EventSeriesPage, GoalQuery, SeriesQuery, AttributeValuesQuery,
+  RewardSeriesQuery, RewardSeriesRow, Scalar, AttributeField, Filter, QueryRange, ArmQuery, TimelineQuery, EventsQuery, EventSeriesQuery, EventSeriesRow, EventSeriesPage, GoalQuery, SeriesQuery, AttributeValuesQuery,
   AnalyticsAPI, AnalyticsMeta, AnalyticsPage, ArmRow, ArmReport, TimelineRow, TimelinePage, EventListRow, EventListPage, GoalRow, SeriesRow, AttributeValueRow,
 } from './analytics/types.js';
 

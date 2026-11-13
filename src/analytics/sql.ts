@@ -5,7 +5,7 @@ import { attributionCTEs, anonymousLink, identitySegments } from './attribution-
 import { invariant } from '../core/errors.js';
 import { id, record, timestamp, RETENTION_MS } from '../core/validation.js';
 import { analyticsRecord, type AnalyticsTable } from './records.js';
-import type { ArmQuery, AttributeValuesQuery, GoalQuery, QueryRange, SeriesQuery, TimelineQuery, EventsQuery } from './types.js';
+import type { RewardSeriesQuery, ArmQuery, AttributeValuesQuery, GoalQuery, QueryRange, SeriesQuery, TimelineQuery, EventsQuery } from './types.js';
 
 export interface QueryPlan { sql: string; limit: number; receivedBefore: number; fingerprint: string }
 export interface Cursor { fingerprint: string; receivedBefore: number; at: number; table: string; id: string }
@@ -94,6 +94,24 @@ export class AnalyticsSQL {
     if (reconstruct && (table === 'observations' || table === 'decisions')) return exposureProjection(table, alias, this.namespace, literal(this.siteId), Math.max(0, this.now - RETENTION_MS), from, to, receivedBefore, extra);
     return `${alias} AS (SELECT * FROM (SELECT ${columns}, ROW_NUMBER() OVER (PARTITION BY record_id ORDER BY revision DESC, received_at ASC) AS _revision_rank
 FROM ${this.namespace}.${table === 'events' ? 'events' : 'projections'} WHERE table_name = ${literal(table)} AND site_id = ${literal(this.siteId)} AND occurred_at >= ${from} AND occurred_at < ${to} AND received_at <= ${receivedBefore}${extra}) ranked WHERE _revision_rank = 1)`;
+  }
+  rewardSeries(q: RewardSeriesQuery): QueryPlan {
+    const limit = range(q, this.now), experiment = literal(id(q.experimentId, 'experimentId'));
+    invariant(Number.isSafeInteger(q.bucketMs) && q.bucketMs > 0, 'invalid_input', 'bucketMs must be positive integer milliseconds');
+    invariant(q.generation === undefined || (Number.isSafeInteger(q.generation) && q.generation >= 1), 'invalid_input', 'generation must be a positive integer');
+    const ctes = attributionCTEs(this.namespace, literal(this.siteId), Math.max(0, this.now - RETENTION_MS), q.from, q.to, this.now, undefined, experiment);
+    ctes.push(`reward_facts AS (SELECT CAST(FLOOR(occurred_at / ${q.bucketMs}.0) * ${q.bucketMs} AS BIGINT) AS bucket_start,
+arm_id, json_get_int(json_get_json(exposure_payload, 'assignment'), 'generation') AS generation,
+base_value * decay_factor AS reward, received_at FROM ac_rewards WHERE experiment_id = ${experiment}
+${q.armId === undefined ? '' : ` AND arm_id = ${literal(id(q.armId, 'armId'))}`}
+${q.goalId === undefined ? '' : ` AND goal_id = ${literal(id(q.goalId, 'goalId'))}`}
+${q.generation === undefined ? '' : ` AND json_get_int(json_get_json(exposure_payload, 'assignment'), 'generation') = ${q.generation}`})`);
+    ctes.push(`scaled_rewards AS (SELECT *, MAX(ABS(reward)) OVER (PARTITION BY bucket_start, arm_id, generation) AS reward_scale FROM reward_facts)`);
+    return {sql: `WITH ${ctes.join(',\n')}
+SELECT bucket_start, arm_id, generation, COUNT(*) AS goals,
+COALESCE(SUM(reward / NULLIF(reward_scale, 0)) * MAX(reward_scale), 0) AS total_value,
+MAX(received_at) AS latest_received_at FROM scaled_rewards GROUP BY bucket_start, arm_id, generation
+ORDER BY bucket_start, arm_id, generation LIMIT ${limit + 1}`, limit, receivedBefore: this.now, fingerprint: fingerprint(this.siteId, 'rewardSeries', q)};
   }
   arms(q: ArmQuery, bucketMs?: number): QueryPlan {
     if (bucketMs !== undefined) invariant(Number.isSafeInteger(bucketMs) && bucketMs > 0, 'invalid_input', 'bucketMs must be positive integer milliseconds');

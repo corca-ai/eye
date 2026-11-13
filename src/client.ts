@@ -186,6 +186,7 @@ export function createEye(options: EyeOptions) {
       /** bucket·arm·세대별 신규 배정 수와 실제 노출 수 및 각각의 비율. */
       traffic: query => service.analyticsTraffic(query),
       /** 관측 시작 시각의 bucket별 arm 성과. arms와 동일한 분모·속성 필터를 사용한다. */
+      rewardSeries: query => service.analyticsRewardSeries(query),
       armSeries: query => service.analyticsArmSeries(query),
       /** 관측 시작 시각 기준 arm·세대별 완료 보상 비교. groupBy/filter는 최초 노출의 userAttributes를 사용한다. */
       arms: query => service.analyticsArms(query),
