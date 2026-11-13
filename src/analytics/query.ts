@@ -77,6 +77,13 @@ export class BasinAnalytics implements AnalyticsAPI {
       bytesScanned: metrics.bytes_scanned === undefined ? null : numeric(metrics, 'bytes_scanned'),
     } };
   }
+  async rewardSeries(query: import('./types.js').RewardSeriesQuery): ReturnType<AnalyticsAPI['rewardSeries']> {
+    const result = await this.execute(this.sql().rewardSeries(query));
+    return {meta: result.meta, rows: result.rows.map(row => {
+      invariant(typeof row.arm_id === 'string', 'unavailable', 'Invalid arm ID');
+      return {bucketStart: numeric(row, 'bucket_start'), armId: row.arm_id, generation: numeric(row, 'generation'), goals: numeric(row, 'goals'), totalValue: numeric(row, 'total_value'), latestReceivedAt: numeric(row, 'latest_received_at')};
+    })};
+  }
   async arms(query: ArmQuery): Promise<ArmReport> {
     const result = await this.execute(this.sql().arms(query));
     return { rewardBasis: 'raw_attribution', cohortBasis: 'observation_start',

@@ -24,6 +24,7 @@ export function validateJobRequest(siteId: string, input: AnalyticsRequest, now:
     case 'summary': break; // Normalized and validated below; no raw SQL builder.
     case 'learning': sql.learning(input.query); break;
     case 'arms': sql.arms(input.query); break;
+    case 'rewardSeries': sql.rewardSeries(input.query); break;
     case 'armSeries':
       invariant(Number.isSafeInteger(input.query.bucketMs) && input.query.bucketMs > 0, 'invalid_input', 'bucketMs must be positive integer milliseconds');
       sql.arms(input.query, input.query.bucketMs); break;
@@ -75,6 +76,7 @@ export async function runJobQuery(api: BasinAnalytics, input: Exclude<AnalyticsR
   switch (input.kind) {
     case 'learning': return { kind: input.kind, data: await api.learning(input.query) };
     case 'arms': return { kind: input.kind, data: await api.arms(input.query) };
+    case 'rewardSeries': return {kind: input.kind, data: await api.rewardSeries(input.query)};
     case 'armSeries': return { kind: input.kind, data: await api.armSeries(input.query) };
     case 'traffic': return { kind: input.kind, data: await api.traffic(input.query) };
     case 'policies': return { kind: input.kind, data: await api.policies(input.query) };

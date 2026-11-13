@@ -44,6 +44,7 @@ createEye(options: EyeOptions): EyeClient
 - [eye.analytics.attributeKeys](#eyeanalyticsattributekeys)
 - [eye.analytics.policies](#eyeanalyticspolicies)
 - [eye.analytics.traffic](#eyeanalyticstraffic)
+- [eye.analytics.rewardSeries](#eyeanalyticsrewardseries)
 - [eye.analytics.armSeries](#eyeanalyticsarmseries)
 - [eye.analytics.arms](#eyeanalyticsarms)
 - [eye.analytics.timeline](#eyeanalyticstimeline)
@@ -349,6 +350,16 @@ eye.analytics.traffic(query: TrafficQuery): Promise<AnalyticsPage<TrafficRow>>
 ```
 
 타입: [AnalyticsPage](types.md#analyticspage) · [TrafficQuery](types.md#trafficquery) · [TrafficRow](types.md#trafficrow)
+
+## eye.analytics.rewardSeries
+
+goal 발생 시각별 원본 귀속 가치. 진행 중인 관측과 관측 창 이후의 유효한 귀속도 포함하며 완료 표본의 평균은 아니다.
+
+```ts
+eye.analytics.rewardSeries(query: RewardSeriesQuery): Promise<AnalyticsPage<RewardSeriesRow>>
+```
+
+타입: [AnalyticsPage](types.md#analyticspage) · [RewardSeriesQuery](types.md#rewardseriesquery) · [RewardSeriesRow](types.md#rewardseriesrow)
 
 ## eye.analytics.armSeries
 
