@@ -1,3 +1,4 @@
+import type { ArmStatus } from '../core/types.js';
 /** Whole-minute boundaries in ascending order, at most 60 days/256 buckets.
  * A caller can supply local midnight boundaries, including DST and half-hour zones.
  * Queries read only durable aggregates; no raw SQL, cache miss work or backfill. */
@@ -11,6 +12,6 @@ export interface DashboardReport {
   rewards: { bucketStart: number; goalId: string; armId: string; generation: number; goals: number; totalValue: number }[];
   traffic: { bucketStart: number; armId: string; generation: number; assignments: number; exposures: number }[];
   learning: { armId: string; generation: number; completed: number; learningValue: number }[];
-  policies: { occurredAt: number; armId: string; generation: number; status: string; probability: number; meanReward: number | null; score: number | null; scoreScale: number }[];
+  policies: { occurredAt: number; armId: string; generation: number; status: ArmStatus; probability: number; meanReward: number | null; score: number | null; scoreScale: number }[];
   meta: { basis: 'processed_learning'; coverageFrom: number; queriedAt: number; lastProcessedAt: number | null; diagnostics: DashboardDiagnostics };
 }

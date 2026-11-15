@@ -1,3 +1,4 @@
+import { browserState, browserSnapshot, browserResults, storedDefault, type StoredDefault } from './browser-validation.js';
 import { selectionFallback, selectionValue, isDataDefinition, withinBudget, type SelectionDefinition } from './variant-definition.js';
 import { EVENT_MAX_AGE_MS } from './core/validation.js';
 import { DEFAULT_POLICY_FRESH_MS } from './policy-timing.js';
@@ -66,7 +67,6 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
   let ready = new Map<string, { choice: BrowserSnapshot['choices'][number]; received: number; receivedWall: number; serverNow: number; safetyMs: number }>();
   let defaults = new Map<string, { choice: BrowserSnapshot['choices'][number]; received: number; receivedWall: number; serverNow: number; safetyMs: number }>();
   let states = new Map<string, BrowserState>();
-  type StoredDefault = BrowserState & { choice?: BrowserSnapshot['choices'][number]; serverNow?: number; receivedWall?: number; safetyMs?: number };
   let defaultStates = new Map<string, StoredDefault>();
   const statuses = new Map<string, 'assigned' | 'inactive' | 'unavailable'>();
   function currentTime(cached: NonNullable<ReturnType<typeof ready.get>>) {
@@ -87,7 +87,7 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
       const raw: unknown = JSON.parse(saved);
       if (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) {
         for (const [id, value] of Object.entries(raw).slice(0, 1000)) {
-          if (typeof value === 'object' && value !== null && 'receipt' in value && typeof value.receipt === 'string') states.set(id, value as BrowserState);
+          try { states.set(id, browserState(value)); } catch { /* Ignore only the corrupt entry. */ }
         }
       }
     }
@@ -98,7 +98,7 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
       const raw: unknown = JSON.parse(saved);
       if (raw && typeof raw === 'object' && !Array.isArray(raw))
         for (const [id, value] of Object.entries(raw).slice(0, 1000))
-          if (value && typeof value === 'object' && 'receipt' in value && typeof value.receipt === 'string') defaultStates.set(id, value as StoredDefault);
+          try { defaultStates.set(id, storedDefault(value)); } catch { /* Ignore only the corrupt entry. */ }
     }
   } catch { /* Optional storage. */ }
   const wanted = new Set<string>();
@@ -119,12 +119,10 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
     return response.json();
   };
   function validChoice(choice: BrowserSnapshot['choices'][number], serverNow: number): boolean {
-    return !!choice && typeof choice.experimentId === 'string' && typeof choice.armId === 'string' && typeof choice.receipt === 'string'
-      && Number.isFinite(choice.applyUntil) && choice.applyUntil > serverNow
-      && (choice.refreshAfter === undefined || Number.isFinite(choice.refreshAfter));
+    return choice.applyUntil > serverNow;
   }
   function install(snapshot: BrowserSnapshot, safetyMs = 0, restoreStored = false) {
-    if (!snapshot || snapshot.scope !== scope || !Number.isFinite(snapshot.serverNow) || !Array.isArray(snapshot.choices)) return;
+    if (snapshot.scope !== scope) return;
     const received = performance.now();
     for (const supplied of [...snapshot.choices, ...(snapshot.defaults ?? []).map(c => ({ ...c, allocation: 'default' as const }))]) {
       if (!validChoice(supplied, snapshot.serverNow)) continue;
@@ -146,9 +144,9 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
         const sameSemantics = prior?.contextKey && prior.contextKey === choice.contextKey;
         if (saved?.sample && (sameAssignment || sameSemantics)) {
           if (sameAssignment) choice.sample = saved.sample;
-          else if (prior && Number.isFinite(saved.serverNow) && Number.isFinite(saved.receivedWall)) {
-            serverNow = Math.max(serverNow, saved.serverNow! + Math.max(0, Date.now() - saved.receivedWall!));
-            margin = Math.max(margin, saved.safetyMs ?? 0);
+          else if (saved.choice !== undefined) {
+            serverNow = Math.max(serverNow, saved.serverNow + Math.max(0, Date.now() - saved.receivedWall));
+            margin = Math.max(margin, saved.safetyMs);
             const sampleEnd = saved.sample.startAt + (prior.observationWindowMs ?? 0);
             if (serverNow < sampleEnd) {
               wanted.add(choice.experimentId); schedulePrepare();
@@ -208,11 +206,12 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
     preparing = true; nextPrepareAt = performance.now() + 5000;
     try {
       const requestStates = Object.fromEntries(ids.flatMap(id => previous[id] ? [[id, previous[id]!]] : []));
-      const snapshot = options.prepare ? await options.prepare(ids, requestStates, Object.fromEntries(ids.flatMap(id => priorDefaults[id] ? [[id, wireState(priorDefaults[id]!)]] : []))) : await post(options.prepareUrl ?? '/eye/prepare', { experimentIds: ids, states: requestStates, defaultStates: Object.fromEntries(ids.flatMap(id => priorDefaults[id] ? [[id, wireState(priorDefaults[id]!)]] : [])) }) as BrowserSnapshot;
+      const response: unknown = options.prepare ? await options.prepare(ids, requestStates, Object.fromEntries(ids.flatMap(id => priorDefaults[id] ? [[id, wireState(priorDefaults[id]!)]] : []))) : await post(options.prepareUrl ?? '/eye/prepare', { experimentIds: ids, states: requestStates, defaultStates: Object.fromEntries(ids.flatMap(id => priorDefaults[id] ? [[id, wireState(priorDefaults[id]!)]] : [])) });
       if (epoch === generation && !stopped) {
-        if (!snapshot || snapshot.scope !== scope || !Number.isFinite(snapshot.serverNow) || !Array.isArray(snapshot.choices)
+        const snapshot = browserSnapshot(response);
+        if (snapshot.scope !== scope
           || !snapshot.choices.every(choice => validChoice(choice, snapshot.serverNow))
-          || (snapshot.defaults !== undefined && (!Array.isArray(snapshot.defaults) || !snapshot.defaults.every(choice => validChoice(choice, snapshot.serverNow))))) {
+          || (snapshot.defaults !== undefined && !snapshot.defaults.every(choice => validChoice(choice, snapshot.serverNow)))) {
           throw new Error('Invalid Eye preparation snapshot');
         }
         for (const id of ids) {
@@ -254,8 +253,9 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
     try {
       if (!batch.length) return;
       const events = batch.map(item => item.event);
-      const results = options.send ? await options.send(events) : await post(options.eventsUrl ?? '/eye/events', events) as BrowserEventResult[];
-      if (!Array.isArray(results) || batch.some(item => !results.some(r => r.eventId === item.event.eventId && typeof r.accepted === 'boolean'))) throw new Error('Invalid Eye acknowledgement');
+      const response: unknown = options.send ? await options.send(events) : await post(options.eventsUrl ?? '/eye/events', events);
+      const results = browserResults(response);
+      if (batch.some(item => !results.some(r => r.eventId === item.event.eventId))) throw new Error('Invalid Eye acknowledgement');
       for (const result of results) if (!result.accepted) report(new Error(`Eye rejected exposure ${result.eventId}`));
     } catch (error) {
       report(error);
@@ -286,8 +286,11 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
   }
   if (options.initialAgeMs !== undefined && (!Number.isFinite(options.initialAgeMs) || options.initialAgeMs < 0)) throw new Error('Invalid initial snapshot age');
   if (options.initial) {
-    const age = options.initialAgeMs ?? Math.max(0, Date.now() - options.initial.serverNow);
-    install({ ...options.initial, serverNow: options.initial.serverNow + age }, 0, true);
+    try {
+      const initial = browserSnapshot(options.initial);
+      const age = options.initialAgeMs ?? Math.max(0, Date.now() - initial.serverNow);
+      install({ ...initial, serverNow: initial.serverNow + age }, 0, true);
+    } catch (error) { report(error); }
   }
   async function prepareExperiments(experimentIds: readonly string[]) {
     if (stopped) throw new Error('Eye browser disposed');

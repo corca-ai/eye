@@ -64,13 +64,13 @@ export function attributes(value: unknown, limits?: Pick<CollectionLimits, 'maxA
   }
   return Object.fromEntries(entries.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0));
 }
-export function settings(value: unknown): ExperimentSettings {
+export function settings(value: unknown): Required<ExperimentSettings> {
   const v = record(value, 'settings');
   for (const key of Object.keys(v)) {
     invariant(key === 'minHoldMs' || Object.hasOwn(DEFAULT_SETTINGS, key), 'invalid_input', `Unknown setting: ${key}`);
   }
   const read = (key: keyof typeof DEFAULT_SETTINGS) => number(v[key] === undefined ? DEFAULT_SETTINGS[key] : v[key], key);
-  const result: ExperimentSettings = {
+  const result: Required<ExperimentSettings> = {
     minHoldMs: number(v.minHoldMs, 'minHoldMs'),
     attributionWindowMs: read('attributionWindowMs'), bootstrapShare: read('bootstrapShare'),
     observationWindowMs: read('observationWindowMs'), attributionHalfLifeMs: read('attributionHalfLifeMs'),
@@ -87,12 +87,12 @@ export function settings(value: unknown): ExperimentSettings {
   invariant(result.explorationFloor <= 1, 'invalid_input', 'explorationFloor must be at most 1');
   invariant(result.observationWindowMs + OBSERVATION_GRACE_MS <= RETENTION_MS, 'invalid_input', 'observationWindowMs + fixed one-minute grace must not exceed 60 days');
   invariant(Number.isSafeInteger(result.bootstrapQuota), 'invalid_input', 'bootstrapQuota must be an integer');
-  invariant(result.attributionWindowMs! <= RETENTION_MS && result.bootstrapShare! < 1, 'invalid_input', 'Attribution horizon must be at most 60 days and bootstrapShare below one');
+  invariant(result.attributionWindowMs <= RETENTION_MS && result.bootstrapShare < 1, 'invalid_input', 'Attribution horizon must be at most 60 days and bootstrapShare below one');
   return result;
 }
 
 /** Decode historical assignments/configs; the removed setting never affects the fixed grace. */
-export function historicalSettings(value: unknown): ExperimentSettings {
+export function historicalSettings(value: unknown): Required<ExperimentSettings> {
   const v = record(value, 'settings');
   return settings(Object.fromEntries(Object.entries(v).filter(([key]) => key !== 'allowedLatenessMs')));
 }

@@ -789,7 +789,7 @@ export interface BrowserExposure {
 
 임포트: `@eye/workers/browser`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L8)
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L9)
 
 ```ts
 /** 브라우저 전용 설정. 서버 secret·Worker 바인딩은 받지 않는다. */
@@ -841,7 +841,7 @@ export interface BrowserSample {
 
 임포트: `@eye/workers/browser`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L29)
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L30)
 
 ```ts
 /** 한 뷰·실험·placement에서 고정된 선택. 준비가 끝나도 현재 value는 바뀌지 않는다. */
@@ -922,7 +922,7 @@ export interface BrowserState {
 
 임포트: `@eye/workers/browser`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L38)
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L39)
 
 ```ts
 /** 실제 라우트·팝업 수명에 맞춘 선택 묶음. 컴포넌트 재렌더 동안 같은 뷰를 유지한다. */
@@ -1028,7 +1028,7 @@ export interface CreateExperiment {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/dashboard.ts#L6)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/dashboard.ts#L7)
 
 ```ts
 /** Cumulative site-wide processing diagnostics since this materialization was installed; not per-experiment errors or an error bound. */
@@ -1046,7 +1046,7 @@ export interface DashboardDiagnostics {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/dashboard.ts#L4)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/dashboard.ts#L5)
 
 ```ts
 /** Whole-minute boundaries in ascending order, at most 60 days/256 buckets.
@@ -1064,7 +1064,7 @@ export interface DashboardQuery {
 
 임포트: `@eye/workers`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/dashboard.ts#L10)
+[소스](https://github.com/corca-ai/eye/blob/main/src/analytics/dashboard.ts#L11)
 
 ```ts
 /** Actual processing-order attribution, with the same split, decay and observation eligibility as learning.
@@ -1096,7 +1096,7 @@ export interface DashboardReport {
         occurredAt: number;
         armId: string;
         generation: number;
-        status: string;
+        status: ArmStatus;
         probability: number;
         meanReward: number | null;
         score: number | null;
@@ -1112,7 +1112,7 @@ export interface DashboardReport {
 }
 ```
 
-타입: [DashboardDiagnostics](types.md#dashboarddiagnostics) · [DashboardReport](types.md#dashboardreport)
+타입: [ArmStatus](types.md#armstatus) · [DashboardDiagnostics](types.md#dashboarddiagnostics) · [DashboardReport](types.md#dashboardreport)
 
 ## DataDefinition
 
@@ -1519,7 +1519,7 @@ export interface ExposureInput {
 
 임포트: `@eye/workers/browser`
 
-[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L51)
+[소스](https://github.com/corca-ai/eye/blob/main/src/browser.ts#L52)
 
 ```ts
 /** 브라우저 앱 수명 동안 재사용한다. 로그인 전환에는 setScope, 화면 전환에는 beginView를 사용한다. */

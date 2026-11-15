@@ -2,7 +2,7 @@ import type { DashboardDiagnostics, DashboardQuery, DashboardReport } from '../a
 import { addReward, mergeReward, type RewardSum } from '../core/reward-sum.js';
 import { invariant, finite } from '../core/errors.js';
 import { id, record, timestamp, RETENTION_MS } from '../core/validation.js';
-import type { Assignment, ExposureEvent, GoalEvent } from '../core/types.js';
+import type { Assignment, Experiment, ExposureEvent, GoalEvent } from '../core/types.js';
 import type { PublishedPolicy } from '../transport.js';
 import type { LearningSQL } from './incremental.js';
 
@@ -34,7 +34,7 @@ export class Dashboard {
     for (const key of Object.keys(previous) as (keyof DashboardDiagnostics)[]) previous[key] += diagnostics[key];
     this.sql.exec('UPDATE dashboard_state SET last_processed_at=?,diagnostics=? WHERE id=1', now, JSON.stringify(previous));
   }
-  static recordPolicy(sql: LearningSQL, policy: PublishedPolicy, arms: readonly {armId: string; status: string}[]): void {
+  static recordPolicy(sql: LearningSQL, policy: PublishedPolicy, arms: Experiment['arms']): void {
     const coverage = sql.exec<{coverage_from: number}>('SELECT coverage_from FROM dashboard_state WHERE id=1').toArray()[0]!.coverage_from;
     if (policy.publishedAt < coverage) return;
     const rows = arms.map(arm => {

@@ -37,31 +37,42 @@ export interface DecisionOptions {
   /** 로컬 배정 또는 실제 노출로 상태가 바뀌면 서명 후 호출한다. 다음 요청이 읽을 서버 세션에 저장한다. 쿠키는 state()를 기다린 뒤 응답에 쓴다. */
   onPrepared?: (experimentId: string, token: string) => Promise<void> | void;
 }
+type CachedPolicy = { retryAt: number } & (
+  | { kind: 'pending' }
+  | { kind: 'absent'; checkedAt: number }
+  | { kind: 'ready'; checkedAt: number; policy: PublishedPolicy }
+);
 /** 정책과 미등록 실험 응답만 저장하는 isolate 캐시. capacity 기본 1000, 양의 정수. 호스트는 생성 후 decisions.cache에 전달하며 read/absent/checkedAt/begin/put은 SDK 내부 갱신용이다. */
 export class DecisionCache {
-  private readonly entries = new Map<string, { policy?: PublishedPolicy; absent?: true; retryAt: number; checkedAt?: number }>();
+  private readonly entries = new Map<string, CachedPolicy>();
   constructor(private readonly capacity = 1000) { invariant(Number.isSafeInteger(capacity) && capacity > 0, 'invalid_input', 'Invalid policy cache capacity'); }
   /** SDK 갱신용. 키에 저장된 정책을 읽으며 최신성을 보장하지 않는다. */
-  read(key: string): PublishedPolicy | undefined { return this.entries.get(key)?.policy; }
+  read(key: string): PublishedPolicy | undefined {
+    const entry = this.entries.get(key);
+    return entry?.kind === 'ready' ? entry.policy : undefined;
+  }
   /** SDK 갱신용. 마지막 확인에서 런타임이 등록되지 않은 실험이라고 답했으면 true. */
-  absent(key: string): boolean { return this.entries.get(key)?.absent === true; }
+  absent(key: string): boolean { return this.entries.get(key)?.kind === 'absent'; }
   /** SDK 갱신용. 마지막 정책 확인 시각(Unix ms); 확인 이력이 없으면 undefined. */
-  checkedAt(key: string): number | undefined { return this.entries.get(key)?.checkedAt; }
+  checkedAt(key: string): number | undefined {
+    const entry = this.entries.get(key);
+    return entry && entry.kind !== 'pending' ? entry.checkedAt : undefined;
+  }
   /** SDK 갱신용. 키별 조회 시작을 10초 간격으로 제한하며 허용되면 true. */
   begin(key: string, now: number): boolean {
     if ((this.entries.get(key)?.retryAt ?? 0) > now) return false;
     const entry = this.entries.get(key);
     this.entries.delete(key);
-    this.entries.set(key, { ...entry, retryAt: now + 10_000 });
+    this.entries.set(key, { ...(entry ?? {kind: 'pending'}), retryAt: now + 10_000 });
     while (this.entries.size > this.capacity) this.entries.delete(this.entries.keys().next().value!);
     return true;
   }
   /** SDK 갱신용. 더 오래된 sequence는 무시한다. null은 등록되지 않은 실험이며 순서를 비교할 수 없어 저장된 정책을 대체한다. 채택한 응답은 확인 시각을 기록한다. */
   put(key: string, policy: PublishedPolicy | null, checkedAt = Date.now()): void {
-    const old = this.entries.get(key);
-    if (policy === null) this.entries.set(key, { absent: true, retryAt: 0, checkedAt });
-    else if (old?.policy && old.policy.sequence > policy.sequence) return;
-    else this.entries.set(key, { policy: old?.policy?.sequence === policy.sequence ? old.policy : policy, retryAt: 0, checkedAt });
+    const old = this.read(key);
+    if (policy === null) this.entries.set(key, { kind: 'absent', retryAt: 0, checkedAt });
+    else if (old && old.sequence > policy.sequence) return;
+    else this.entries.set(key, { kind: 'ready', policy: old?.sequence === policy.sequence ? old : policy, retryAt: 0, checkedAt });
     while (this.entries.size > this.capacity) this.entries.delete(this.entries.keys().next().value!);
   }
 }

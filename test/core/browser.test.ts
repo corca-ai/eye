@@ -70,19 +70,26 @@ it('renders fallback immediately while preparation hangs and never changes an ex
 });
 it('does not expose prefetch/disposed views; repeated display and retries retain one event ID', async () => {
   vi.useFakeTimers();
-  const batches: BrowserExposure[][] = [];
-  const send = vi.fn(async (events: BrowserExposure[]) => {
-    batches.push(events);
+  const batches: string[] = [];
+  const send = vi.fn(async (_url: string, init: RequestInit) => {
+    const body = String(init.body); batches.push(body);
     if (batches.length === 1) throw new Error('network');
-    return events.map(e => ({ eventId: e.eventId, accepted: true }));
+    const events: unknown = JSON.parse(body);
+    if (!Array.isArray(events)) throw new Error('Expected events');
+    return Response.json(events.map((event: unknown) => {
+      if (!event || typeof event !== 'object' || !('eventId' in event) || typeof event.eventId !== 'string') throw new Error('Expected event ID');
+      return {eventId:event.eventId, accepted:batches.length === 2 ? 'yes' : true};
+    }));
   });
-  const client = createEyeBrowser({ scope: 'a', initial: snapshot(), send });
+  vi.stubGlobal('fetch', send);
+  const client = createEyeBrowser({ scope: 'a', initial: snapshot() });
   const canceled = client.beginView(), ignored = canceled.variant(definition); canceled.dispose();
   expect(ignored.expose()).toBe(false);
   const view = client.beginView(), selected = view.variant(definition);
   expect(send).not.toHaveBeenCalled(); expect(selected.expose()).toBe(true); expect(selected.expose()).toBe(true);
-  const flushing = client.flush(); await vi.advanceTimersByTimeAsync(3001); await flushing;
-  expect(batches).toHaveLength(2); expect(batches[0]).toEqual(batches[1]); expect(batches[0]).toHaveLength(1);
+  const flushing = client.flush(); await vi.advanceTimersByTimeAsync(6001); await flushing;
+  expect(batches).toHaveLength(3); expect(new Set(batches).size).toBe(1);
+  expect(JSON.parse(batches[0]!)).toHaveLength(1);
   client.dispose();
 });
 it('invalidates old selections on authentication changes but keeps already emitted events', async () => {
@@ -108,7 +115,8 @@ it('does not emit after expiry or for unknown arms, and limits queue growth', as
   const onError = vi.fn();
   const client = createEyeBrowser({ scope: 'a', initial: snapshot(), onError });
   expect(client.beginView().variant({ ...definition, variants: { other: 'other' } }).expose()).toBe(false);
-  for (let i = 0; i < 100; i++) expect(client.beginView().variant(definition).expose()).toBe(true);
+  const accepted = Array.from({length:100}, () => client.beginView().variant(definition).expose());
+  expect(accepted.every(Boolean)).toBe(true);
   expect(client.beginView().variant(definition).expose()).toBe(false);
   const held = client.beginView().variant(definition);
   vi.setSystemTime(Date.now() + 300_001); expect(held.expose()).toBe(false);
@@ -164,7 +172,6 @@ it('preserves a newly exposed sample when an older preparation response arrives'
   expect(events).toHaveLength(2); expect(events[0]!.sample).toEqual(events[1]!.sample);
   await vi.advanceTimersByTimeAsync(5000);
   expect(prepare).toHaveBeenCalledTimes(2);
-  expect(prepare.mock.calls[1]).toBeDefined();
   client.dispose();
 });
 
@@ -188,6 +195,15 @@ it('retains the current sample across bootstrap and cold reloads', async () => {
   next.beginView().variant(definition); await vi.advanceTimersByTimeAsync(1);
   expect(prepare.mock.calls[0]).toEqual([['checkout'], expect.objectContaining({ checkout: expect.objectContaining({ sample: expect.objectContaining({ sampleId: expect.any(String) }) }) }), {}]);
   next.dispose();
+  // Corrupt entries cannot supply a sample or poison a healthy sibling's restore.
+  values.set('eye/browser/v2/a', JSON.stringify({checkout:{receipt:'opaque',sample:{sampleId:'bad',startAt:'later'}}, retained:{receipt:'valid'}}));
+  values.set('eye/browser/v2/a/defaults', JSON.stringify({checkout:{receipt:'opaque',choice:initial.choices[0],serverNow:'bad'}, retained:{receipt:'valid-default'}}));
+  const restore = vi.fn(async () => snapshot());
+  const recovered = createEyeBrowser({scope:'a', storage, prepare:restore});
+  try {
+    await recovered.prepare(['checkout','retained']);
+    expect(restore.mock.calls[0]).toEqual([['checkout','retained'], {retained:{receipt:'valid'}}, {retained:{receipt:'valid-default'}}]);
+  } finally {recovered.dispose();}
 });
 it('refreshes long-lived choices on the next view without waiting for hard expiry or replacing mounted views', async () => {
   vi.useFakeTimers();
@@ -272,19 +288,25 @@ it('delivers a valid receipt larger than the former 16 KB batch limit', async ()
   } finally { client.dispose(); }
 });
 
-it.each(['clock', 'scope', 'choice'])('retains usable cached choices when preparation returns an invalid %s', async kind => {
+it('retains usable cached choices when HTTP preparation contains invalid fields', async () => {
   vi.useFakeTimers();
   const initial = snapshot(); initial.choices[0]!.refreshAfter = initial.serverNow;
-  const onError = vi.fn();
-  const client = createEyeBrowser({ scope: 'a', initial, onError,
-    prepare: async () => kind === 'choice' ? JSON.parse('{"scope":"a","serverNow":1,"choices":[null]}') as BrowserSnapshot
-      : { scope: kind === 'scope' ? 'other' : 'a', serverNow: kind === 'clock' ? NaN : Date.now(), choices: [] } });
-  try {
-    expect(client.beginView().variant(definition).armId).toBe('compact');
-    await vi.advanceTimersByTimeAsync(1);
-    expect(client.beginView().variant(definition).armId).toBe('compact');
-    expect(onError).toHaveBeenCalled();
-  } finally { client.dispose(); }
+  const invalid: unknown[] = [
+    {...snapshot(), serverNow: null}, {...snapshot(), scope: 'other'}, {...snapshot(), choices: [null]},
+    ...[{sample: {sampleId: 'bad', startAt: 'later'}}, {allocation: 'unknown'},
+      {observationWindowMs: -1}, {assignmentId: 123}, {contextKey: []}]
+      .map(patch => ({...snapshot(), choices: [{...initial.choices[0], ...patch}]})),
+    {...snapshot(), statuses: {checkout: 'unknown'}}, {...snapshot(), defaults: {}},
+  ];
+  for (const response of invalid) {
+    vi.stubGlobal('fetch', async () => Response.json(response));
+    const onError = vi.fn(), client = createEyeBrowser({scope:'a', initial, onError});
+    try {
+      await client.prepare(['checkout']);
+      expect(client.beginView().variant(definition).armId).toBe('compact');
+      expect(onError).toHaveBeenCalled();
+    } finally {client.dispose();}
+  }
 });
 
 it('clears a cached choice when a valid preparation omits a paused experiment', async () => {
