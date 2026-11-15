@@ -168,13 +168,21 @@ it('preserves a newly exposed sample when an older preparation response arrives'
   client.dispose();
 });
 
-it('retains preparation state across reloads without requiring browser storage', async () => {
+it('retains the current sample across bootstrap and cold reloads', async () => {
   vi.useFakeTimers();
   const values = new Map<string, string>();
   const storage = { getItem: (k: string) => values.get(k) ?? null, setItem: (k: string, v: string) => { values.set(k, v); }, removeItem: (k: string) => { values.delete(k); } };
   const initial = snapshot(); Object.assign(initial.choices[0]!, { assignmentId: 'assignment', observationWindowMs: 86_400_000 });
-  const first = createEyeBrowser({ scope: 'a', storage, initial });
-  first.beginView().variant(definition).expose(); first.dispose();
+  const events: BrowserExposure[] = [];
+  const send = async (batch: BrowserExposure[]) => { events.push(...batch); return batch.map(e => ({eventId:e.eventId,accepted:true})); };
+  const first = createEyeBrowser({ scope: 'a', storage, initial, send });
+  first.beginView().variant(definition).expose(); await first.flush(); first.dispose();
+  const bootstrapped = createEyeBrowser({scope:'a',storage,initial,send});
+  try {
+    bootstrapped.beginView().variant(definition).expose(); await bootstrapped.flush();
+    expect(events).toHaveLength(2);
+    expect(events[1]!.sample).toEqual(events[0]!.sample);
+  } finally {bootstrapped.dispose();}
   const prepare = vi.fn(async () => snapshot());
   const next = createEyeBrowser({ scope: 'a', storage, prepare });
   next.beginView().variant(definition); await vi.advanceTimersByTimeAsync(1);

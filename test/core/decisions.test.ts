@@ -207,19 +207,24 @@ it('accepts a maxAge-only configuration and refreshes before its explicit hard d
   expect(() => decisionRuntime(f.service, f.ctx, { secret, freshMs: 300_001, maxAgeMs: 300_000 }, () => {})).toThrow();
 });
 
-it('explicit preparation never selects a policy older than one already cached', async () => {
-  const f = fixture();
-  let release!: (policy: PublishedPolicy) => void;
-  f.service.getPublishedPolicy.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
-  const oldRuntime = decisionRuntime(f.service, f.ctx, { secret, cache: f.cache }, () => {});
-  const slow = oldRuntime.prepare({ cid: 'old-request' }, 'exp');
-  const newer: PublishedPolicy = { ...f.policy, sequence: 2, revision: 2, status: 'paused', arms: [], activeArms: [] };
-  f.service.getPublishedPolicy.mockResolvedValueOnce(newer);
-  const freshRuntime = decisionRuntime(f.service, f.ctx, { secret, cache: f.cache }, () => {});
-  expect((await freshRuntime.prepare({ cid: 'new-request' }, 'exp', undefined, true)).decision.status).toBe('no_active_arm');
-  release(f.policy);
-  expect((await slow).decision.status).toBe('no_active_arm');
-  await Promise.all(f.pending);
+it('explicit preparation never replaces a newer policy with an older policy or pre-registration absence', async () => {
+  for (const absent of [false, true]) {
+    const f = fixture();
+    let release!: (policy: PublishedPolicy | null) => void;
+    f.service.getPublishedPolicy.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+    const oldRuntime = decisionRuntime(f.service, f.ctx, { secret, cache: f.cache }, () => {});
+    const slow = oldRuntime.prepare({ cid: 'old-request' }, 'exp');
+    const newer: PublishedPolicy = { ...f.policy, sequence: 2, revision: 2,
+      arms: [{...f.policy.arms[0]!, armId:'b'}], activeArms:['b'] };
+    f.service.getPublishedPolicy.mockResolvedValueOnce(newer);
+    const freshRuntime = decisionRuntime(f.service, f.ctx, { secret, cache: f.cache }, () => {});
+    expect((await freshRuntime.prepare({ cid: 'new-request' }, 'exp', undefined, true)).decision)
+      .toMatchObject({status:'assigned',assignment:{armId:'b'}});
+    release(absent ? null : f.policy);
+    expect((await slow).decision).toMatchObject({status:'assigned',assignment:{armId:'b'}});
+    expect(await freshRuntime.decide({cid:'later-request'},'exp')).toMatchObject({status:'assigned',assignment:{armId:'b'}});
+    await Promise.all(f.pending);
+  }
 });
 
 it('state preserves other experiments across requests that select only one experiment or only collect events', async () => {

@@ -6,17 +6,19 @@ import { createEyeBrowserServer } from '../../src/browser-server.js';
 import type { EventEnvelope } from '../../src/core/types.js';
 const secret = 'browser-server-test-secret-with-32-bytes';
 it.each(['paused', 'deleted'] as const)('accepts a published %s experiment as an initial policy', async status => {
-  const ctx = createExecutionContext(), service = exports.default;
+  const ctx = createExecutionContext(), service = exports.default, experimentId = '__proto__', onError = vi.fn();
   const admin = createEye({ ctx, service });
-  await admin.experiments.create({ experimentId: 'inactive-seed', arms: ['control', { armId: 'copy', data: { title: 'Copy' } }], settings: { minHoldMs: 0 } });
-  if (status === 'paused') await admin.experiments.pause('inactive-seed');
-  else await admin.experiments.delete('inactive-seed');
-  const policy = await service.getPublishedPolicy('inactive-seed', 300_000);
+  await admin.experiments.create({ experimentId, arms: ['control', { armId: 'copy', data: { title: 'Copy' } }], settings: { minHoldMs: 0 } });
+  if (status === 'paused') await admin.experiments.pause(experimentId);
+  else await admin.experiments.delete(experimentId);
+  const policy = await service.getPublishedPolicy(experimentId, 300_000);
   expect(policy).not.toBeNull();
   const server = createEyeBrowserServer({ ctx, service, subject: { cid: 'browser' }, browserBinding: 'binding',
-    scope: 'anonymous', receiptSecret: secret, decisions: { secret, initialPolicies: [policy!] } });
-  expect(await server.snapshot(['inactive-seed'])).toMatchObject({ choices: [], statuses: { 'inactive-seed': 'inactive' } });
+    scope: 'anonymous', receiptSecret: secret, defaultArms: {}, onError,
+    decisions: { secret, tokens: {}, defaultTokens: {}, initialPolicies: [policy!] } });
+  expect(await server.snapshot([experimentId])).toMatchObject({ choices: [], statuses: { [experimentId]: 'inactive' } });
   await waitOnExecutionContext(ctx);
+  expect(onError).not.toHaveBeenCalled();
 });
 
 async function fixture(observationWindowMs = 7 * 86400000) {

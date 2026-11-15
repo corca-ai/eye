@@ -128,7 +128,9 @@ describe('local assignment without a user coordinator', () => {
     let count = 0;
     const p = { ...policy, arms: [{ armId: 'a', probability: 0.2 }, { armId: 'b', probability: 0.8 }] };
     for (let i = 0; i < 10000; i++) {
-      if (assigned(selectLocal(options({ policy: p, subject: { cid: String(i) } }))).context.assignment.armId === 'a') count++;
+      const selection = selectLocal(options({ policy: p, subject: { cid: String(i) } }));
+      if (selection.status !== 'assigned') throw new Error(`Unassigned identity ${i}`);
+      if (selection.context.assignment.armId === 'a') count++;
     }
     expect(count / 10000).toBeGreaterThan(0.18);
     expect(count / 10000).toBeLessThan(0.22);

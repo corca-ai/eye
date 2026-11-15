@@ -66,7 +66,7 @@ export function createEyeBrowserServer(options: BrowserServerOptions) {
     invariant(Array.isArray(experimentIds) && experimentIds.length <= 20, 'invalid_input', 'Preparation requires an array of at most 20 experiments');
     const states = record(previous, 'states'), defaultStates = record(previousDefaults, 'default states');
     const choices: BrowserSnapshot['choices'] = [], defaults: NonNullable<BrowserSnapshot['defaults']> = [];
-    const statuses: NonNullable<BrowserSnapshot['statuses']> = {};
+    const statuses = new Map<string, NonNullable<BrowserSnapshot['statuses']>[string]>();
     async function restoreContext(states: Record<string, unknown>, experimentId: string, mode: 'policy' | 'default') {
       if (!Object.hasOwn(states, experimentId)) return undefined;
       try {
@@ -102,7 +102,8 @@ export function createEyeBrowserServer(options: BrowserServerOptions) {
     for (const experimentId of new Set(experimentIds)) {
       id(experimentId, 'experimentId');
       try {
-        const defaultArm = options.defaultArms?.[experimentId];
+        const defaultArm = options.defaultArms && Object.hasOwn(options.defaultArms, experimentId)
+          ? options.defaultArms[experimentId] : undefined;
         // This path is independent of policy preparation: snapshot() never waits for a policy RPC.
         if (defaultArm !== undefined) {
           const context = await restoreContext(defaultStates, experimentId, 'default');
@@ -113,7 +114,7 @@ export function createEyeBrowserServer(options: BrowserServerOptions) {
         const decision = waitPolicy
           ? (await eye.prepare({ subject, experimentId, ...(context ? { context } : {}) })).decision
           : await eye.decide({ subject, experimentId, ...(context ? { context } : {}) });
-        statuses[experimentId] = decision.status === 'assigned' ? 'assigned' : decision.status === 'no_active_arm' ? 'inactive' : 'unavailable';
+        statuses.set(experimentId, decision.status === 'assigned' ? 'assigned' : decision.status === 'no_active_arm' ? 'inactive' : 'unavailable');
         if (decision.status === 'assigned') { const value = await choice(decision); if (value) choices.push(value); }
         // A newly fetched policy can also authorize/renew a default capability.
         if (waitPolicy && defaultArm !== undefined) {
@@ -126,11 +127,11 @@ export function createEyeBrowserServer(options: BrowserServerOptions) {
             if (value) defaults.push(value);
           }
         }
-      } catch (error) { statuses[experimentId] = 'unavailable'; if (!reportedInBackground(error)) try { options.onError?.(error); } catch {} }
+      } catch (error) { statuses.set(experimentId, 'unavailable'); if (!reportedInBackground(error)) try { options.onError?.(error); } catch {} }
     }
     const serverNow = Date.now();
     return { scope, serverNow, choices: choices.filter(c => c.applyUntil > serverNow),
-      defaults: defaults.filter(c => c.applyUntil > serverNow && statuses[c.experimentId] !== 'inactive'), statuses };
+      defaults: defaults.filter(c => c.applyUntil > serverNow && statuses.get(c.experimentId) !== 'inactive'), statuses: Object.fromEntries(statuses) };
   }
   return {
     /** Prepare policies explicitly; existing states and independent default observations survive renewal. */

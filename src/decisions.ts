@@ -141,7 +141,12 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
     const pending = loads.get(loadKey);
     if (!force && pending && pending.expiresAt > Date.now()) return pending.work;
     const work = (async () => {
+      const previous = cache.read(key(experimentId));
       const policy = await service.getPublishedPolicy(experimentId, maxAge);
+      const current = cache.read(key(experimentId));
+      // An absence response has no sequence. If another request installed a
+      // policy while this lookup waited, it already supersedes that absence.
+      if (policy === null && current && current !== previous) return current;
       cache.put(key(experimentId), policy);
       return policy === null ? null : cache.read(key(experimentId))!;
     })();
@@ -195,7 +200,9 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
     return session.restoration = load(experimentId, session);
   };
   const load = async (experimentId: string, session: ExperimentSession) => {
-    const token = (isDefaultKey(experimentId) ? options?.defaultTokens : options?.tokens)?.[experimentFor(experimentId)];
+    const tokens = isDefaultKey(experimentId) ? options?.defaultTokens : options?.tokens;
+    const id = experimentFor(experimentId);
+    const token = tokens && Object.hasOwn(tokens, id) ? tokens[id] : undefined;
     if (!token) return;
     try {
       invariant(token.length <= 16_384, 'invalid_input', 'Oversized state');

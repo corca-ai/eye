@@ -131,6 +131,14 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
       // Exposure updates belong to this client, not the host's snapshot/cache.
       let choice = { ...supplied };
       let serverNow = snapshot.serverNow, margin = safetyMs;
+      if (restoreStored && choice.allocation !== 'default') {
+        const saved = states.get(choice.experimentId);
+        // Reusing the same capability on reload must not discard a sample
+        // opened locally after the bootstrap was issued. A different receipt
+        // remains authoritative; its assignment cannot be inferred here.
+        if (saved?.receipt === choice.receipt && saved.sample
+          && (!choice.sample || saved.sample.startAt > choice.sample.startAt)) choice.sample = saved.sample;
+      }
       if (restoreStored && choice.allocation === 'default') {
         const saved = defaultStates.get(choice.experimentId);
         const prior = saved?.choice;
