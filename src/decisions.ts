@@ -118,9 +118,12 @@ export function decisionRuntime(service: DecisionService, ctx: Pick<ExecutionCon
   for (const supplied of options?.initialPolicies ?? []) {
     const policy = structuredClone(supplied);
     id(policy.installationId, 'installationId'); id(policy.experimentId, 'experimentId');
+    // Pausing the experiment removes allocations, but retains configured active
+    // arms and their immutable data so the same definition can later resume.
     invariant(Number.isSafeInteger(policy.publishedAt) && policy.publishedAt >= 0 && Number.isSafeInteger(policy.sequence)
-      && policy.sequence >= 0 && policy.activeArms.length === policy.arms.length
-      && policy.activeArms.every(arm => policy.arms.some(a => a.armId === arm)), 'invalid_input', 'Invalid initial policy');
+      && policy.sequence >= 0 && ((policy.status !== 'active' && policy.arms.length === 0)
+        || (policy.activeArms.length === policy.arms.length
+          && policy.activeArms.every(arm => policy.arms.some(a => a.armId === arm)))), 'invalid_input', 'Invalid initial policy');
     if (policy.armData !== undefined) {
       const arms = Object.entries(record(policy.armData, 'policy arm data')).map(([armId, data]) => parseArm({ armId, data }));
       invariant(arms.every(a => policy.activeArms.includes(a.armId)), 'invalid_input', 'Data must belong to an active arm');

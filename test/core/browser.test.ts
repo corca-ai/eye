@@ -6,6 +6,29 @@ function snapshot(scope = 'a'): BrowserSnapshot {
   return { scope, serverNow: Date.now(), choices: [{ experimentId: 'checkout', armId: 'compact', receipt: 'opaque', applyUntil: Date.now() + 300_000 }] };
 }
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+it.each(['expired-cache', 'expired-in-transit', 'omitted-choice'])('does not report assignment after preparation with an %s', async condition => {
+  vi.useFakeTimers();
+  const initial = snapshot();
+  initial.statuses = { checkout: 'assigned' };
+  const client = createEyeBrowser({ scope: 'a', ...(condition === 'expired-cache' ? { initial } : {}),
+    prepare: async () => {
+      if (condition === 'expired-cache') throw new Error('offline');
+      const result = snapshot();
+      result.statuses = { checkout: 'assigned' };
+      if (condition === 'omitted-choice') result.choices = [];
+      else { result.choices[0]!.applyUntil = result.serverNow + 100; await new Promise(resolve => setTimeout(resolve, 101)); }
+      return result;
+    },
+  });
+  try {
+    if (condition === 'expired-cache') vi.setSystemTime(initial.serverNow + 300_001);
+    const prepared = client.prepare(['checkout']);
+    await vi.advanceTimersByTimeAsync(102);
+    expect(await prepared).toEqual({ checkout: 'unavailable' });
+    expect(client.beginView().variant(definition).armId).toBeNull();
+  } finally { client.dispose(); }
+});
+
 it.each(['initial', 'prepare'])('keeps immutable %s snapshots separate from local sample state', async source => {
   vi.useFakeTimers();
   const supplied = snapshot();

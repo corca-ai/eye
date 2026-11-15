@@ -69,6 +69,12 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
   type StoredDefault = BrowserState & { choice?: BrowserSnapshot['choices'][number]; serverNow?: number; receivedWall?: number; safetyMs?: number };
   let defaultStates = new Map<string, StoredDefault>();
   const statuses = new Map<string, 'assigned' | 'inactive' | 'unavailable'>();
+  function currentTime(cached: NonNullable<ReturnType<typeof ready.get>>) {
+    return cached.serverNow + Math.max(0, performance.now() - cached.received, Date.now() - cached.receivedWall);
+  }
+  function usable(cached: ReturnType<typeof ready.get>): cached is NonNullable<typeof cached> {
+    return !!cached && currentTime(cached) + cached.safetyMs < cached.choice.applyUntil;
+  }
   let storage = options.storage;
   try { storage ??= (globalThis as unknown as { sessionStorage?: BrowserOptions['storage'] }).sessionStorage; } catch { /* Storage can be disabled by browser policy. */ }
   const samples = new Map<string, NonNullable<BrowserState['sample']>>();
@@ -292,7 +298,8 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
       await prepare();
     }
     if (epoch !== generation || stopped) return {};
-    return Object.fromEntries(experimentIds.map(id => [id, ready.has(id) ? 'assigned' : statuses.get(id) ?? 'unavailable'])) as Record<string, 'assigned' | 'inactive' | 'unavailable'>;
+    return Object.fromEntries(experimentIds.map(id => [id, usable(ready.get(id)) ? 'assigned'
+      : statuses.get(id) === 'inactive' ? 'inactive' : 'unavailable'])) as Record<string, 'assigned' | 'inactive' | 'unavailable'>;
   }
   return {
     prepare: prepareExperiments,
@@ -307,12 +314,6 @@ export function createEyeBrowser(options: BrowserOptions): EyeBrowser {
       const selections = new Map<string, BrowserSelection<unknown>>();
       const owners = new Map<string, symbol>();
       const live = () => !stopped && !disposed && epoch === generation;
-      function currentTime(cached: NonNullable<ReturnType<typeof ready.get>>) {
-        return cached.serverNow + Math.max(0, performance.now() - cached.received, Date.now() - cached.receivedWall);
-      }
-      function usable(cached: ReturnType<typeof ready.get>): cached is NonNullable<typeof cached> {
-        return !!cached && currentTime(cached) + cached.safetyMs < cached.choice.applyUntil;
-      }
       function variant<T>(definition: SelectionDefinition<T>, placement = 'default', defaultReason: import('./core/types.js').DefaultReason = 'unprepared'): BrowserSelection<T> {
         const key = JSON.stringify([definition.experimentId, placement]);
         const old = selections.get(key);
