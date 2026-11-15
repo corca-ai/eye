@@ -77,13 +77,15 @@ describe('optimistic policy for completed evidence', () => {
       const active = day < 360 ? [0, 1] : day < 450 ? [0, 1, 2] : [0, 1];
       const policy = evaluateUnreservedPolicy(active.map(arm => ({ armId: String(arm), moments: state[arm]! })), config, now);
       const best = day < 270 ? 0 : day < 360 ? 1 : day < 450 ? 2 : 0;
+      const invalidArms = new Set<number>();
       for (let i = 0; i < 100; i++) {
         const arm = Number(chooseArm(policy, random())!.armId);
-        expect(active).toContain(arm);
+        if (!active.includes(arm)) invalidArms.add(arm);
         completions.push({ at: day + 7, arm, reward: (arm === best ? 4 : -1) + random() - 0.5 });
         const period = day >= 310 && day < 350 ? 0 : day >= 410 && day < 450 ? 1 : day >= 500 ? 2 : -1;
         if (period >= 0) { totals[period]!++; if (arm === best) counts[period]!++; }
       }
+      expect([...invalidArms]).toEqual([]);
       if (day === 180) state = JSON.parse(JSON.stringify(state)) as typeof state;
     }
     counts.forEach((n, i) => expect(n / totals[i]!).toBeGreaterThan(0.8));

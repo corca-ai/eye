@@ -34,6 +34,7 @@ it.each(Object.entries(changes))('classifies %s changes while preserving histori
       expect(after.sequence).toBe(before.sequence + 1);
       expect(after.settings[key as keyof ExperimentSettings]).toBe(value);
       expect(after.arms[0]!.weight).toBe(generation === 1 ? 100 : 0);
+      expect(after.statsAsOf).toBe(generation === 1 ? at : null);
       expect(experiment.updateSettings({ [key]: value })).toEqual(next);
       expect(experiment.publish(siteId, 60_000).sequence).toBe(after.sequence);
       const mixed = experiment.updateSettings({ bonusMultiplier: 4, observationWindowMs: 6000 });
@@ -61,15 +62,23 @@ it('closes in-flight samples into their original compatible or isolated generati
     const reset = await site.updateExperiment(siteId, 'exp', { observationWindowMs: 2000 });
     expect(await site.consumeLearning(siteId, [expose('new', reset)])).toEqual([true]);
     expect(old.assignment.settings).toEqual(first.settings);
+    const fresh = (await site.publishedPolicy(siteId, 'exp'))!;
+    expect(fresh.statsAsOf).toBeNull();
+    clock.mockReturnValue(at + 61_000);
+    await runInDurableObject(site, async (actor) => { await actor.alarm(); });
+    const oldCompleted = (await site.publishedPolicy(siteId, 'exp'))!;
+    expect(oldCompleted.statsAsOf).toBeNull();
+    expect(oldCompleted.sequence).toBe(fresh.sequence);
     clock.mockReturnValue(at + 63_000);
     await runInDurableObject(site, async (actor, state) => {
       await actor.alarm();
       const rows = state.storage.sql.exec<{ generation: number; data: string }>(
         'SELECT generation, data FROM local_arm_moments ORDER BY generation').toArray();
       expect(rows.map(r => r.generation)).toEqual([1, 2]);
-      expect(JSON.parse(rows[0]!.data).weight).toBeCloseTo(2 * 2 ** (-62_000 / first.settings.learningHalfLifeMs), 10);
+      expect(JSON.parse(rows[0]!.data).weight).toBeCloseTo(2 * 2 ** (-60_000 / first.settings.learningHalfLifeMs), 10);
       expect(JSON.parse(rows[1]!.data).weight).toBeCloseTo(2 ** (-61_000 / reset.settings.learningHalfLifeMs), 10);
       expect(actor.getExperimentPolicy(siteId, 'exp').arms[0]!.weight).toBeCloseTo(JSON.parse(rows[1]!.data).weight, 10);
+      expect(actor.getExperimentPolicy(siteId, 'exp').statsAsOf).toBe(at + 63_000);
     });
   } finally { clock.mockRestore(); send.mockRestore(); }
 });

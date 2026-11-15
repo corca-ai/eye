@@ -2058,7 +2058,7 @@ export interface PolicyQuery extends QueryRange {
 [소스](https://github.com/corca-ai/eye/blob/main/src/transport.ts#L10)
 
 ```ts
-/** statsAsOf는 마지막 적용한 마감 구간의 기준 시각이며 null은 적용 이력 없음. 전체 데이터 수신 완료 watermark가 아니다. */
+/** statsAsOf는 현재 generation에 마지막 적용한 마감 구간의 기준 시각이며 null은 해당 세대의 적용 이력 없음. 전체 데이터 수신 완료 watermark가 아니다. */
 export interface PolicySnapshot extends UnreservedPolicyEvaluation {
     experimentId: string;
     generation: number;

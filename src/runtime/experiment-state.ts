@@ -135,7 +135,9 @@ export class ExperimentState {
       armId: a.armId, moments: moments.get(a.armId) ?? emptyMoments(now),
     })), { ...config.settings, bootstrapShare: config.settings.bootstrapShare ?? 0.2 }, now);
     return { ...policy, experimentId: config.experimentId, generation: config.generation, revision: config.revision,
-      statsAsOf: this.kv.get<number>('statsAsOf') ?? null };
+      // Read the evidence itself: a previous generation's completion timestamp
+      // cannot describe this policy, including after upgrading existing stores.
+      statsAsOf: moments.size ? Math.max(...[...moments.values()].map(m => m.asOf)) : null };
   }
   /** Caller atomically closes samples, applies their moments and records export. */
   applyMoments(cohort: Pick<ClosedCohort, 'asOf' | 'arms'>): void {
@@ -153,8 +155,8 @@ export class ExperimentState {
       const next = mergeMoments(ageMoments(old, now, settings.learningHalfLifeMs), ageMoments(m, now, settings.learningHalfLifeMs));
       this.saveMoment({ generation: arm.generation, arm_id: arm.armId, data: JSON.stringify(next) });
     }
-    if (!this.kv.get('policyDirty')) this.kv.put('policyDirty', true);
-    this.kv.put('statsAsOf', Math.max(this.kv.get<number>('statsAsOf') ?? 0, cohort.asOf));
+    if (cohort.arms.some(arm => arm.generation === config.generation) && !this.kv.get('policyDirty'))
+      this.kv.put('policyDirty', true);
   }
   cachedPolicy(maxAgeMs: number): import('../transport.js').PublishedPolicy | undefined {
     invariant(Number.isSafeInteger(maxAgeMs) && maxAgeMs > 0, 'invalid_input', 'Invalid policy maximum age');

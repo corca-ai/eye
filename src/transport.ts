@@ -6,7 +6,7 @@ import type { GoalDefinition } from './runtime/site.js';
 import type { UnreservedPolicyEvaluation } from './core/policy.js';
 import type { AnalyticsAPI } from './analytics/types.js';
 
-/** statsAsOf는 마지막 적용한 마감 구간의 기준 시각이며 null은 적용 이력 없음. 전체 데이터 수신 완료 watermark가 아니다. */
+/** statsAsOf는 현재 generation에 마지막 적용한 마감 구간의 기준 시각이며 null은 해당 세대의 적용 이력 없음. 전체 데이터 수신 완료 watermark가 아니다. */
 export interface PolicySnapshot extends UnreservedPolicyEvaluation {
   experimentId: string; generation: number; revision: number; statsAsOf: number | null;
 }

@@ -102,14 +102,18 @@ export class Dashboard {
 }
 
 export class DashboardBatch {
-  private readonly pending = new Map<string, Bucket>();
+  private readonly pending = new Map<string, Bucket & { inserted: boolean }>();
   constructor(private readonly sql: LearningSQL, private readonly coverage: number) {}
   private add(kind: string, target: string, at: number, dimension: string, value: number): void {
     if (at < this.coverage) return;
     const bucket = Math.floor(at / MINUTE) * MINUTE, key = JSON.stringify([kind, target, bucket, dimension]);
     let row = this.pending.get(key);
-    if (!row) { row = this.sql.exec<Bucket>('SELECT * FROM dashboard_buckets WHERE kind=? AND target=? AND bucket=? AND dimension=?', kind, target, bucket, dimension).toArray()[0]
-      ?? {kind, target, bucket, dimension, count: 0, scale: 0, sum: 0, correction: 0}; this.pending.set(key, row); }
+    if (!row) {
+      const previous = this.sql.exec<Bucket>('SELECT * FROM dashboard_buckets WHERE kind=? AND target=? AND bucket=? AND dimension=?', kind, target, bucket, dimension).toArray()[0];
+      row = previous ? {...previous, inserted: false}
+        : {kind, target, bucket, dimension, count: 0, scale: 0, sum: 0, correction: 0, inserted: true};
+      this.pending.set(key, row);
+    }
     row.count++; addReward(row, value);
   }
   exposure(event: ExposureEvent): void {
@@ -127,10 +131,14 @@ export class DashboardBatch {
     this.add('learning', a.experimentId, startAt, JSON.stringify([a.armId, a.generation]), reward);
   }
   flush(): void {
+    if (!this.pending.size) return;
     let inserted = 0;
     for (const row of this.pending.values()) {
-      inserted += this.sql.exec(`INSERT OR IGNORE INTO dashboard_buckets VALUES (?,?,?,?,?,?,?,?) RETURNING bucket`, row.kind, row.target, row.bucket, row.dimension, row.count, row.scale, row.sum, row.correction).toArray().length;
-      this.sql.exec('UPDATE dashboard_buckets SET count=?,scale=?,sum=?,correction=? WHERE kind=? AND target=? AND bucket=? AND dimension=?', row.count, row.scale, row.sum, row.correction, row.kind, row.target, row.bucket, row.dimension);
+      // The surrounding learning transaction owns both the read and the write.
+      inserted += Number(row.inserted);
+      this.sql.exec(`INSERT INTO dashboard_buckets VALUES (?,?,?,?,?,?,?,?)
+        ON CONFLICT(kind,target,bucket,dimension) DO UPDATE SET count=excluded.count,scale=excluded.scale,sum=excluded.sum,correction=excluded.correction`,
+      row.kind, row.target, row.bucket, row.dimension, row.count, row.scale, row.sum, row.correction);
     }
     this.sql.exec('UPDATE dashboard_state SET rows=rows+? WHERE id=1', inserted);
     const count = this.sql.exec<{rows: number}>('SELECT rows FROM dashboard_state WHERE id=1').toArray()[0]!.rows;

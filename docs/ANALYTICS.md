@@ -143,7 +143,7 @@ await eye.analytics.jobs.schedule({ scope, scheduleId: 'purchase-summary',
 
 모든 논리 레코드 종류는 설치별 record ID의 최신 revision을 선택한 뒤 상태·속성 조건을 적용한다. 같은 revision의 재전송은 최초 수신 행을 사용한다. 원본 goal 재전송은 한 번만 세며 credit을 사이트 합계에 다시 더하지 않는다.
 
-`meta`에는 `queriedAt`, `receivedBefore`, `consistency: 'eventual'`, `truncated`, `bytesScanned`가 있다. `receivedBefore`는 처리 시각 상한이지 수신 완료 watermark가 아니다. 행별 `latestReceivedAt`도 관측한 최댓값일 뿐이다. 파일 반영 지연과 테이블 간 반영 차이로 최근 결과가 바뀔 수 있다. 현재 정책 상태는 별도의 `experiments.policy()`에서 읽는다. 정책 응답의 `meanReward`는 원래 가치 단위이며 `score`는 공통 `scoreScale`로 나눈 비교용 점수다. 현재 정책의 asOf는 통계를 감쇠해 평가한 기준 시각이다. statsAsOf는 마지막 적용한 마감 통계의 기준이다.
+`meta`에는 `queriedAt`, `receivedBefore`, `consistency: 'eventual'`, `truncated`, `bytesScanned`가 있다. `receivedBefore`는 처리 시각 상한이지 수신 완료 watermark가 아니다. 행별 `latestReceivedAt`도 관측한 최댓값일 뿐이다. 파일 반영 지연과 테이블 간 반영 차이로 최근 결과가 바뀔 수 있다. 현재 정책 상태는 별도의 `experiments.policy()`에서 읽는다. 정책 응답의 `meanReward`는 원래 가치 단위이며 `score`는 공통 `scoreScale`로 나눈 비교용 점수다. 현재 정책의 asOf는 통계를 감쇠해 평가한 기준 시각이다. statsAsOf는 현재 generation에 마지막 적용한 마감 통계의 기준이며 해당 세대에 완료 표본이 없으면 null이다.
 
 원본 subject는 입력 당시 cid·uid를 보존한다. 로그인 이력으로 익명 구간의 첫 uid를 조회 시 연결하며 영구 상태 인계를 하지 않는다. 수집 원본과 신원 projection은 같은 Stream 경로로 보내지만 테이블 간 가시성 시각은 다를 수 있다. pending 관측과 selected 배정은 보관된 노출 원본에서 조회 시 재구성한다. 첫 전송을 잃어도 후속 노출로 복구할 수 있으며, 학습이 확정한 관측 결과는 별도로 저장한다. 완료된 학습 결과와 원본에서 재구성한 projection은 종류·ID별 한 행만 반환한다.
 

@@ -40,6 +40,16 @@ it('materializes all goals once using learning identity, splitting and decay, su
     expect(report.meta.basis).toBe('processed_learning');
     // Ordinary reads need neither raw event tables nor a network collaborator.
     expect(report.meta.lastProcessedAt).toBe(start + 20);
+    const repeated = {...exposure('shown', start), eventId:'shown-again', occurredAt:start + 10};
+    accept([repeated]); accept([repeated]);
+    engine.close('site', start + 2 * minute, () => {});
+    const final = engine.dashboard.query({experimentId:'landing', boundaries:[start,start+minute]}, start+minute);
+    expect(final.traffic[0]).toMatchObject({assignments:1, exposures:2});
+    expect(final.learning[0]!.completed).toBe(1);
+    expect(final.learning[0]!.learningValue).toBeCloseTo(report.rewards.reduce((sum,row) => sum+row.totalValue,0), 10);
+    expect(sql.exec<{rows:number}>('SELECT rows FROM dashboard_state').toArray()[0]!.rows).toBe(5);
+    engine.prune(start + 61 * 86_400_000);
+    expect(sql.exec<{rows:number}>('SELECT rows FROM dashboard_state').toArray()[0]!.rows).toBe(0);
   } finally {db.close();}
 });
 it('excludes rejected goals, preserves explicit logout and exposes delayed-data diagnostics', () => {
