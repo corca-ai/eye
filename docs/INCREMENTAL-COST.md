@@ -12,15 +12,9 @@
 
 ## 재현과 결과
 
-```sh
-npm run build
-node benchmarks/incremental-cost/run.mjs --dist=dist --repeats=5 --output=/tmp/eye-cost-after.json
-# 기준 revision도 별도로 빌드하고 같은 스크립트에 전체 dist 경로를 전달한다.
-node benchmarks/incremental-cost/run.mjs --dist=/absolute/path/to/baseline/dist --repeats=5 --output=/tmp/eye-cost-before.json
-node benchmarks/compact-state/run.mjs --repeats=5 --output=/tmp/eye-compact-after.json
-```
+당시 측정 실행기는 고정 커밋에 보관한다: [compact-state/run.mjs](https://github.com/corca-ai/eye/blob/490eaabd193afcebef5eb69635f9197166142abd/benchmarks/compact-state/run.mjs), [incremental-cost/run.mjs](https://github.com/corca-ai/eye/blob/490eaabd193afcebef5eb69635f9197166142abd/benchmarks/incremental-cost/run.mjs). 현재 체크아웃에서는 실행하지 않는다.
 
-전후를 동시에 실행하지 않고 순서대로 측정했다. Node v24.22.1, macOS arm64, 메모리 SQLite다. 원시 반복 측정·입력·소스/스크립트 해시는 `benchmarks/incremental-cost/results.json`에 보관한다. JSON 반환량은 SQLite 파일·페이지 읽기나 Cloudflare 청구 바이트가 아니다.
+전후를 동시에 실행하지 않고 순서대로 측정했다. Node v24.22.1, macOS arm64, 메모리 SQLite다. 원시 반복 측정·입력·소스/스크립트 해시는 [benchmarks/incremental-cost/results.json](https://github.com/corca-ai/eye/blob/490eaabd193afcebef5eb69635f9197166142abd/benchmarks/incremental-cost/results.json)에 보관한다. JSON 반환량은 SQLite 파일·페이지 읽기나 Cloudflare 청구 바이트가 아니다.
 
 | 고정 입력 | 이전 | 이후 |
 | --- | ---: | ---: |
@@ -75,7 +69,7 @@ Stream 출력은 원본 Queue 메시지와 연결한다. 원본과 사전 레코
 한 메시지의 일부 사건이나 사전만 성공한 경우 메시지 전체를 재시도한다.
 학습이 실패한 사건이 있는 메시지도 ACK하지 않는다.
 
-`node benchmarks/product-collection/run.mjs [dist-directory]`로 재현한다.
+[과거 수집 벤치마크](https://github.com/corca-ai/eye/blob/490eaabd193afcebef5eb69635f9197166142abd/benchmarks/product-collection/run.mjs)에서 당시 입력과 실행 방법을 확인한다.
 Node v24.22.1/macOS arm64의 메모리 SQLite와 합성 Cortex 형태 입력에서,
 기준 37ce4fe와 같은 스크립트로 다음 결정적 계수를 비교했다.
 

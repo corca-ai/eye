@@ -44,7 +44,7 @@
 
 변경 전 쿼리 두 파일 `reference-sweep-attribution.ts`, `reference-sweep-sql.ts`는 검증/측정 전용이며 제품 패키지와 런타임에서 사용하지 않는다. 회귀 검사는 반복 신원 경계, 같은 시각 ID, 재전송, 다른 기기, 늦은 익명 연결, 만료 시각 포함, 만료된 최신 선택, 동시 다중 실험 시작, 소유자별 모든 골의 K, 전체 대상 credit 열, hasEvent 이름·속성 필터, arm/시계열 집계를 비교한다. 혼합 스트림은 고정 시드 8개와 실제 증분 엔진이 마감한 관측을 사용한다. 집계 합산 순서의 부동소수점 차이는 작은 허용 오차로 비교하고 개별 credit 행과 분모는 정확히 비교한다.
 
-[원시 결과](measurements/query-sweeps-results.json)는 동일 입력, 한 번 예열과 세 번 실행의 중앙값이다. Node.js 메모리 SQLite에서 실행했으며 시간은 ms다.
+[원시 결과](https://github.com/corca-ai/eye/blob/490eaabd193afcebef5eb69635f9197166142abd/docs/measurements/query-sweeps-results.json)는 동일 입력, 한 번 예열과 세 번 실행의 중앙값이다. Node.js 메모리 SQLite에서 실행했으며 시간은 ms다.
 
 | 검사 | 입력 | 중간 작업의 변화 | 이전 ms | 현재 ms |
 | --- | --- | --- | ---: | ---: |
@@ -56,10 +56,11 @@
 
 서로 다른 종류의 중간 작업을 비교한 계수이며 SQL 명령 수·물리 읽기 수·Cloudflare 과금 단위가 아니다. 원본 읽기와 정렬은 계속 필요하다. 각 측정은 전체 관련 쿼리의 결과 일치를 먼저 확인한다. 작은 입력의 고정 비용과 실제 Basin의 실행 계획·window 예산·스캔 바이트·분산 조인 성능은 별도로 확인해야 한다.
 
+당시 측정 실행기는 고정 커밋에 보관한다: [analytics/query-sweeps.ts](https://github.com/corca-ai/eye/blob/490eaabd193afcebef5eb69635f9197166142abd/benchmarks/analytics/query-sweeps.ts). 현재 체크아웃에서는 실행하지 않는다.
+
+현재 회귀 검증:
+
 ```sh
-npm run build
-node_modules/.bin/esbuild benchmarks/analytics/query-sweeps.ts --bundle --platform=node --format=esm --outfile=/tmp/eye-query-sweeps.mjs
-node /tmp/eye-query-sweeps.mjs
 npx vitest run --project core test/core/query-sweeps.test.ts
 npm run check
 npm run check:package

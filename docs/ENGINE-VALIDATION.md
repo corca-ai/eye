@@ -1,13 +1,13 @@
 # 현재 엔진의 로그 스트림 검증
 
-결과 표와 JSON의 측정 기록은 2026-10-30 기준이며, 아래 입력·경계 설명은 현재 테스트 소스를 따른다. 고정 시드의 가상 웹 방문을 실제 로컬 선택 함수 → SQLite 증분 학습 → 관측 마감/outbox → 정책 계산으로 연결한다. 6개 검사를 일반 테스트에 포함하며, 별도 서버나 유료 리소스 없이 실행한다. 실행 코드는 [테스트](https://github.com/corca-ai/eye/blob/main/test/core/engine-stream.test.ts), [스트림 생성기](https://github.com/corca-ai/eye/blob/main/test/helpers/engine-stream.ts), 수치는 [결과 JSON](engine-stream-results.json)에 있다. 아래 명령은 테스트 소스를 포함한 저장소 체크아웃에서 실행한다.
+결과 표와 JSON의 측정 기록은 2026-10-30 기준이며, 아래 입력·경계 설명은 현재 테스트 소스를 따른다. 고정 시드의 가상 웹 방문을 실제 로컬 선택 함수 → SQLite 증분 학습 → 관측 마감/outbox → 정책 계산으로 연결한다. 6개 검사를 일반 테스트에 포함하며, 별도 서버나 유료 리소스 없이 실행한다. 실행 코드는 [테스트](https://github.com/corca-ai/eye/blob/main/test/core/engine-stream.test.ts), [스트림 생성기](https://github.com/corca-ai/eye/blob/main/test/helpers/engine-stream.ts), 수치는 [결과 JSON](https://github.com/corca-ai/eye/blob/490eaabd193afcebef5eb69635f9197166142abd/docs/engine-stream-results.json)에 있다. 아래 명령은 테스트 소스를 포함한 저장소 체크아웃에서 실행한다.
 
 ```sh
 npm ci
 npm run test:engine
 
 # 선택 사항: 결과 갱신 및 첫 고정 A/A 실행의 수신 로그 저장
-EYE_STREAM_REPORT=docs/engine-stream-results.json \
+EYE_STREAM_REPORT=/tmp/eye-engine-stream-results.json \
 EYE_STREAM_LOG=/tmp/eye-web-stream.ndjson npm run test:engine
 
 # 전체 회귀·타입·문서·패키지 검증
@@ -66,7 +66,7 @@ JSON은 6개 검사가 모두 통과했을 때 기록한다. 실패한 실행에
 우세 전환은 기간 절반에서 평균 1과 0을 교환한다. 나머지 보상에는 ±0.1 균등 잡음을 더한다.
 
 아래 값은 선택한 arm의 알려진 기댓값 합을 매 선택의 최선 기댓값 합으로 나눈 시드 평균이다.
-실현 보상과 후반 우수 arm 배정률도 [결과 JSON](policy-simulation-results.json)에 기록했다.
+실현 보상과 후반 우수 arm 배정률도 [결과 JSON](https://github.com/corca-ai/eye/blob/490eaabd193afcebef5eb69635f9197166142abd/docs/policy-simulation-results.json)에 기록했다.
 
 | 시나리오 | 기존 | 개선 |
 | --- | ---: | ---: |

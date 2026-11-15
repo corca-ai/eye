@@ -1,6 +1,6 @@
 # 조회·Queue 정규화
 
-기준 `8f3b611`. 공개 API, 보상 수학과 수집 예산을 유지하며 동등한 요청과 반복 설정을 정리한다. [원시 로컬 측정](measurements/normalize-pack-results.json)은 정확한 복원/조회 결과 일치를 검사한 뒤 한 번 예열·다섯 번 측정한 중앙값이다.
+기준 `8f3b611`. 공개 API, 보상 수학과 수집 예산을 유지하며 동등한 요청과 반복 설정을 정리한다. [원시 로컬 측정](https://github.com/corca-ai/eye/blob/490eaabd193afcebef5eb69635f9197166142abd/docs/measurements/normalize-pack-results.json)은 정확한 복원/조회 결과 일치를 검사한 뒤 한 번 예열·다섯 번 측정한 중앙값이다.
 
 ## 필터와 캐시
 
@@ -36,16 +36,13 @@ AND/OR의 결합·교환·멱등법칙만 사용한다. 같은 연산을 평탄�
 
 ## 재현
 
-기준 체크아웃을 별도로 준비하고 그 dist를 측정 코드에 전달한다. 저장소의 현재 체크아웃도 의존성과 빌드를 준비한다.
+아래 실행기는 당시 기준 체크아웃의 dist와 결과를 비교했다. 입력과 실행 방법은 고정 커밋에서 확인한다.
+
+당시 측정 실행기는 고정 커밋에 보관한다: [analytics/normalize-pack.ts](https://github.com/corca-ai/eye/blob/490eaabd193afcebef5eb69635f9197166142abd/benchmarks/analytics/normalize-pack.ts). 현재 체크아웃에서는 실행하지 않는다.
+
+현재 회귀 검증:
 
 ```sh
-git worktree add --detach /tmp/eye-normalize-base 8f3b611
-npm ci --prefix /tmp/eye-normalize-base
-npm run build --prefix /tmp/eye-normalize-base
-npm ci
-npm run build
-node_modules/.bin/esbuild benchmarks/analytics/normalize-pack.ts --bundle --platform=node --format=esm --outfile=/tmp/eye-normalize-benchmark.mjs
-node /tmp/eye-normalize-benchmark.mjs /tmp/eye-normalize-base/dist
 npm run check
 npm run check:package
 ```

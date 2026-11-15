@@ -39,16 +39,16 @@ Queue는 batch API 호출 수가 아니라 메시지별 64KB 단위 write/read/d
 
 ## 재현 및 검증
 
-원시 측정: [results.json](measurements/sdk-results.json).
+원시 측정: [results.json](https://github.com/corca-ai/eye/blob/490eaabd193afcebef5eb69635f9197166142abd/docs/measurements/sdk-results.json).
 
-~~~sh
-npm run build
-node benchmarks/sdk/performance.mjs
+당시 측정 실행기는 고정 커밋에 보관한다: [sdk/performance.mjs](https://github.com/corca-ai/eye/blob/490eaabd193afcebef5eb69635f9197166142abd/benchmarks/sdk/performance.mjs). 현재 체크아웃에서는 실행하지 않는다.
 
+현재 회귀 검증:
 
+```sh
 npm run check
 npm run check:package
-~~~
+```
 
 회귀 테스트는 반복 노출의 사건 유지, 새 관측 저장, 외부 문맥의 토큰 복원, 준비 중 노출 경합, 정책 하드 만료, 강제 조회, 동시 조회 실패 후 재시도, 자동 수집·명시적 flush·전송 실패를 다룬다.
 

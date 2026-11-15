@@ -14,12 +14,9 @@
 
 ## 재현
 
-```sh
-npm run build
-node benchmarks/compact-state/run.mjs --events=10000 --repeats=7 --output=/tmp/eye-state-after.json
-```
+당시 측정 실행기는 고정 커밋에 보관한다: [compact-state/run.mjs](https://github.com/corca-ai/eye/blob/490eaabd193afcebef5eb69635f9197166142abd/benchmarks/compact-state/run.mjs). 현재 체크아웃에서는 실행하지 않는다.
 
-현재 엔진에서 요약 활성화 여부와 사전 캐시 유무를 비교한다. 실행 당시의 전후 측정·해시는 `benchmarks/compact-state/results.json`에 보관한다.
+당시 엔진에서 요약 활성화 여부와 사전 캐시 유무를 비교했다. 실행 당시의 전후 측정·해시는 [benchmarks/compact-state/results.json](https://github.com/corca-ai/eye/blob/490eaabd193afcebef5eb69635f9197166142abd/benchmarks/compact-state/results.json)에 보관한다.
 
 입력 10,000개는 사용자 500명 × (로그인 1 + 노출 8 + goal 2 + track 9)다. 두 실험, 사용자당 표본 두 개이며 수신 중복도 추가한다. 입력을 미리 생성·정렬하고 학습 accept와 모든 close를 측정한다. 미완료 표본·goal 중복 기록·관측 outbox SQL을 포함하고 전송·outbox ACK는 시간/쓰기 측정에서 제외한다. 예열 한 번 후 7회 실행한다. 메모리 SQLite·Node 환경이며 네트워크, 디스크 fsync, SQL 인덱스 쓰기 과금, Cloudflare 운영 처리량·비용을 측정하지 않는다.
 

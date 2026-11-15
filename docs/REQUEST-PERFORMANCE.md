@@ -15,7 +15,7 @@
 
 ## 측정
 
-[원시 결과](measurements/request-path-results.json)는 Node.js v24.22.1/macOS에서 한 번 워밍업 후 다섯 번 반복한 요청당 평균의 중앙값이다. 전송은 로컬 대체 구현으로 drain하며, 측정 구간은 SDK 생성과 동기 track 호출이다. 모든 접수 사건이 전달되는지도 확인한다. 아래 작은 시간 차이는 GC·JIT·실행 환경의 영향을 받는다.
+[원시 결과](https://github.com/corca-ai/eye/blob/490eaabd193afcebef5eb69635f9197166142abd/docs/measurements/request-path-results.json)는 Node.js v24.22.1/macOS에서 한 번 워밍업 후 다섯 번 반복한 요청당 평균의 중앙값이다. 전송은 로컬 대체 구현으로 drain하며, 측정 구간은 SDK 생성과 동기 track 호출이다. 모든 접수 사건이 전달되는지도 확인한다. 아래 작은 시간 차이는 GC·JIT·실행 환경의 영향을 받는다.
 
 | 요청 입력 | 이전 ms | 이후 ms | 접수 의미 |
 | --- | ---: | ---: | --- |
@@ -30,12 +30,11 @@
 
 ## 재현
 
-저장소 체크아웃에서 실행한다. [측정 코드](https://github.com/corca-ai/eye/blob/main/benchmarks/sdk/request-path.mjs)는 제품 패키지에 포함하지 않는다.
+당시 측정 실행기는 고정 커밋에 보관한다: [sdk/request-path.mjs](https://github.com/corca-ai/eye/blob/490eaabd193afcebef5eb69635f9197166142abd/benchmarks/sdk/request-path.mjs). 현재 체크아웃에서는 실행하지 않는다.
+
+현재 회귀 검증:
 
 ```sh
-npm ci
-npm run build
-node benchmarks/sdk/request-path.mjs
 npm run check
 npm run check:package
 ```
@@ -49,7 +48,7 @@ npm run check:package
 - 요청 래퍼에서 onError가 없으면 거절마다 진단용 EyeError를 만들지 않는다. 훅이 있으면 기존처럼 사건별로 통지하며, 훅이 던진 예외도 요청에 전파하지 않는다. 오류 집계·샘플링은 추가하지 않았다.
 - 수집 Worker가 파싱한 사건의 크기 검사와 Queue 포장을 한 경로로 합쳤다. canonical envelope당 JSON 직렬화·UTF-8 크기 계산을 2회에서 1회로 줄인다. SDK가 보내온 크기는 신뢰하지 않으며 사건당 100KB, 건당 여유 200바이트, 배치당 240KB·100건과 Queue 분할·순서를 유지한다. 전체 검사와 포장이 끝나야 sendBatch를 호출한다.
 
-[원시 결과](measurements/error-and-size-results.json)는 같은 Node.js/macOS 환경에서 테스트와 별도로 측정했다. 한 번 워밍업 후 다섯 번 반복한 평균의 중앙값이다. 오류 측정은 요청당 1건 접수 후 200건 거절, 수집 측정은 로컬 parse/validation/packing이며 네트워크·Queue 전송은 제외한다.
+[원시 결과](https://github.com/corca-ai/eye/blob/490eaabd193afcebef5eb69635f9197166142abd/docs/measurements/error-and-size-results.json)는 같은 Node.js/macOS 환경에서 테스트와 별도로 측정했다. 한 번 워밍업 후 다섯 번 반복한 평균의 중앙값이다. 오류 측정은 요청당 1건 접수 후 200건 거절, 수집 측정은 로컬 parse/validation/packing이며 네트워크·Queue 전송은 제외한다.
 
 | 로컬 작업 | 이전 ms | 이후 ms |
 | --- | ---: | ---: |
@@ -62,11 +61,6 @@ npm run check:package
 
 직접 SDK와 훅 있는 경로는 대조군이며, 이들의 작은 시간 차이를 개선·회귀율로 해석하지 않는다. 훅 없는 거절 경로에서 불필요한 객체 생성을 생략한 효과와, 같은 Queue 패킷을 만드는 반복 직렬화 감소를 확인했다. 수집 Worker의 절감은 백그라운드 CPU 작업 감소이며 실제 페이지 지연·Worker 과금 절감률을 뜻하지 않는다.
 
-현재 측정 코드는 실제 packIngestion 함수를 호출한다. 모든 접수·거절·훅 통지 건수를 검사하며, 생성된 Queue 패킷을 기존 packEvents 결과와 비교한다. 회귀 검사는 UTF-8 경계·단독 대형 사건·배치 총량·한 번의 직렬화·잘못된 크기 정보 무시·거절 시 배치 전체 미전송을 포함한다.
+당시 측정 코드는 실제 packIngestion 함수를 호출했다. 모든 접수·거절·훅 통지 건수를 검사하며, 생성된 Queue 패킷을 기존 packEvents 결과와 비교한다. 회귀 검사는 UTF-8 경계·단독 대형 사건·배치 총량·한 번의 직렬화·잘못된 크기 정보 무시·거절 시 배치 전체 미전송을 포함한다.
 
-[측정 코드](https://github.com/corca-ai/eye/blob/main/benchmarks/sdk/error-and-size.mjs)는 저장소 체크아웃에서 다음과 같이 실행한다.
-
-```sh
-npm run build
-node benchmarks/sdk/error-and-size.mjs
-```
+당시 측정 실행기는 고정 커밋에 보관한다: [sdk/error-and-size.mjs](https://github.com/corca-ai/eye/blob/490eaabd193afcebef5eb69635f9197166142abd/benchmarks/sdk/error-and-size.mjs). 현재 체크아웃에서는 실행하지 않는다.

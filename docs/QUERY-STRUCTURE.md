@@ -16,7 +16,7 @@ UNION은 각 경로의 골/노출 ID가 유일하고 경로가 배타적이므�
 
 비교 기준인 귀속 SQL은 `benchmarks/analytics/reference-attribution.ts`에 고정했다. 현재 SQL과 같은 원본 스냅샷에서 모든 credit 열을 비교한다. pending 관측·배정은 현재 분석 통합 검사에서 검증한다. 명시적 uid·익명 cid·첫 로그인·로그아웃/재로그인·다른 기기·동일 시각 ID 순서·재전송·긴/짧은 귀속 기간·음수 골·경쟁 실험·반복 노출 속성을 포함한다. 기존 분석 통합 검사도 함께 실행한다.
 
-[측정 결과](measurements/query-structure-results.json)는 Node.js SQLite와 JSON UDF 어댑터를 사용한 로컬 계산 시간이다. 방문마다 노출·경쟁 실험·구매/환불과 20개의 일반 행동 로그를 생성했다. 최초 비교에서 credit 전체가 같은지 확인하고, 워밍업 후 3회 중앙값을 사용한다.
+[측정 결과](https://github.com/corca-ai/eye/blob/490eaabd193afcebef5eb69635f9197166142abd/docs/measurements/query-structure-results.json)는 Node.js SQLite와 JSON UDF 어댑터를 사용한 로컬 계산 시간이다. 방문마다 노출·경쟁 실험·구매/환불과 20개의 일반 행동 로그를 생성했다. 최초 비교에서 credit 전체가 같은지 확인하고, 워밍업 후 3회 중앙값을 사용한다.
 
 | 사용자 수 | 원본 행 | credit 수 | 이전 ms | 이후 ms |
 | ---: | ---: | ---: | ---: | ---: |
@@ -25,12 +25,11 @@ UNION은 각 경로의 골/노출 ID가 유일하고 경로가 배타적이므�
 
 작은 입력에서는 분기·UNION의 고정 비용이 있다. 큰 입력에서 후보 조합 감소 효과가 나타났다. SQLite의 조인 실행은 Basin의 실제 계획·파일 스캔량·과금과 다르므로 이 비율을 원격 성능·비용 절감률로 사용하지 않는다. 배포 환경에서 EXPLAIN과 bytesScanned, 실제 응답 시간을 추가 확인한다.
 
-저장소 체크아웃에서 재현한다. [측정 코드](https://github.com/corca-ai/eye/blob/main/benchmarks/analytics/query.ts)와 기준 SQL은 제품 패키지에 포함하지 않는다.
+당시 측정 실행기는 고정 커밋에 보관한다: [analytics/query.ts](https://github.com/corca-ai/eye/blob/490eaabd193afcebef5eb69635f9197166142abd/benchmarks/analytics/query.ts). 현재 체크아웃에서는 실행하지 않는다.
+
+현재 회귀 검증:
 
 ```sh
-npm ci
-node_modules/.bin/esbuild benchmarks/analytics/query.ts --bundle --platform=node --format=esm --outfile=/tmp/eye-analytics-query.mjs
-node /tmp/eye-analytics-query.mjs
 npm run check
 npm run check:package
 ```
@@ -45,7 +44,7 @@ npm run check:package
 
 원본의 중복 제거·노출 projection·신원 이력 읽기는 남는다. 따라서 타임라인 전체의 계산·스캔량이 O(1)이 되는 것은 아니다. 관련 없는 사용자가 늘어도 귀속 조인의 골·노출 후보 집합을 유지하는 개선이다. 익명 경로의 후보 조합도 별도로 남아 있어 모든 귀속을 선형 시간에 처리한다고 보장하지 않는다.
 
-[로컬 결과](measurements/temporal-query-results.json)는 같은 입력의 모든 credit 열과 타임라인·arm 결과가 기준 SQL과 일치하는지 먼저 검사한 뒤 한 번 예열·세 번 측정한 중앙값이다.
+[로컬 결과](https://github.com/corca-ai/eye/blob/490eaabd193afcebef5eb69635f9197166142abd/docs/measurements/temporal-query-results.json)는 같은 입력의 모든 credit 열과 타임라인·arm 결과가 기준 SQL과 일치하는지 먼저 검사한 뒤 한 번 예열·세 번 측정한 중앙값이다.
 
 | 한 uid의 이벤트 수 | 이전 후보 | 현재 후보 | 이전 ms | 현재 ms |
 | ---: | ---: | ---: | ---: | ---: |
@@ -63,8 +62,10 @@ npm run check:package
 
 기준 SQL 두 파일 `reference-temporal-attribution.ts`, `reference-scoped-sql.ts`는 비교 검증 전용이며 런타임이나 제품 패키지에서 사용하지 않는다. 회귀 검사는 같은 밀리초의 ID 순서, 다른 기기, 익명 경쟁, 만료된 최신 노출, 재전송, Unicode 순서, includeLinked, 페이지 커서, hasEvent와 경쟁 실험 분모를 포함한다.
 
+당시 측정 실행기는 고정 커밋에 보관한다: [analytics/temporal-query.ts](https://github.com/corca-ai/eye/blob/490eaabd193afcebef5eb69635f9197166142abd/benchmarks/analytics/temporal-query.ts). 현재 체크아웃에서는 실행하지 않는다.
+
+현재 회귀 검증:
+
 ```sh
-node_modules/.bin/esbuild benchmarks/analytics/temporal-query.ts --bundle --platform=node --format=esm --outfile=/tmp/eye-temporal-query.mjs
-node /tmp/eye-temporal-query.mjs
 npx vitest run --project core test/core/temporal-query.test.ts
 ```

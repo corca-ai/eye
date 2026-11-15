@@ -8,7 +8,7 @@
 
 `npm run test:engine`은 고정 시드의 웹 로그를 생성하여 현재 선택·증분 학습·마감·정책 계산을 연결한다. 고정/적응형 A/A, 알려진 A/B, 우세 전환, 원본 리듀서와의 비교, 중복·청크 불변성, 보상 단위 변환을 검사한다. 입력·결과와 모사 범위는 [로그 스트림 검증](ENGINE-VALIDATION.md)을 따른다.
 
-상태 쓰기 결합·압축·사전 캐시·요약 추가 쓰기 측정은 [상태 최적화 검증](STATE-OPTIMIZATION.md)과 `benchmarks/compact-state/run.mjs`를 따른다. 상태 조회·알람·객체 생성 비교는 [증분 비용 최적화](INCREMENTAL-COST.md)와 `benchmarks/incremental-cost/run.mjs`를 따른다. 메모리 SQLite·고정 인공 입력의 결과이며 Basin 스캔량, 네트워크·디스크 영속화 비용이나 운영 처리량이 아니다. 원격 부하·실제 쓰기 비용은 별도 검증해야 한다. 하루 100만 사건은 설계 가정이지 검증된 처리량이 아니다.
+상태 쓰기 결합·압축·사전 캐시·요약 추가 쓰기 측정은 [상태 최적화 검증](STATE-OPTIMIZATION.md)과 [benchmarks/compact-state/run.mjs](https://github.com/corca-ai/eye/blob/490eaabd193afcebef5eb69635f9197166142abd/benchmarks/compact-state/run.mjs)를 따른다. 상태 조회·알람·객체 생성 비교는 [증분 비용 최적화](INCREMENTAL-COST.md)와 [benchmarks/incremental-cost/run.mjs](https://github.com/corca-ai/eye/blob/490eaabd193afcebef5eb69635f9197166142abd/benchmarks/incremental-cost/run.mjs)를 따른다. 메모리 SQLite·고정 인공 입력의 결과이며 Basin 스캔량, 네트워크·디스크 영속화 비용이나 운영 처리량이 아니다. 원격 부하·실제 쓰기 비용은 별도 검증해야 한다. 하루 100만 사건은 설계 가정이지 검증된 처리량이 아니다.
 
 도입 전에는 신규 테스트 Worker에 설치하여 Stream fan-out, Basin 쿼리, alarm 마감, 이후 정책 반영을 실제로 확인하고, 기존 기본 화면 대비 지연·미참여율·arm별 수집 유실을 측정한다. 학습용 원본 조회는 제거했지만 사이트별 SQLite 쓰기·outbox 지연과 대량 활동 uid는 측정한다. 구체적인 한도와 설치 구조는 구현 구조 문서를 따른다.
 
