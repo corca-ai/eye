@@ -22,7 +22,8 @@ export class Dashboard {
       CREATE TABLE IF NOT EXISTS dashboard_seen (kind TEXT NOT NULL, event_id TEXT NOT NULL, occurred_at INTEGER NOT NULL, PRIMARY KEY(kind,event_id));
       CREATE INDEX IF NOT EXISTS dashboard_seen_time ON dashboard_seen(occurred_at);
       CREATE TABLE IF NOT EXISTS dashboard_policies (experiment_id TEXT NOT NULL, sequence INTEGER NOT NULL, occurred_at INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(experiment_id,sequence));
-      CREATE INDEX IF NOT EXISTS dashboard_policy_time ON dashboard_policies(occurred_at);`);
+      CREATE INDEX IF NOT EXISTS dashboard_policy_time ON dashboard_policies(occurred_at);
+      CREATE INDEX IF NOT EXISTS dashboard_policy_experiment_time ON dashboard_policies(experiment_id,occurred_at);`);
     sql.exec('INSERT OR IGNORE INTO dashboard_state VALUES (1,?,0,NULL,?)', ceilMinute(now), JSON.stringify(emptyDiagnostics()));
   }
   private state(): State { return this.sql.exec<State>('SELECT * FROM dashboard_state WHERE id=1').toArray()[0]!; }
