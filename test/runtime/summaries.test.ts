@@ -30,11 +30,10 @@ it('summarizes accepted goals once, preserves rejected decisions and never count
     expect(summaries.query(q, start + H).rows).toEqual([{ kind: 'goals', goalId: 'pay', count: 3, total: 8, mean: 8 / 3 }]);
     const e = exposure('zero', start + 10);
     atomic(() => engine.accept([e], start + 11));
-    atomic(() => engine.close('s', start + 62_000, () => {}));
+    atomic(() => engine.close(start + 62_000, () => {}));
     const before = summaries.query({ kind: 'learning', experimentId: 'e', from: start, to: start + H }, start + H);
     expect(before.rows).toEqual([{ kind: 'learning', experimentId: 'e', armId: 'a', generation: 1, observationWindowMs: 1000, count: 1, total: 0, mean: 0 }]);
-    engine.outputs(); engine.outputs();
-    atomic(() => engine.close('s', start + 63_000, () => {}));
+    atomic(() => engine.close(start + 63_000, () => {}));
     expect(summaries.query({ kind: 'learning', experimentId: 'e', from: start, to: start + H }, start + H)).toEqual(before);
   });
 });
@@ -46,7 +45,7 @@ it('requires complete coverage on occurrence/start axis and never silently round
     const cfg = { goalIds: ['pay'], experimentIds: ['e'] };
     const status = ctx.storage.transactionSync(() => summaries.configure(cfg, start + 1));
     expect(status.coverageFrom).toBe(start + H);
-    ctx.storage.transactionSync(() => engine.close('s', start + H + 1, () => {}));
+    ctx.storage.transactionSync(() => engine.close(start + H + 1, () => {}));
     expect(ctx.storage.transactionSync(() => summaries.configure(cfg, start + H + 2))).toEqual(status);
     expect(() => summaries.query({ kind: 'learning', experimentId: 'e', from: start, to: start + H }, start + 2 * H)).toThrow('not fully covered');
     expect(summaries.query({ kind: 'learning', experimentId: 'e', from: start + H, to: start + 2 * H }, start + 2 * H).rows).toEqual([]);
@@ -87,8 +86,9 @@ it('rolls back summaries with dedup, preserves core learning at capacity and exp
     ctx.storage.transactionSync(() => engine.accept([exposure('zero', start + H + 3), goal('new-bucket', start + H, 2)], start + H + 4));
     expect(s.status(start + H).state).toBe('capacity_exceeded');
     expect(() => s.query({ kind: 'goals', goalId: 'pay', from: start, to: start + H }, start + H)).toThrow('not fully covered');
-    ctx.storage.transactionSync(() => engine.close('s', start + 2 * H, () => {}));
-    expect(engine.outputs().flatMap(o => o.output.records).find(r => r.record_id === 'zero')!.value).toBe(0);
+    ctx.storage.transactionSync(() => engine.close(start + 2 * H, ({ samples }) => {
+      expect(samples.find(sample => sample.sampleId === 'zero')!.reward).toBe(0);
+    }));
     ctx.storage.transactionSync(() => engine.prune(start + RETENTION_MS + 1));
     expect(ctx.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM summary_buckets').one().n).toBe(0);
     ctx.storage.transactionSync(() => s.configure({ goalIds: [], experimentIds: [] }, start + RETENTION_MS + 1));
@@ -113,12 +113,13 @@ it('does not materialize an overflowing report bucket while closing valid learni
     ctx.storage.transactionSync(() => engine.accept([a, b,
       { ...goal('g1', start + 10, 1e308), subject: a.subject },
       { ...goal('g2', start + 10, 1e308), subject: b.subject }], start + 10));
-    expect(ctx.storage.transactionSync(() => engine.close('s', start + 62_000, () => {}))).toBe(2);
-    expect(engine.outputs().flatMap(o => o.output.records).every(r => r.value === 1e308)).toBe(true);
+    expect(ctx.storage.transactionSync(() => engine.close(start + 62_000, ({ samples }) => {
+      expect(samples.every(sample => sample.reward === 1e308)).toBe(true);
+    }))).toBe(2);
     expect(() => s.query({ kind: 'learning', experimentId: 'e', from: start, to: start + H }, start + H)).toThrow('Summary total');
     const c = exposure('a-third', start + H + 10);
     ctx.storage.transactionSync(() => engine.accept([c, { ...goal('g3', start + H + 10, -1e308), subject: c.subject }], start + H + 10));
-    expect(ctx.storage.transactionSync(() => engine.close('s', start + H + 62_000, () => {}))).toBe(1);
+    expect(ctx.storage.transactionSync(() => engine.close(start + H + 62_000, () => {}))).toBe(1);
     expect(s.query({ kind: 'learning', experimentId: 'e', from: start, to: start + 2 * H }, start + 2 * H).rows[0]!.total).toBe(1e308);
   });
 });
@@ -130,7 +131,7 @@ it('keeps arm, generation and observation window dimensions distinct including z
     const original = exposure('long', start + 10);
     const long = { ...original, assignment: { ...original.assignment, settings: { ...config, observationWindowMs: 2000 } } };
     ctx.storage.transactionSync(() => engine.accept([exposure('a', start + 10), exposure('b', start + 10, 'b'), exposure('new-gen', start + 10, 'a', 2), long], start + 10));
-    ctx.storage.transactionSync(() => engine.close('s', start + 63_000, () => {}));
+    ctx.storage.transactionSync(() => engine.close(start + 63_000, () => {}));
     const rows = s.query({ kind: 'learning', experimentId: 'e', from: start, to: start + H }, start + H).rows;
     expect(rows).toHaveLength(4);
     expect(rows.every(r => r.count === 1 && r.total === 0 && r.mean === 0)).toBe(true);
@@ -198,7 +199,7 @@ it('learns and summarizes default rewards and zero outcomes together with policy
       { ...goal('goal', start + 10, 12), subject: paid.subject }];
     atomic(() => engine.accept(events, start + 11));
     atomic(() => engine.accept(events, start + 12));
-    atomic(() => engine.close('s', start + 62_000, cohort => {
+    atomic(() => engine.close(start + 62_000, cohort => {
       expect(cohort.arms).toHaveLength(1);
       expect(cohort.arms[0]!.samples).toBe(3);
       expect(cohort.arms[0]!.moments.mean * cohort.arms[0]!.moments.scale).toBe(4);
@@ -207,7 +208,7 @@ it('learns and summarizes default rewards and zero outcomes together with policy
     expect(summaries.query(query, start + H).rows).toEqual([
       { kind: 'learning', experimentId: 'e', armId: 'a', generation: 1, observationWindowMs: 1000, count: 3, total: 12, mean: 4 },
     ]);
-    atomic(() => engine.close('s', start + 63_000, () => { throw Error('already closed'); }));
+    atomic(() => engine.close(start + 63_000, () => { throw Error('already closed'); }));
     expect(summaries.query(query, start + H).rows[0]!.count).toBe(3);
   });
 });

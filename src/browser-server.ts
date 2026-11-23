@@ -22,7 +22,7 @@ export interface BrowserServerOptions extends EyeOptions {
   scope: string;
   /** Secret of at least 32 UTF-8 bytes; kept on server. Domain-separated from decision signing. */
   receiptSecret: string;
-  /** 증표에 고정할 사용자군 속성. 첫 실제 노출의 관측 속성으로 사용한다. */
+  /** 기존 증표와의 호환을 위한 입력. 학습과 집계에 사용하지 않는다. */
   userAttributes?: Attributes;
 }
 const encoder = new TextEncoder();
@@ -144,7 +144,7 @@ export function createEyeBrowserServer(options: BrowserServerOptions) {
       invariant(Array.isArray(input) && input.length <= 50, 'invalid_input', 'At most 50 exposures per batch');
       invariant(encoder.encode(JSON.stringify(input)).length <= 48_000, 'invalid_input', 'Exposure batch exceeds 48 KB');
       const results: BrowserEventResult[] = [];
-      const pending: { index: number; input: Parameters<typeof eye.expose>[0] }[] = [];
+      const pending: { index: number; currentAnonymous: boolean; input: Parameters<typeof eye.expose>[0] }[] = [];
       let futureClock = false;
       for (const raw of input) {
         let eventId = '';
@@ -159,7 +159,10 @@ export function createEyeBrowserServer(options: BrowserServerOptions) {
           const decision = record(receipt.decision, 'decision');
           const localContext = withSample(parseLocalContext(decision.localContext), event.sample);
           const assigned: AssignedDecision = { status: 'assigned', reason: 'held', assignment: parseAssignment(decision.assignment), localContext, applyUntil: until };
-          pending.push({ index: results.length, input: { subject: parseSubject(receipt.subject), decision: assigned,
+          const original = parseSubject(receipt.subject);
+          const currentAnonymous = receipt.scope === scope && original.cid === subject.cid
+            && original.uid === undefined && subject.uid === undefined;
+          pending.push({ index: results.length, currentAnonymous, input: { subject: original, decision: assigned,
             eventId, occurredAt: at, userAttributes: attributes(receipt.userAttributes),
             ...(event.defaultReason === undefined ? {} : { defaultReason: event.defaultReason as import('./core/types.js').DefaultReason }) } });
           results.push({ eventId, accepted: false });
@@ -170,6 +173,15 @@ export function createEyeBrowserServer(options: BrowserServerOptions) {
       }
       // Retry small future skew without changing the event's canonical timestamp.
       invariant(!futureClock, 'unavailable', 'Exposure clock is ahead; retry unchanged');
+      // An expired session may leave the old account linked to this browser. Only
+      // a verified receipt from the current anonymous scope can reset that link.
+      const anonymousAt = pending.reduce<number | undefined>((earliest, entry) => {
+        if (!entry.currentAnonymous) return earliest;
+        const at = entry.input.occurredAt!;
+        return earliest === undefined ? at : Math.min(earliest, at);
+      }, undefined);
+      if (anonymousAt !== undefined && anonymousAt > 0)
+        eye.anonymous({ subject, eventId: `anonymous:${anonymousAt}`, occurredAt: anonymousAt - 1 });
       // No await between submissions: one flush observes every ingestion in this batch.
       for (const entry of pending) results[entry.index]!.accepted = eye.expose(entry.input).accepted;
       await eye.flush();

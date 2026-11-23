@@ -2,7 +2,7 @@
 
 [구현 구조](../TECHNICAL_DESIGN.md) · [검증 범위](IMPLEMENTATION.md)
 
-SiteControl 한 곳에서 표본 마감, 세대·arm별 감쇠 통계 갱신, 선택적 요약, 분석 출력 outbox 생성을 같은 SQLite 트랜잭션으로 처리한다. 실험 정의·정책도 이 저장소에 둔다. 동기 ExperimentState가 실험 상태를 읽고 갱신하며 외부 I/O는 트랜잭션 밖에서 수행한다.
+SiteControl 한 곳에서 표본 마감, 세대·arm별 감쇠 통계 갱신, 선택적 요약을 같은 SQLite 트랜잭션으로 처리한다. 실험 정의·정책도 이 저장소에 둔다. 동기 ExperimentState가 실험 상태를 읽고 갱신하며 외부 I/O는 트랜잭션 밖에서 수행한다.
 
 ## 통계와 실패 처리
 
@@ -10,7 +10,7 @@ SiteControl 한 곳에서 표본 마감, 세대·arm별 감쇠 통계 갱신, �
 
 수집 시 실험·arm·학습 세대의 존재를 확인하고 알 수 없는 참조는 해당 노출만 거절한다. 이미 발행된 정상 배정은 실험/arm이 중지·삭제되거나 설정 세대가 바뀌어도 원래 문맥으로 마감한다. 참조 확인 결과는 한 동기 수집 트랜잭션 안에서만 재사용한다.
 
-SQLite 오류가 나면 표본 제거와 통계·요약·outbox가 함께 되돌아간다. 커밋 후 Stream 전송에 실패하면 outbox만 재전송한다. 통계를 재적용하지 않으므로 통계 전달 RPC나 cohort 중복 원장이 필요하지 않다. outbox에는 분석 출력만 보관한다. Stream 전송 자체는 최소 한 번이며 분석에서 ID 기반 중복 제거를 수행한다. 정책 발행도 같은 저장소에 outbox를 남기고 alarm이 전달한다.
+SQLite 오류가 나면 표본 제거와 통계·요약 갱신이 함께 되돌아간다. 재시도는 아직 마감되지 않은 표본만 처리한다. 정책 발행 이력은 같은 저장소에 집계한다.
 
 정책은 설정 revision과 학습 dirty 상태로 무효화하고 감쇠·탐색을 위해 주기적으로 재평가한다. statsAsOf는 현재 generation에 실제 적용한 마감 통계 시각이며 정책 재발행으로 덮어쓰지 않는다. 이전 세대의 지연 마감은 현재 세대의 통계 시각이나 정책 캐시를 갱신하지 않는다.
 
@@ -18,6 +18,6 @@ SQLite 오류가 나면 표본 제거와 통계·요약·outbox가 함께 되돌
 
 ## 검증
 
-`test/runtime/atomic-learning.test.ts`와 `test/runtime/learning.test.ts`는 SQL 오류의 전체 롤백, Stream 실패 후 outbox 재시도, eviction 뒤 중복 학습 방지와 20개 동시 배치의 500개 무보상 표본 마감을 검사한다. 여러 실험의 보상 분할과 세대별 증거 분리도 설정·arm 변경 및 eviction을 거쳐 확인한다. `test/runtime/actors.test.ts`는 arm 상태 변경의 증거 보존과 정책 캐시·dirty·감쇠 재평가를 검사한다. A/A·A/B·우세 전환과 기준 보상 대조는 [로그 스트림 검증](ENGINE-VALIDATION.md)을 따른다.
+`test/runtime/atomic-learning.test.ts`와 `test/runtime/learning.test.ts`는 SQL 오류의 전체 롤백, eviction 뒤 중복 학습 방지와 20개 동시 배치의 500개 무보상 표본 마감을 검사한다. 여러 실험의 보상 분할과 세대별 증거 분리도 설정·arm 변경 및 eviction을 거쳐 확인한다. `test/runtime/actors.test.ts`는 arm 상태 변경의 증거 보존과 정책 캐시·dirty·감쇠 재평가를 검사한다. A/A·A/B·우세 전환과 기준 보상 대조는 [로그 스트림 검증](ENGINE-VALIDATION.md)을 따른다.
 
 전체 검사는 `npm run check`, 패키지 소비자·설치 번들은 `npm run check:package`다. 동시 수집 검사는 처리량 벤치마크가 아니며 실제 Cloudflare 지연·비용은 별도 측정해야 한다.

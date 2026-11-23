@@ -24,7 +24,7 @@ npm install -D wrangler@4.151.3
 npx eye init ./eye --account-id YOUR_ACCOUNT_ID --name shop-eye
 ```
 
-생성된 `eye/README.md`를 읽고 Cloudflare 인증, Catalog 생성·쓰기용 `EYE_CATALOG_TOKEN`, 분석 조회용 `EYE_ANALYTICS_TOKEN`을 환경에 설정한다. 토큰은 설정 파일에 적지 않는다. 리소스 구성과 재시도 절차는 [설치 템플릿](../templates/README.md)에 있다.
+생성된 `eye/README.md`를 읽고 Cloudflare에 인증한다. 설치 스크립트는 두 Queue를 생성하고 Worker를 배포한다.
 
 ```sh
 node eye/provision.mjs
@@ -118,7 +118,6 @@ if (cookie.setCookie) response.headers.append('Set-Cookie', cookie.setCookie);
 if (applied) {
   eye.expose({ subject, decision: applied, userAttributes: { device: 'mobile', locale: 'ko' } });
 }
-eye.track({ subject, name: 'page_view', attributes: { path: '/checkout' } });
 ```
 
 `decide`는 원격 응답을 기다리지 않는다. cold·만료 정책은 `unavailable`, 비활성 실험이나 활성 arm이 없는 경우는 `no_active_arm`이다. 아직 등록하지 않은 실험도 `no_active_arm`이다. 런타임이 오류 없이 미등록이라고 답하고 캐시가 그 응답을 정책과 같은 간격으로 재사용하므로, 등록 전의 요청은 매번 조회하거나 실패를 보고하지 않는다. 나중에 등록한 실험은 다음 재확인부터 적용된다. 기본 화면을 사용하고 미참여 노출은 기록하지 않는다. 정책이 유효하면 이전 토큰 없이도 로컬 배정할 수 있다. 정책은 마지막 확인 후 15분에 백그라운드 재확인하고 발행 후 최대 6시간까지 재사용한다. freshMs/maxAgeMs로 줄일 수 있으며 새 확인이 원래 발행 시각을 연장하지 않는다. `onPrepared`는 배정·실제 노출로 바뀐 문맥을 저장한다.
@@ -129,7 +128,7 @@ eye.track({ subject, name: 'page_view', attributes: { path: '/checkout' } });
 
 백그라운드 준비·갱신에 실패해도 정책과 해당 결정의 적용 기한이 유효하면 기존 arm을 계속 제공한다. 원격 장애를 매 요청 확인하지 않으므로 모든 장애를 즉시 감지해 fallback하지는 않는다. 즉시 중단이 필요하면 서비스의 자체 플래그로 `decide`·`expose` 호출과 실험 화면 적용을 함께 끈다. 이미 열린 관측의 보상 귀속은 계속될 수 있다. Worker 자체가 실행되지 않는 장애는 이 오류 경계로 복구할 수 없다.
 
-`userAttributes`는 arm 비교용 사용자군 속성이고 첫 노출 때 관측에 고정된다. `attributes`는 개별 사건 속성이다. 두 값 모두 최상위 키와 scalar 값만 허용한다. SPA처럼 표시 사실을 브라우저만 알 수 있으면 사이트 수집 경로가 실제 표시 시점에 `expose`를 호출해야 한다. Eye는 DOM 표시 여부를 감지하지 않는다.
+기존 연동에서 제출한 서술형 속성은 Eye Worker의 수집 경계에서 제외된다. SPA처럼 표시 사실을 브라우저만 알 수 있으면 사이트 수집 경로가 실제 표시 시점에 `expose`를 호출해야 한다. Eye는 DOM 표시 여부를 감지하지 않는다.
 
 구매 확정 등 업무 사건이 발생한 경로에서 호출한다. 다음 변수는 사이트가 저장한 주문·가입·환불 데이터다.
 
@@ -144,22 +143,15 @@ eye.goal({ subject, eventId: `refund:${refund.id}`, occurredAt: refund.completed
 ## 5. 결과 확인과 운영
 
 ```ts
-const to = Date.now(), from = to - 7 * 86_400_000;
+const to = Math.floor(Date.now() / 60_000) * 60_000;
 const policy = await eye.experiments.policy('checkout');
-const report = await eye.analytics.arms({
-  experimentId: 'checkout', from, to,
-  groupBy: [{ key: 'device', type: 'string' }],
-});
-const traffic = await eye.analytics.traffic({
-  experimentId: 'checkout', from, to, bucketMs: 86_400_000,
-});
-const goals = await eye.analytics.goals({ from, to });
-const timeline = await eye.analytics.timeline({
-  from, to, subject: { uid: 'user-123' }, limit: 100,
+const report = await eye.analytics.summaries.dashboard({
+  experimentId: 'checkout', boundaries: [to - 86_400_000, to],
 });
 ```
 
-`report.rows`의 `completed/pending`와 `meanValue`를 함께 본다. `learningValue`는 마감 때 고정한 학습 보상이며 뒤늦게 반영된 원본 귀속 보상과 다를 수 있다. 관측이 끝나기 전에는 완료 평균이 없을 수 있다. `policy`는 현재 선택 정책, `traffic`은 실제 노출된 배정·노출, `analytics.policies`는 발행 정책 이력이다. 분석에는 반영 지연이 있으며 평균 차이는 인과적 uplift가 아니다. [조회별 의미·응답·필터 예제](ANALYTICS.md)를 참고한다. 자주 보는 기본 합계는 [선택적 요약](ANALYTICS.md#원본-조회-없이-읽는-선택적-요약)을 설정하고 명시적 summary 보고서를 사용하면 반복 원본 조회를 줄일 수 있다. [대시보드 예제](../examples/summary-dashboard.ts)는 범위가 부족할 때 합계를 0으로 표시하거나 원본 SQL을 자동 실행하지 않는다.
+`policy`는 현재 정책이며 `report`에는 배정·노출, 정책 이력, 목표별 보상과
+마감된 관측의 학습 보상이 들어 있다. [집계 해석](ANALYTICS.md)과 [대시보드 예제](../examples/summary-dashboard.ts)를 참고한다.
 
 검토 중인 실험은 `experiments.create({ ..., initialStatus: 'paused' })`, arm은 `experiments.addArm(id, { armId, initialStatus: 'paused' })`로 처음부터 일시중지 상태로 등록할 수 있다. 활성화는 `resume/resumeArm`으로 명시한다.
 
@@ -171,7 +163,7 @@ arm을 추가하려면 `experiments.addArm(id, armId)`, 잠시 멈추려면 `pau
 
 | 호출 | 성공의 의미 | 실패 처리 |
 | --- | --- | --- |
-| 서버 `track/goal/expose` | `accepted:true`는 로컬 검증·전송 큐 접수 | 로컬 거절은 `Submission`, 이후 전송 오류는 `onError` |
+| 서버 `goal/expose` | `accepted:true`는 로컬 검증·전송 큐 접수 | 로컬 거절은 `Submission`, 이후 전송 오류는 `onError` |
 | 서버 `flush()` | 현재 대기 사건의 Queue 접수 완료 | Promise reject. SDK가 자동 재전송하지 않음 |
 | 브라우저 `selection.expose()` | 최초 로컬 접수 또는 이미 접수한 핸들 | 미접수 fallback·만료·폐기 핸들은 false |
 | 브라우저 `flush()` | 제한된 재시도를 포함한 큐 처리 종료 | 실패·포기는 `onError`. resolve가 전체 전달 성공을 뜻하지 않음 |
@@ -192,7 +184,7 @@ const eye = createEye({ service: env.EYE, ctx,
 일반 `createEye`의 로컬 거절은 반환값으로 확인하고 `createEyeRequest`는 `onError`에도 보고한다. 중요한 골의 외부 재전송은 발생 후 15초 이내에서 원래 ID·시각·신원·payload를 보존한다. 15초를 넘긴 업무 outbox 재생은 지원하지 않는다. 대기열 예산은 전송 성공·실패로 시도가 끝나면 복구되지만, 실패한 사건을 SDK가 자동 재전송하지는 않는다.
 
 ```ts
-const result = eye.track({ subject, name: 'page_view' });
+const result = eye.goal({ subject, goalId: 'purchase', value: 100 });
 if (!result.accepted) console.error(result.error.code, result.error.message);
 // 필요할 때만: await eye.flush(); // Queue 수신을 기다림. 분석 반영까지 기다리지는 않음.
 ```
@@ -206,7 +198,6 @@ if (!result.accepted) console.error(result.error.code, result.error.message);
 | 계속 unavailable | secret, 정책 조회 실패·캐시 갱신, onPrepared 오류. 설정 없는 decide는 자동 참여하지 않음 |
 | no_active_arm | 실험 등록 여부와 상태, 활성 arm, 로컬 정책 갱신 대기 |
 | 골은 있는데 arm 완료 평균이 없음 | 실제 expose, 관측 종료 후 고정 1분 유예, 귀속 범위, 마감 전 학습 처리 여부 |
-| 속성별 결과가 예상과 다름 | expose.userAttributes와 사건 attributes 구분, 최초 노출 시점의 값 |
 | 분석 결과가 비거나 이전 값임 | 같은 Eye 바인딩, 분석 토큰·파이프라인, 최종 일관성, 최근 60일 범위 |
 | 일부 결과만 보임 | meta.truncated 확인 후 기간·arm·속성 조건 축소 |
 

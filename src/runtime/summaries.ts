@@ -58,7 +58,7 @@ export class IncrementalSummaries {
     const target = obj.kind === 'goals' ? obj.goalId : obj.experimentId;
     const state = readState(this.sql), status = publicStatus(state, now);
     invariant(status.state === 'collecting' && status.coverageFrom !== null && from >= status.coverageFrom,
-      'unavailable', 'Summary range is not fully covered; use raw analytics');
+      'unavailable', 'Summary range is not fully covered');
     invariant((obj.kind === 'goals' ? state.config.goalIds : state.config.experimentIds).includes(target), 'unavailable', 'Summary target is not configured');
     const grouped = new Map<string, RewardSum & { count: number }>();
     for (const bucket of this.sql.exec<Bucket>(`SELECT * FROM summary_buckets WHERE kind=? AND target=? AND bucket>=? AND bucket<? ORDER BY bucket,dimension`, obj.kind, target, from, to)) {

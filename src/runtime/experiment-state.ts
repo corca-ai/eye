@@ -1,7 +1,6 @@
 import { Dashboard } from './dashboard.js';
 import { parseArm, checkExperimentData, initialStatus } from '../core/arm-data.js';
 import { POLICY_REEVALUATION_MS } from '../policy-timing.js';
-import { analyticsRecord } from '../analytics/records.js';
 import { invariant } from '../core/errors.js';
 import { parseCreateExperiment } from '../core/events.js';
 import { ageMoments, emptyMoments, mergeMoments } from '../core/moments.js';
@@ -33,7 +32,7 @@ export class ExperimentState {
     sql.exec(`CREATE TABLE IF NOT EXISTS local_arm_moments (
       experiment_id TEXT NOT NULL, generation INTEGER NOT NULL, arm_id TEXT NOT NULL, data TEXT NOT NULL,
       PRIMARY KEY(experiment_id,generation,arm_id));
-      CREATE TABLE IF NOT EXISTS local_policy_outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, data TEXT NOT NULL);`);
+      DROP TABLE IF EXISTS local_policy_outbox;`);
   }
   create(input: CreateExperiment): Experiment {
     const stored = this.kv.get<Experiment>('config');
@@ -173,13 +172,6 @@ export class ExperimentState {
       status: config.status, activeArms: config.arms.filter(a => a.status === 'active').map(a => a.armId) };
     Dashboard.recordPolicy(this.sql, result, config.arms);
     this.kv.put('publishedPolicy', result); if (this.kv.get('policyDirty')) this.kv.delete('policyDirty');
-    const history = config.arms.map(configured => result.arms.find(a => a.armId === configured.armId) ?? { armId: configured.armId, probability: 0, meanReward: null, score: null });
-    const records = history.map(arm => analyticsRecord({ siteId, subjectKey: '' }, 'policies',
-      JSON.stringify([config.experimentId, result.sequence, arm.armId]), 1, result.publishedAt, result.publishedAt,
-      { ...arm, reason: 'published', status: result.status === 'active' ? config.arms.find(a => a.armId === arm.armId)!.status : result.status,
-        generation: result.generation, sequence: result.sequence, revision: result.revision, asOf: result.asOf, scoreScale: result.scoreScale },
-      { experiment_id: config.experimentId, arm_id: arm.armId, status: 'published', value: arm.probability }));
-    this.sql.exec('INSERT INTO local_policy_outbox(data) VALUES (?)', JSON.stringify(records));
     return result;
   }
   private saveMoment(row: { generation: number; arm_id: string; data: string }): void {

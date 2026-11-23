@@ -42,7 +42,7 @@ it('materializes all goals once using learning identity, splitting and decay, su
     expect(report.meta.lastProcessedAt).toBe(start + 20);
     const repeated = {...exposure('shown', start), eventId:'shown-again', occurredAt:start + 10};
     accept([repeated]); accept([repeated]);
-    engine.close('site', start + 2 * minute, () => {});
+    engine.close(start + 2 * minute, () => {});
     const final = engine.dashboard.query({experimentId:'landing', boundaries:[start,start+minute]}, start+minute);
     expect(final.traffic[0]).toMatchObject({assignments:1, exposures:2});
     expect(final.learning[0]!.completed).toBe(1);
@@ -78,7 +78,7 @@ it('shares rewards across eligible experiments and exposes excluded closed-obser
     expect(query('b').rewards[0]!.totalValue).toBe(query('a').rewards[0]!.totalValue);
     engine.accept([{kind:'goal',eventId:'rejected',occurredAt:start+3,subject:{cid:'browser'},goalId:'pay',value:1000}],start+4,()=>false);
     expect(query('a').rewards[0]!.goals).toBe(1);
-    engine.close('site',start + 2*minute,()=>{});
+    engine.close(start + 2*minute,()=>{});
     expect(query('a').learning[0]!.learningValue).toBe(query('a').rewards[0]!.totalValue);
     engine.accept([{kind:'goal',eventId:'late',occurredAt:start+4,subject:{cid:'browser'},goalId:'pay',value:1000}],start+3*minute);
     expect(query('a').meta.diagnostics.closedGoals).toBe(2);

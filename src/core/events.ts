@@ -34,7 +34,6 @@ export function parseEvent(value: unknown, limits?: CollectionLimits): EyeEvent 
     ...(v.attributes === undefined ? {} : { attributes: attributes(v.attributes, limits) }),
   };
   switch (v.kind) {
-    case 'track': return { ...base, kind: 'track', name: id(v.name, 'name') };
     case 'goal': return { ...base, kind: 'goal', goalId: id(v.goalId, 'goalId'), value: number(v.value, 'value') };
     case 'exposure': {
       const assignment = parseAssignment(v.assignment);

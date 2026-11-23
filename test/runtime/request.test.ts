@@ -51,9 +51,9 @@ it('unknown arms and disabled experiments fall back without fabricated exposure'
   const disabled = createEyeRequest({ ...f.options, experimentsEnabled: false });
   const selected = await disabled.variant(checkout);
   expect(selected.value).toBe('normal'); expect(selected.expose()).toBeNull();
-  disabled.track({ name: 'page_view' });
+  disabled.goal({ goalId: 'page_view', value: 1 });
   await waitOnExecutionContext(f.ctx);
-  expect(f.events.map(e => e.event.kind)).toEqual(['track']);
+  expect(f.events.map(e => e.event.kind)).toEqual(['goal']);
 });
 
 it('initialization and invalid-input errors cannot break fallback, even with a throwing reporter', async () => {
@@ -61,7 +61,7 @@ it('initialization and invalid-input errors cannot break fallback, even with a t
   const report = vi.fn(() => { throw new Error('logging offline'); });
   const broken = createEyeRequest({ ...f.options, decisions: { secret: 'short' }, onError: report });
   expect((await broken.variant(checkout)).expose()).toBeNull();
-  expect(broken.track({ name: 'page_view' }).accepted).toBe(false);
+  expect(broken.goal({ goalId: 'page_view', value: 1 }).accepted).toBe(false);
   const eye = createEyeRequest({ ...f.options, onError: report });
   expect(eye.goal({ goalId: 'purchase', value: NaN }).accepted).toBe(false);
   expect(report).toHaveBeenCalled();
@@ -73,7 +73,7 @@ it('reports asynchronous delivery failures through the same hook as local reject
   const f = await fixture();
   f.ingest.mockRejectedValueOnce(new Error('delivery offline'));
   const eye = createEyeRequest(f.options);
-  expect(eye.track({ name: 'page_view' }).accepted).toBe(true);
+  expect(eye.goal({ goalId: 'page_view', value: 1 }).accepted).toBe(true);
   await waitOnExecutionContext(f.ctx);
   expect(f.onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'delivery offline' }));
 });
@@ -83,8 +83,8 @@ it.each([false, true])('keeps rejection results and per-event diagnostics unchan
   const { onError: _unused, ...options } = f.options;
   const eye = createEyeRequest({ ...options, collectionLimits: { maxEvents: 1 }, ...(reporting ? { onError } : {}) });
   expect(eye.goal({ goalId: 'pay', value: NaN })).toMatchObject({ accepted: false, error: { code: 'invalid_input' } });
-  expect(eye.track({ name: 'view' }).accepted).toBe(true);
-  expect(eye.track({ name: 'view' })).toMatchObject({ accepted: false, error: { code: 'unavailable' } });
+  expect(eye.goal({ goalId: 'view', value: 1 }).accepted).toBe(true);
+  expect(eye.goal({ goalId: 'view', value: 1 })).toMatchObject({ accepted: false, error: { code: 'unavailable' } });
   expect(onError).toHaveBeenCalledTimes(reporting ? 2 : 0);
   if (reporting) expect(onError.mock.calls.map(([error]) => error.code)).toEqual(['invalid_input', 'unavailable']);
   await waitOnExecutionContext(f.ctx);
@@ -112,7 +112,7 @@ it('cookie preparation is separate from rendering and old auth scopes cannot sup
   const f = await fixture();
   const admin = createEye({ ...f.options });
   await admin.experiments.create({ experimentId: 'checkout', arms: ['compact'], settings: { minHoldMs: 0 } });
-  const env = { EYE: f.options.service, EYE_DECISION_SECRET: f.options.decisions.secret };
+  const env = { EYE: f.options.service as unknown as import('../../src/transport.js').EyeService, EYE_DECISION_SECRET: f.options.decisions.secret };
   const page = new Request('https://shop.example/checkout', { headers: { Cookie: 'cid=browser' } });
   const first = await cookieCheckout(page, env, f.ctx, 'login-a', 'alice');
   expect(await first.text()).toContain('Standard checkout');
@@ -167,7 +167,7 @@ it('budget rejection does not open a sample and a fresh request can expose the h
   const f = await fixture(), eye = createEye({ ...f.options, collectionLimits: { maxEvents: 1 } });
   const decision = await eye.decide({ subject: f.subject, experimentId: 'checkout' });
   if (decision.status !== 'assigned') throw new Error('Expected assignment');
-  expect(eye.track({ subject: f.subject, name: 'view' }).accepted).toBe(true);
+  expect(eye.goal({ subject: f.subject, goalId: 'view', value: 1 }).accepted).toBe(true);
   expect(eye.expose({ subject: f.subject, decision })).toMatchObject({ accepted: false, error: { code: 'unavailable' } });
   const next = createEye({ ...f.options, decisions: { ...f.options.decisions, tokens: await eye.state() } });
   const held = await next.decide({ subject: f.subject, experimentId: 'checkout' });

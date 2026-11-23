@@ -16,12 +16,3 @@ export async function purchaseDashboard(options: EyeOptions) {
   const report = await eye.analytics.summaries.query({ kind: 'goals', goalId: 'purchase', from, to });
   return { state: 'ready' as const, report }; // Display basis, range and queriedAt.
 }
-
-/** Register once after the full 24-hour range is covered. scope is server supplied. */
-export async function schedulePurchaseReport(options: EyeOptions) {
-  return createEye(options).analytics.jobs.schedule({
-    scope: 'analytics-staff-v1', scheduleId: 'purchase-summary',
-    report: { kind: 'summary', target: { kind: 'goals', goalId: 'purchase' } },
-    windowMs: 24 * HOUR, intervalMs: HOUR,
-  });
-}

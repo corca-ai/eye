@@ -53,7 +53,6 @@ it('enforces 15-second external admission using server time but preserves accept
   const ctx = createExecutionContext(), service = new EyeWorker(ctx, env);
   const clock = vi.spyOn(Date, 'now').mockReturnValue(start);
   const enqueue = vi.spyOn(env.EVENTS, 'sendBatch').mockResolvedValue({ metadata: { metrics: { backlogCount: 0, backlogBytes: 0 } } });
-  const send = vi.spyOn(env.ANALYTICS, 'send').mockResolvedValue(undefined);
   await exports.default.createGoal('pay');
   const eye = createEye({ ctx, service });
   expect(eye.goal({ goalId: 'pay', value: 1, subject: { cid: 'c' }, occurredAt: start - 15_001 }).accepted).toBe(false);
@@ -65,7 +64,6 @@ it('enforces 15-second external admission using server time but preserves accept
   const batch = createMessageBatch('eye-events', [{ id: 'retry', timestamp: start, attempts: 2, body: packets[0]!.body }]);
   await service.queue(batch);
   expect((await getQueueResult(batch, ctx)).retryMessages).toEqual([]);
-  expect(send).toHaveBeenCalled();
   await waitOnExecutionContext(ctx);
 });
 
@@ -118,7 +116,7 @@ it('migrates old experiment definitions and pending samples to the fixed grace w
     const migrated = state.storage.transactionSync(() => new IncrementalLearning(state.storage.sql));
     expect(state.storage.sql.exec<{ close_at: number }>('SELECT close_at FROM learning_samples').one().close_at).toBe(start + 61_000);
     expect(state.storage.transactionSync(() => migrated.accept([goal('after-cutoff', start + 500)], start + 61_000)).diagnostics.closedGoals).toBe(1);
-    expect(state.storage.transactionSync(() => migrated.close('migration', start + 61_000, () => {}))).toBe(1);
+    expect(state.storage.transactionSync(() => migrated.close(start + 61_000, () => {}))).toBe(1);
   });
 });
 

@@ -98,7 +98,6 @@ interface EventBase {
   readonly attributes?: Attributes;
 }
 /** 서비스 정의 행동 로그. 분석에 사용하며 직접 학습 보상을 만들지는 않는다. */
-export type TrackEvent = EventBase & { readonly kind: 'track'; readonly name: string };
 /** 등록된 goal의 실제 발생과 가치. 사이트 내 모든 goal의 단위를 통일하며 유한한 음수·0도 허용한다. */
 export type GoalEvent = EventBase & { readonly kind: 'goal'; readonly goalId: string; readonly value: number };
 /** 실제 적용한 배정의 노출 원본. SDK expose가 표본 문맥을 구성하므로 직접 생성하지 않는다. */
@@ -110,7 +109,7 @@ export type ExposureEvent = EventBase & {
  * anonymous confirms signed-out state without cutting an already-anonymous segment. None changes host sessions. */
 export type IdentityEvent = EventBase & { readonly kind: 'identify' | 'logout' | 'anonymous' };
 /** 수집 가능한 사건 원본의 구분 유니온. 일반 호출에는 EventInput을 사용하는 SDK 메서드를 쓴다. */
-export type EyeEvent = TrackEvent | GoalEvent | ExposureEvent | IdentityEvent;
+export type EyeEvent = GoalEvent | ExposureEvent | IdentityEvent;
 export interface EventEnvelope {
   readonly siteId: string;
   readonly receivedAt: number;

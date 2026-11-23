@@ -8,7 +8,7 @@ const assignment = (experimentId: string, armId = 'a'): Assignment => ({ assignm
 
 describe('public input boundaries', () => {
   it('rejects malformed Unicode identifiers before they reach UTF-8 storage', () => {
-    expect(() => parseEvent({ kind: 'track', eventId: '\uD800', name: 'page', occurredAt: 1, subject: { cid: 'c' } })).toThrow();
+    expect(() => parseEvent({ kind: 'goal', eventId: '\uD800', goalId: 'page', value: 1, occurredAt: 1, subject: { cid: 'c' } })).toThrow();
   });
   it('rejects an exposure before its own assignment during local validation', () => {
     expect(() => parseEvent({ kind: 'exposure', eventId: 'e', occurredAt: 1, subject: { cid: 'c' }, assignment: { ...assignment('x'), assignedAt: 2 } })).toThrow('predates');
@@ -20,7 +20,7 @@ describe('public input boundaries', () => {
   });
   it('snapshots user attributes rather than retaining a caller-owned reference', () => {
     const attributes = { plan: 'free' };
-    const parsed = parseEvent({ kind: 'track', eventId: 'e', name: 'page', subject: { cid: 'c' }, occurredAt: 1, attributes });
+    const parsed = parseEvent({ kind: 'goal', eventId: 'e', goalId: 'page', value: 1, subject: { cid: 'c' }, occurredAt: 1, attributes });
     attributes.plan = 'paid';
     expect(parsed.attributes?.plan).toBe('free');
     expect(() => parseEvent({ ...parsed, attributes: { nested: {} } })).toThrow();
@@ -29,7 +29,7 @@ describe('public input boundaries', () => {
     expect(() => settings({ minHoldMs: 0, learningHalflifeMs: 1 })).toThrow();
     expect(() => settings({ minHoldMs: 0, observationWindowMs: 0.5 })).toThrow();
     expect(() => settings({ minHoldMs: 0, observationWindowMs: 60 * 86400000 })).toThrow();
-    expect(() => parseEnvelope({ siteId: 's', receivedAt: 100, event: { kind: 'track', eventId: 'e', name: 'page', occurredAt: 101, subject: { cid: 'c' } } }, 200)).toThrow();
+    expect(() => parseEnvelope({ siteId: 's', receivedAt: 100, event: { kind: 'goal', eventId: 'e', goalId: 'page', value: 1, occurredAt: 101, subject: { cid: 'c' } } }, 200)).toThrow();
   });
   it('isolates sites and identifier namespaces even with punctuation in IDs', () => {
     expect(subjectKey('a', { cid: 'b', uid: 'x' })).toBe(subjectKey('a', { cid: 'c', uid: 'x' }));

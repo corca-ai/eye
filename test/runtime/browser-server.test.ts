@@ -41,6 +41,24 @@ it('receives encrypted original assignment and identity after logout without pre
   expect(f.events[0]!.event).toMatchObject({ kind: 'exposure', subject: { cid: 'browser', uid: 'alice' }, assignment: { armId: 'compact' } });
   await waitOnExecutionContext(f.options.ctx);
 });
+it('confirms the current anonymous scope immediately before a verified exposure', async () => {
+  const f = await fixture();
+  const options = { ...f.options, subject: { cid: 'browser' }, scope: 'anonymous' };
+  const receiver = createEyeBrowserServer(options);
+  const snapshot = await receiver.prepare(['checkout']);
+  const input = { ...f.event, receipt: snapshot.choices[0]!.receipt, occurredAt: snapshot.serverNow };
+  expect(await receiver.receive([input])).toEqual([{ eventId: 'exposure', accepted: true }]);
+  expect(f.events.map(({ event }) => [event.kind, event.occurredAt])).toEqual([
+    ['anonymous', input.occurredAt - 1], ['exposure', input.occurredAt],
+  ]);
+
+  f.events.length = 0;
+  const afterLogin = createEyeBrowserServer(f.options);
+  expect(await afterLogin.receive([input])).toEqual([{ eventId: 'exposure', accepted: true }]);
+  expect(f.events.map(({ event }) => event.kind)).toEqual(['exposure']);
+  await waitOnExecutionContext(f.options.ctx);
+});
+
 it('rejects changed receipt, wrong browser/site, and display outside its lease', async () => {
   const f = await fixture();
   const receiver = createEyeBrowserServer(f.options);
@@ -258,7 +276,7 @@ it('collection rejection does not allow an applied server action to be retried t
   const { createEyeRequest } = await import('../../src/request.js');
   const eye = createEyeRequest({ ...f.options, collectionLimits: { maxEvents: 1 }, decisions: { secret, initialPolicies: [policy] } });
   const selected = await eye.variant({ experimentId: 'checkout', defaultArm: 'compact', variants: { compact: 'a' } });
-  expect(eye.track({ name: 'budget-consumed' }).accepted).toBe(true);
+  expect(eye.goal({ goalId: 'budget-consumed', value: 1 }).accepted).toBe(true);
   expect(selected.expose()).toMatchObject({ accepted: false });
   await expect(selected.useDefault('resource_unready')).rejects.toThrow('applied');
   await waitOnExecutionContext(f.options.ctx);

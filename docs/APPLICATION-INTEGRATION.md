@@ -26,7 +26,6 @@ const checkout = {
 const selection = await eye.variant(checkout);
 const response = renderCheckout(selection.value);
 selection.expose();
-eye.track({ name: 'page_view', attributes: { path: '/checkout' } });
 return finish(response);
 ```
 
@@ -34,7 +33,7 @@ return finish(response);
 
 선택만으로 노출되지 않는다. SSR에서는 해당 응답을 구성한 뒤 expose를 호출한다. 동일 핸들의 반복 expose는 최초 결과를 반환하고 다시 제출하지 않는다. 첫 제출이 실패해도 재시도하지 않는다. 별개의 노출이면 새 선택 핸들을 사용한다. 핸들은 현재 요청에만 사용하며 직렬화하거나 다음 요청으로 넘기지 않는다.
 
-experimentsEnabled:false는 로컬에서 선택·준비·노출을 끄고 track·goal은 유지한다. 이미 열린 관측의 귀속이나 다른 요청에서 시작한 준비를 취소하는 기능은 아니다. arm별 중지는 기존 관리 API를 쓴다.
+experimentsEnabled:false는 로컬에서 선택·준비·노출을 끄고 goal은 유지한다. 이미 열린 관측의 귀속이나 다른 요청에서 시작한 준비를 취소하는 기능은 아니다. arm별 중지는 기존 관리 API를 쓴다.
 
 ## 세션 저장 선택
 

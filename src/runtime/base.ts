@@ -21,7 +21,7 @@ export abstract class StoredObject extends DurableObject<Env> {
     const retryAt = this.kv.get<number>('alarmRetryAt');
     if (retryAt !== undefined && retryAt > Date.now()) { await this.wakeAt(retryAt); return; }
     // Persist a fallback before external I/O. Native alarm retries are finite;
-    // an object reset must not strand a durable outbox indefinitely.
+    // an object reset must not strand scheduled learning.
     await this.wakeAt(Date.now() + 60_000);
     try {
       await work();

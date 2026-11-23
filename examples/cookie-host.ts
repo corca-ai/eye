@@ -50,7 +50,6 @@ export async function cookieCheckout(request: Request, env: Env, ctx: ExecutionC
   const selection = await eye.variant(checkout);
   headers.set('Content-Type', 'text/html; charset=utf-8');
   selection.expose();
-  eye.track({ name: 'page_view', attributes: { path: url.pathname } });
   try {
     const state = await eye.state();
     if (state.checkout && state.checkout.length > 3500) throw new Error('Decision token exceeds cookie budget');

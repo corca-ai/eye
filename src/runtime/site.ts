@@ -1,8 +1,4 @@
 import type { ArmInput } from '../core/types.js';
-import { EventSeriesCache } from '../analytics/event-series-cache.js';
-import { AnalyticsSQL } from '../analytics/sql.js';
-import { BasinAnalytics, type AnalyticsEnv } from '../analytics/query.js';
-import type { EventSeriesQuery, EventSeriesPage } from '../analytics/types.js';
 import type { HourlyGoalQuery } from '../analytics/hourly-goals.js';
 import type { SummaryConfig, SummaryQuery, SummaryReport, SummaryStatus } from '../analytics/summaries.js';
 import type { RuntimeEnv as Env } from './environment.generated.js';
@@ -14,7 +10,6 @@ import { IncrementalLearning } from './incremental.js';
 import { ExperimentState } from './experiment-state.js';
 import type { CreateExperiment, ExperimentSettings, ArmStatus } from '../core/types.js';
 import { POLICY_REEVALUATION_MS } from '../policy-timing.js';
-import { sendExportBatches } from '../analytics/export.js';
 import { RETENTION_MS, OBSERVATION_GRACE_MS } from '../core/validation.js';
 import type { EyeEvent } from '../core/types.js';
 
@@ -22,7 +17,6 @@ import type { EyeEvent } from '../core/types.js';
 export interface GoalDefinition { goalId: string; status: GoalStatus; createdAt: number; changedAt: number; revision: number }
 export class SiteControl extends StoredObject {
   private readonly learning: IncrementalLearning;
-  private readonly eventSeriesCache = new EventSeriesCache();
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.sql.exec(`
@@ -40,13 +34,6 @@ export class SiteControl extends StoredObject {
     this.learning = this.atomic(() => new IncrementalLearning(this.sql));
     if (this.learning.migratedDeadlines) void this.ctx.blockConcurrencyWhile(() => this.scheduleLearning(Date.now()));
     ExperimentState.initialize(this.sql);
-  }
-  async eventSeries(query: EventSeriesQuery): Promise<EventSeriesPage> {
-    const siteId = id(this.env.EYE_INSTALLATION_ID, 'installationId');
-    this.checkSite(siteId);
-    const env = this.env as Env & AnalyticsEnv;
-    const plan = new AnalyticsSQL(env.EYE_ANALYTICS_NAMESPACE ?? 'eye', siteId).eventSeries(query);
-    return this.eventSeriesCache.read(plan.fingerprint, () => new BasinAnalytics(env, siteId).eventSeries(query));
   }
   private state(experimentId: string): ExperimentState { return new ExperimentState(this.sql, this.kv, id(experimentId, 'experimentId')); }
   private checkSite(siteId: string): void {
@@ -85,9 +72,7 @@ export class SiteControl extends StoredObject {
     this.checkSite(siteId);
     const state = this.state(experimentId); if (!state.exists()) return null;
     const cached = state.cachedPolicy(maxAgeMs); if (cached) return cached;
-    await this.wakeAt(Date.now() + 1000);
-    const result = this.atomic(() => state.publish(siteId, maxAgeMs));
-    await this.scheduleLearning(Date.now()); return result;
+    return this.atomic(() => state.publish(siteId, maxAgeMs));
   }
   createGoal(goalId: string): GoalDefinition {
     id(goalId, 'goalId');
@@ -142,7 +127,7 @@ export class SiteControl extends StoredObject {
       graceMs: Math.max(previous?.graceMs ?? 0, OBSERVATION_GRACE_MS),
       attributionMs: Math.max(previous?.attributionMs ?? 0, settings.attributionWindowMs ?? 7 * 86_400_000) };
     invariant(next.windowMs + next.graceMs + next.attributionMs < RETENTION_MS - 3_600_000,
-      'invalid_input', 'Site historical maximum observation + grace + attribution horizons must leave an hour inside 60-day raw retention');
+      'invalid_input', 'Site historical maximum observation + grace + attribution horizons must leave an hour inside 60-day learning retention');
     if (JSON.stringify(previous) !== JSON.stringify(next)) this.kv.put('learningBounds', next);
   }
   acceptedGoals(goals: readonly import('../core/types.js').GoalEvent[]): boolean[] {
@@ -207,23 +192,16 @@ export class SiteControl extends StoredObject {
       // page in this alarm; close contributes at most 500 new buckets.
       this.atomic(() => {
         this.learning.prune(now);
-        this.learning.close(siteId, now, cohort => {
+        this.learning.close(now, cohort => {
           for (const experimentId of new Set(cohort.arms.map(a => a.experimentId))) this.state(experimentId).applyMoments({ ...cohort,
             arms: cohort.arms.filter(a => a.experimentId === experimentId) });
         });
       });
-      const pending = this.learning.outputs();
-      const policies = this.sql.exec<{ id: number; data: string }>('SELECT * FROM local_policy_outbox ORDER BY id LIMIT 100').toArray();
-      const rows = pending.flatMap(item => item.output.records.map(record => ({ record })));
-      rows.push(...policies.flatMap(item => (JSON.parse(item.data) as import('../analytics/records.js').AnalyticsRecord[]).map(record => ({ record }))));
-      await sendExportBatches(rows, batch => this.env.ANALYTICS.send(batch));
-      this.atomic(() => { this.learning.acknowledge(pending.map(item => item.id));
-        for (const row of policies) this.sql.exec('DELETE FROM local_policy_outbox WHERE id=?', row.id); });
       await this.scheduleLearning(Date.now(), true);
     });
   }
   private async scheduleLearning(now: number, replace = false): Promise<void> {
-    const at = this.sql.exec('SELECT id FROM local_policy_outbox LIMIT 1').toArray().length ? now + 1000 : this.learning.nextWake(now, replace);
+    const at = this.learning.nextWake(now, replace);
     if (at === null) { await this.ctx.storage.deleteAlarm(); this.kv.delete('alarmAt'); return; }
     if (!replace) { await this.wakeAt(at); return; }
     const pending = this.ctx.storage.setAlarm(at);
