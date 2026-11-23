@@ -63,21 +63,18 @@ export function simulate(input: Scenario) {
     alarms++;
     atomic(() => {
       engine.prune(now);
-      engine.close('site', now, cohort => {
+      engine.close(now, cohort => {
+        for (const sample of cohort.samples) {
+          assert.ok(!observations.has(sample.sampleId), 'one completion per sample');
+          assert.ok(Number.isFinite(sample.reward), 'finite completed reward');
+          observations.set(sample.sampleId, sample.reward);
+        }
         for (const arm of cohort.arms) {
           const old = moments.get(arm.armId) ?? emptyMoments(now);
           moments.set(arm.armId, mergeMoments(ageMoments(old, now, cfg.learningHalfLifeMs), arm.moments));
         }
       });
     });
-    for (const { id, output } of engine.outputs()) {
-      for (const row of output.records) {
-        assert.ok(!observations.has(row.record_id), 'one completion per sample');
-        assert.ok(Number.isFinite(row.value), 'finite completed reward');
-        observations.set(row.record_id, row.value!);
-      }
-      atomic(() => engine.acknowledge([id]));
-    }
     alarm = engine.nextWake(now, true);
   };
   const drain = (until: number) => {
@@ -151,8 +148,6 @@ export function simulate(input: Scenario) {
         goalSubject = { cid, uid };
         emit({ kind: 'identify', eventId: `${prefix}-login`, occurredAt: at + 75_000, subject: goalSubject });
       }
-      for (let j = 0; j < 4; j++) emit({ kind: 'track', eventId: `${prefix}-track-${j}`, occurredAt: at + j * 30_000,
-        subject: j === 3 ? goalSubject : subject, name: ['page_view', 'scroll', 'product_view', 'checkout'][j]!, attributes: { device, path: '/shop' } });
       const better = input.kind === 'switch' && at >= START + (end - START) / 2 ? 'a' : 'b';
       const rate = (input.kind === 'aa' ? .25 : arm === better ? .5 : .1) * (device === 'mobile' ? .9 : 1.1);
       // Reward RNG is separate from allocation hashing and delivery fault RNG.
@@ -168,7 +163,6 @@ export function simulate(input: Scenario) {
     }
     drain(end + HOUR);
     assert.equal(observations.size, input.visits, 'all exposed visits complete including zero reward');
-    assert.equal(engine.outputs().length, 0, 'outbox drained');
     const from = Math.ceil(START / HOUR) * HOUR, to = Math.floor(end / HOUR) * HOUR;
     const summary = engine.summaries.query({ kind: 'learning', experimentId: 'checkout', from, to }, end + HOUR);
     const covered = [...observations.entries()].filter(([id]) => {

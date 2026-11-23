@@ -4,7 +4,7 @@ import { encodedSize, MAX_EVENT_BYTES, MAX_BATCH_BYTES } from '../../src/client.
 import type { EventEnvelope } from '../../src/core/types.js';
 import { settings } from '../../src/core/validation.js';
 const envelope = (i: number, detail = ''): EventEnvelope => ({ siteId: 'site', receivedAt: 1,
-  event: { kind: 'track', eventId: String(i), occurredAt: 1, subject: { cid: 'c' }, name: 'view', attributes: { detail } } });
+  event: { kind: 'goal', eventId: String(i), occurredAt: 1, subject: { cid: 'c' }, goalId: 'view', value: 1, attributes: { detail } } });
 it('packs without reordering, respects UTF-8 bytes and the decoder event limit', () => {
   const events = Array.from({ length: 250 }, (_, i) => envelope(i, i % 2 ? '한'.repeat(1500) : ''));
   const batches = packEvents(events);

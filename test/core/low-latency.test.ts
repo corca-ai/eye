@@ -2,10 +2,8 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { createEyeBrowser } from '../../src/browser.js';
 import { decisionRuntime } from '../../src/decisions.js';
 import { parseAssignment } from '../../src/core/events.js';
+import { meanOf } from '../../src/core/moments.js';
 import { settings } from '../../src/core/validation.js';
-import { rawRecords } from '../../src/analytics/raw.js';
-import { BasinAnalytics } from '../../src/analytics/query.js';
-import { database } from '../helpers/analytics-db.js';
 import { learningDatabase } from '../helpers/learning-db.js';
 import type { BrowserExposure, BrowserSnapshot } from '../../src/browser-types.js';
 import type { ExposureEvent, GoalEvent } from '../../src/core/types.js';
@@ -111,26 +109,14 @@ it('default goal attribution supersedes B and feeds its arm without inflating co
   const b = make('b', 'b', at), a = make('default-a', 'a', at + 1, true), other = make('other', 'a', at, false, 'other');
   const goal: GoalEvent = { kind: 'goal', eventId: 'paid', occurredAt: at + 2, subject: { cid: 'c' }, goalId: 'pay', value: 100 };
   const events = [b, other, a, goal], learning = learningDatabase();
-  const records = events.flatMap(event => rawRecords({ siteId: 'site', receivedAt: at + 3, event }));
   try {
     learning.engine.accept(events, at + 3);
     let moments: import('../../src/core/closed-cohort.js').ClosedCohort['arms'] = [];
-    learning.engine.close('site', at + 62000, cohort => { moments = [...moments, ...cohort.arms]; });
-    for (const row of learning.engine.outputs()) records.push(...row.output.records);
+    learning.engine.close(at + 62000, cohort => { moments = [...moments, ...cohort.arms]; });
     expect(moments.map(m => [m.experimentId, m.armId])).toEqual(expect.arrayContaining([['exp', 'b'], ['other', 'a']]));
     expect(moments.find(m => m.experimentId === 'exp' && m.armId === 'a')!.samples).toBe(1);
-    const db = database(records);
-    try {
-      const api = new BasinAnalytics({ EYE_ANALYTICS_WAREHOUSE: `${'a'.repeat(32)}_eye-data`, EYE_ANALYTICS_TOKEN: 'test' }, 'site', db.request, () => at + 62000);
-      const report = await api.arms({ from: at, to: at + 62000, experimentId: 'exp' });
-      expect(report.rows.find(r => r.allocationMode === 'policy')!.totalValue).toBe(0);
-      const defaultRow = report.rows.find(r => r.allocationMode === 'default')!;
-      expect(defaultRow.completed).toBe(1); expect(defaultRow.totalValue).toBeCloseTo(50, 3); expect(defaultRow.learningValue).toBeCloseTo(50, 3);
-      const frozen = await api.learning({ from: at, to: at + 62000 });
-      expect(frozen.allocationMode).toBe('all');
-      expect(frozen.rows.find(r => r.experimentId === 'exp' && r.armId === 'a')).toMatchObject({ completed: 1, learningValue: defaultRow.learningValue });
-      expect((await api.traffic({ from: at, to: at + 62000, experimentId: 'exp', bucketMs: 60000 })).rows.map(r => r.allocationMode)).toEqual(expect.arrayContaining(['policy', 'default']));
-    } finally { db.close(); }
+    expect(meanOf(moments.find(m => m.experimentId === 'exp' && m.armId === 'b')!.moments)).toBe(0);
+    expect(meanOf(moments.find(m => m.experimentId === 'exp' && m.armId === 'a')!.moments)).toBeCloseTo(50, 3);
   } finally { learning.close(); }
 });
 

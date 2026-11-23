@@ -1,7 +1,7 @@
 {
   "name": "@eye/workers",
   "version": "0.1.0",
-  "description": "Self-hosted web analytics and persistent non-stationary bandits for Cloudflare Workers",
+  "description": "Self-hosted experiment aggregates and persistent non-stationary bandits for Cloudflare Workers",
   "type": "module",
   "private": true,
   "sideEffects": false,

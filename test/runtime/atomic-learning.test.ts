@@ -2,12 +2,10 @@ import { env, exports } from 'cloudflare:workers';
 import { evictDurableObject, runInDurableObject, reset } from 'cloudflare:test';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { EyeEvent, Experiment, ExposureEvent } from '../../src/core/types.js';
-import type { AnalyticsRecord } from '../../src/analytics/records.js';
 
-it('commits closure/moments/export together, rolls all back on SQL failure, across restart', async () => {
+it('commits closure and moments together, rolls all back on SQL failure, across restart', async () => {
   const siteId = env.EYE_INSTALLATION_ID, site = env.SITES.getByName(siteId), at = Date.now();
   const clock = vi.spyOn(Date, 'now').mockReturnValue(at);
-  const send = vi.spyOn(env.ANALYTICS, 'send').mockResolvedValue(undefined);
   try {
     const config = await exports.default.createExperiment({ experimentId: 'exp', arms: ['a'], settings: {
       minHoldMs: 0, observationWindowMs: 1000, } });
@@ -22,7 +20,6 @@ it('commits closure/moments/export together, rolls all back on SQL failure, acro
       state.storage.sql.exec("CREATE TRIGGER fail_moments BEFORE INSERT ON local_arm_moments BEGIN SELECT RAISE(ABORT,'moment failure'); END");
       await actor.alarm();
       expect(state.storage.sql.exec<{ n: number }>('SELECT COUNT(*) n FROM learning_samples').one().n).toBe(1);
-      expect(state.storage.sql.exec<{ n: number }>('SELECT COUNT(*) n FROM learning_outbox').one().n).toBe(0);
       expect(state.storage.sql.exec<{ n: number }>('SELECT COUNT(*) n FROM local_arm_moments').one().n).toBe(0);
       state.storage.sql.exec('DROP TRIGGER fail_moments'); state.storage.kv.delete('alarmRetryAt');
       await actor.alarm();
@@ -34,13 +31,12 @@ it('commits closure/moments/export together, rolls all back on SQL failure, acro
     await evictDurableObject(site);
     await runInDurableObject(site, async actor => { await actor.alarm(); });
     expect((await exports.default.getPolicy('exp')).arms[0]!.weight).toBeCloseTo(policy.arms[0]!.weight, 10);
-  } finally { clock.mockRestore(); send.mockRestore(); }
+  } finally { clock.mockRestore(); }
 });
 
 it('handles concurrent normal collection and a full close batch without losing zero samples', async () => {
   const siteId = env.EYE_INSTALLATION_ID, site = env.SITES.getByName(siteId), at = Date.now();
-  const clock = vi.spyOn(Date, 'now').mockReturnValue(at), records: AnalyticsRecord[] = [];
-  const send = vi.spyOn(env.ANALYTICS, 'send').mockImplementation(async rows => { records.push(...rows as AnalyticsRecord[]); });
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(at);
   try {
     const config = await exports.default.createExperiment({ experimentId: 'exp', arms: ['a'], settings: {
       minHoldMs: 0, observationWindowMs: 1000, } });
@@ -58,15 +54,13 @@ it('handles concurrent normal collection and a full close batch without losing z
     const policy = await exports.default.getPolicy('exp');
     expect(policy.arms[0]!.meanReward).toBe(0);
     expect(policy.arms[0]!.weight).toBeCloseTo(500 * 2 ** (-61_000 / config.settings.learningHalfLifeMs), 8);
-    expect(records.filter(row => row.table_name === 'observations')).toHaveLength(500);
-  } finally { clock.mockRestore(); send.mockRestore(); }
+  } finally { clock.mockRestore(); }
 });
 
 it('keeps experiment and generation evidence separate through settings and arm changes', async () => {
   const siteId = env.EYE_INSTALLATION_ID, site = env.SITES.getByName(siteId), at = Date.now();
   let now = at;
   const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
-  const send = vi.spyOn(env.ANALYTICS, 'send').mockResolvedValue(undefined);
   try {
     const ids = ['one', 'two', 'three', 'four'], configs: Experiment[] = [];
     await site.createGoal('pay');
@@ -112,7 +106,7 @@ it('keeps experiment and generation evidence separate through settings and arm c
     expect((await exports.default.getPolicy('three')).arms.find(arm => arm.armId === 'c')!.weight).toBe(0);
     await evictDurableObject(site);
     expect(await exports.default.getPolicy('one')).toEqual(policy);
-  } finally { clock.mockRestore(); send.mockRestore(); }
+  } finally { clock.mockRestore(); }
 });
 
 afterEach(async () => { vi.restoreAllMocks(); await reset(); });

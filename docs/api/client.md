@@ -19,7 +19,6 @@ createEye(options: EyeOptions): EyeClient
 
 - [eye.prepare](#eyeprepare)
 - [eye.state](#eyestate)
-- [eye.track](#eyetrack)
 - [eye.goal](#eyegoal)
 - [eye.expose](#eyeexpose)
 - [eye.identify](#eyeidentify)
@@ -35,27 +34,6 @@ createEye(options: EyeOptions): EyeClient
 - [eye.analytics.summaries.configure](#eyeanalyticssummariesconfigure)
 - [eye.analytics.summaries.status](#eyeanalyticssummariesstatus)
 - [eye.analytics.summaries.query](#eyeanalyticssummariesquery)
-- [eye.analytics.learning](#eyeanalyticslearning)
-- [eye.analytics.jobs.schedule](#eyeanalyticsjobsschedule)
-- [eye.analytics.jobs.scheduled](#eyeanalyticsjobsscheduled)
-- [eye.analytics.jobs.unschedule](#eyeanalyticsjobsunschedule)
-- [eye.analytics.jobs.create](#eyeanalyticsjobscreate)
-- [eye.analytics.jobs.status](#eyeanalyticsjobsstatus)
-- [eye.analytics.jobs.page](#eyeanalyticsjobspage)
-- [eye.analytics.jobs.cancel](#eyeanalyticsjobscancel)
-- [eye.analytics.attributeKeys](#eyeanalyticsattributekeys)
-- [eye.analytics.policies](#eyeanalyticspolicies)
-- [eye.analytics.traffic](#eyeanalyticstraffic)
-- [eye.analytics.rewardSeries](#eyeanalyticsrewardseries)
-- [eye.analytics.armSeries](#eyeanalyticsarmseries)
-- [eye.analytics.arms](#eyeanalyticsarms)
-- [eye.analytics.timeline](#eyeanalyticstimeline)
-- [eye.analytics.events](#eyeanalyticsevents)
-- [eye.analytics.eventList](#eyeanalyticseventlist)
-- [eye.analytics.eventSeries](#eyeanalyticseventseries)
-- [eye.analytics.goals](#eyeanalyticsgoals)
-- [eye.analytics.series](#eyeanalyticsseries)
-- [eye.analytics.attributeValues](#eyeanalyticsattributevalues)
 - [eye.experiments.create](#eyeexperimentscreate)
 - [eye.experiments.get](#eyeexperimentsget)
 - [eye.experiments.list](#eyeexperimentslist)
@@ -79,7 +57,6 @@ createEye(options: EyeOptions): EyeClient
 - [request.variant](#requestvariant)
 - [request.data](#requestdata)
 - [request.anonymous](#requestanonymous)
-- [request.track](#requesttrack)
 - [request.goal](#requestgoal)
 - [browser.prepare](#browserprepare)
 - [browser.setScope](#browsersetscope)
@@ -108,16 +85,6 @@ eye.prepare(input: { subject: Subject; experimentId: string; context?: import(".
 eye.state(): Promise<Record<string, string>>
 ```
 
-## eye.track
-
-일반 사건을 분석에 기록한다. name은 서비스가 정의한다. goal 학습을 직접 발생시키지 않는다.
-
-```ts
-eye.track(input: EventInput<TrackEvent>): Submission
-```
-
-타입: [EventInput](types.md#eventinput) · [Submission](types.md#submission) · [TrackEvent](types.md#trackevent)
-
 ## eye.goal
 
 사이트가 확정한 골을 전달한다. goalId는 먼저 등록한다. value는 모든 골에서 같은 단위의 유한한 값이며 음수·0도 허용한다.
@@ -130,7 +97,7 @@ eye.goal(input: EventInput<GoalEvent>): Submission
 
 ## eye.expose
 
-arm을 실제 적용한 뒤 assigned decision을 그대로 전달한다. userAttributes는 첫 노출 때 관측 속성으로 고정하고, attributes는 개별 노출 사건 속성으로 보관한다.
+arm을 실제 적용한 뒤 assigned decision을 그대로 전달한다. 기존 연동의 속성 입력은 수집 경계에서 제외한다.
 
 ```ts
 eye.expose(input: { subject: Subject; decision: AssignedDecision; eventId?: string; occurredAt?: number; userAttributes?: Attributes; attributes?: Attributes; defaultReason?: import("./core/types.js").DefaultReason; }): Submission
@@ -206,7 +173,7 @@ eye.flush(): Promise<void>
 
 ## eye.analytics.summaries.dashboard
 
-Processing-order reward matrix, exposure and policy history without raw SQL.
+Read the durable reward matrix, exposure and policy history.
 
 ```ts
 eye.analytics.summaries.dashboard(query: DashboardQuery): Promise<DashboardReport>
@@ -226,7 +193,7 @@ eye.analytics.summaries.hours(): Promise<HourlyGoalStatus>
 
 ## eye.analytics.summaries.series
 
-Read all accepted goals by finalized receipt hour without raw SQL.
+Read all accepted goals by finalized receipt hour.
 
 ```ts
 eye.analytics.summaries.series(query: HourlyGoalQuery): Promise<HourlyGoalReport>
@@ -256,223 +223,13 @@ eye.analytics.summaries.status(): Promise<SummaryStatus>
 
 ## eye.analytics.summaries.query
 
-원본 SQL 없이 선택적 요약의 전체 UTC 시간 구간 합계·평균을 조회한다. 늦은 골·관측 마감으로 과거 값도 바뀔 수 있다.
+선택적 요약의 전체 UTC 시간 구간 합계·평균을 조회한다. 늦은 골·관측 마감으로 과거 값도 바뀔 수 있다.
 
 ```ts
 eye.analytics.summaries.query(input: SummaryQuery): Promise<SummaryReport>
 ```
 
 타입: [SummaryQuery](types.md#summaryquery) · [SummaryReport](types.md#summaryreport)
-
-## eye.analytics.learning
-
-원본 귀속을 다시 계산하지 않고 확정 학습 표본의 합계·평균을 조회한다.
-
-```ts
-eye.analytics.learning(query: LearningQuery): Promise<LearningReport>
-```
-
-타입: [LearningQuery](types.md#learningquery) · [LearningReport](types.md#learningreport)
-
-## eye.analytics.jobs.schedule
-
-기본 골·확정 학습 보고서를 1~24시간 간격으로 생성한다.
-
-```ts
-eye.analytics.jobs.schedule(input: ReportScheduleInput): Promise<ReportSchedule>
-```
-
-타입: [ReportSchedule](types.md#reportschedule) · [ReportScheduleInput](types.md#reportscheduleinput)
-
-## eye.analytics.jobs.scheduled
-
-새 작업을 시작하지 않고 자동 보고서와 이전 완료 결과를 확인한다.
-
-```ts
-eye.analytics.jobs.scheduled(input: ReportScheduleRef): Promise<ReportSchedule>
-```
-
-타입: [ReportSchedule](types.md#reportschedule) · [ReportScheduleRef](types.md#reportscheduleref)
-
-## eye.analytics.jobs.unschedule
-
-이후 자동 실행을 중단한다. 이미 생성된 작업은 자체 만료까지 남는다.
-
-```ts
-eye.analytics.jobs.unschedule(input: ReportScheduleRef): Promise<void>
-```
-
-타입: [ReportScheduleRef](types.md#reportscheduleref)
-
-## eye.analytics.jobs.create
-
-동일 권한 범위·조건의 작업과 완료 결과를 재사용한다. 등록은 SQL 완료를 기다리지 않는다.
-
-```ts
-eye.analytics.jobs.create(input: AnalyticsJobInput): Promise<AnalyticsJob>
-```
-
-타입: [AnalyticsJob](types.md#analyticsjob) · [AnalyticsJobInput](types.md#analyticsjobinput)
-
-## eye.analytics.jobs.status
-
-작업 진행 상태·시각·만료·실패 이유를 조회한다.
-
-```ts
-eye.analytics.jobs.status(input: AnalyticsJobRef): Promise<AnalyticsJob>
-```
-
-타입: [AnalyticsJob](types.md#analyticsjob) · [AnalyticsJobRef](types.md#analyticsjobref)
-
-## eye.analytics.jobs.page
-
-R2에 고정된 결과의 페이지를 읽으며 원본 SQL을 다시 계산하지 않는다.
-
-```ts
-eye.analytics.jobs.page(input: AnalyticsJobRef & { offset?: number; limit?: number; }): Promise<AnalyticsJobPage>
-```
-
-타입: [AnalyticsJobPage](types.md#analyticsjobpage) · [AnalyticsJobRef](types.md#analyticsjobref)
-
-## eye.analytics.jobs.cancel
-
-같은 scope에서 공유하는 미완료 작업을 취소한다.
-
-```ts
-eye.analytics.jobs.cancel(input: AnalyticsJobRef): Promise<AnalyticsJob>
-```
-
-타입: [AnalyticsJob](types.md#analyticsjob) · [AnalyticsJobRef](types.md#analyticsjobref)
-
-## eye.analytics.attributeKeys
-
-기간에 걸친 UTC 날짜 전체의 속성 키·타입·출처 목록. coverage로 실제 조회 범위를 확인한다.
-
-```ts
-eye.analytics.attributeKeys(query: QueryRange): Promise<AttributeKeyReport>
-```
-
-타입: [AttributeKeyReport](types.md#attributekeyreport) · [QueryRange](types.md#queryrange)
-
-## eye.analytics.policies
-
-발행된 arm 선택 확률·평균·점수 이력. 모든 로컬 선택 순간의 기록은 아니다.
-
-```ts
-eye.analytics.policies(query: PolicyQuery): Promise<AnalyticsPage<PolicyHistoryRow>>
-```
-
-타입: [AnalyticsPage](types.md#analyticspage) · [PolicyHistoryRow](types.md#policyhistoryrow) · [PolicyQuery](types.md#policyquery)
-
-## eye.analytics.traffic
-
-bucket·arm·세대별 신규 배정 수와 실제 노출 수 및 각각의 비율.
-
-```ts
-eye.analytics.traffic(query: TrafficQuery): Promise<AnalyticsPage<TrafficRow>>
-```
-
-타입: [AnalyticsPage](types.md#analyticspage) · [TrafficQuery](types.md#trafficquery) · [TrafficRow](types.md#trafficrow)
-
-## eye.analytics.rewardSeries
-
-goal 발생 시각별 원본 귀속 가치. 진행 중인 관측과 관측 창 이후의 유효한 귀속도 포함하며 완료 표본의 평균은 아니다.
-
-```ts
-eye.analytics.rewardSeries(query: RewardSeriesQuery): Promise<AnalyticsPage<RewardSeriesRow>>
-```
-
-타입: [AnalyticsPage](types.md#analyticspage) · [RewardSeriesQuery](types.md#rewardseriesquery) · [RewardSeriesRow](types.md#rewardseriesrow)
-
-## eye.analytics.armSeries
-
-관측 시작 시각의 bucket별 arm 성과. arms와 동일한 분모·속성 필터를 사용한다.
-
-```ts
-eye.analytics.armSeries(query: ArmSeriesQuery): Promise<AnalyticsPage<ArmSeriesRow>>
-```
-
-타입: [AnalyticsPage](types.md#analyticspage) · [ArmSeriesQuery](types.md#armseriesquery) · [ArmSeriesRow](types.md#armseriesrow)
-
-## eye.analytics.arms
-
-관측 시작 시각 기준 arm·세대별 완료 보상 비교. groupBy/filter는 최초 노출의 userAttributes를 사용한다.
-
-```ts
-eye.analytics.arms(query: ArmQuery): Promise<ArmReport>
-```
-
-타입: [ArmQuery](types.md#armquery) · [ArmReport](types.md#armreport)
-
-## eye.analytics.timeline
-
-한 cid 또는 uid의 사건·배정·관측·귀속·신원 연결 이력. nextCursor로 다음 페이지를 조회한다.
-
-```ts
-eye.analytics.timeline(query: TimelineQuery): Promise<TimelinePage>
-```
-
-타입: [TimelinePage](types.md#timelinepage) · [TimelineQuery](types.md#timelinequery)
-
-## eye.analytics.events
-
-사이트 전체 원본 사건만 필터·커서로 조회한다. uid는 직접 기록된 계정만 찾는다.
-
-```ts
-eye.analytics.events(query: EventsQuery): Promise<TimelinePage>
-```
-
-타입: [EventsQuery](types.md#eventsquery) · [TimelinePage](types.md#timelinepage)
-
-## eye.analytics.eventList
-
-상세 payload와 실험 문맥을 제외한 원본 로그 목록. events와 같은 필터를 사용하며 cursor는 전용이다.
-
-```ts
-eye.analytics.eventList(query: EventsQuery): Promise<EventListPage>
-```
-
-타입: [EventListPage](types.md#eventlistpage) · [EventsQuery](types.md#eventsquery)
-
-## eye.analytics.eventSeries
-
-로그와 같은 필터로 전체 기간의 사건 수를 UTC bucket별 집계한다. 동일 설치·조회는 최대 2분 공유한다.
-
-```ts
-eye.analytics.eventSeries(query: EventSeriesQuery): Promise<EventSeriesPage>
-```
-
-타입: [EventSeriesPage](types.md#eventseriespage) · [EventSeriesQuery](types.md#eventseriesquery)
-
-## eye.analytics.goals
-
-발생 시각 기준 accepted 원본 goal의 수와 가치 합. filter는 사건 attributes에 적용한다.
-
-```ts
-eye.analytics.goals(query: GoalQuery): Promise<AnalyticsPage<GoalRow>>
-```
-
-타입: [AnalyticsPage](types.md#analyticspage) · [GoalQuery](types.md#goalquery) · [GoalRow](types.md#goalrow)
-
-## eye.analytics.series
-
-goal 합계를 UTC bucket별로 반환한다. 사건 없는 bucket은 행을 만들지 않는다.
-
-```ts
-eye.analytics.series(query: SeriesQuery): Promise<AnalyticsPage<SeriesRow>>
-```
-
-타입: [AnalyticsPage](types.md#analyticspage) · [SeriesQuery](types.md#seriesquery) · [SeriesRow](types.md#seriesrow)
-
-## eye.analytics.attributeValues
-
-원본 사건 attributes의 지정 키 값별 빈도. 관측 userAttributes의 분포와는 다르다.
-
-```ts
-eye.analytics.attributeValues(query: AttributeValuesQuery): Promise<AnalyticsPage<AttributeValueRow>>
-```
-
-타입: [AnalyticsPage](types.md#analyticspage) · [AttributeValueRow](types.md#attributevaluerow) · [AttributeValuesQuery](types.md#attributevaluesquery)
 
 ## eye.experiments.create
 
@@ -698,16 +455,6 @@ request.anonymous(input?: { eventId?: string; occurredAt?: number; }): Submissio
 ```
 
 타입: [Submission](types.md#submission)
-
-## request.track
-
-신원을 다시 전달하지 않는다. 접수 거절과 비동기 전송 실패 모두 onError로 보고한다.
-
-```ts
-request.track(input: Omit<EventInput<TrackEvent>, "subject">): Submission
-```
-
-타입: [EventInput](types.md#eventinput) · [Submission](types.md#submission) · [TrackEvent](types.md#trackevent)
 
 ## request.goal
 

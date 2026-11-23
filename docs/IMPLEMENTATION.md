@@ -2,39 +2,16 @@
 
 [문서 안내](README.md) · [설계](../DESIGN.md) · [구현 구조](../TECHNICAL_DESIGN.md)
 
-현재 구현은 로컬 배정, 서버 요청 래퍼, CSR 클라이언트/서버 어댑터, Queue 원본 수집, Queue 배치 내 정렬과 SQLite 증분 학습, SiteControl 안의 실험·정책 관리, SQLite outbox 재시도, 원본 분석 API와 ReportObject의 비동기 조회·결과 재사용, 자동 goal 접수 시간별 확정 집계와 선택적 로컬 기본 요약 및 요약 기반 비동기·자동 보고서까지 연결한다.
+Eye는 서버·브라우저 SDK의 로컬 배정과 실제 노출, Queue 수집, SiteControl SQLite
+증분 학습과 집계를 제공한다. 집계는 목표별 확정 시간 집계, 실험별 성과와 정책
+이력, 명시적으로 설정하는 기본 요약을 포함한다.
 
-로컬 검증은 TypeScript, 순수 코어 테스트, workerd의 DO/Queue 테스트, 생성 SQL의 SQLite 실행, 패키지 외부 소비자 및 DOM 전용 브라우저 타입 검사, 신규 설치 Worker 번들 dry-run을 사용한다. 실제 노출→원본→학습→정책, 표본 마감·통계·outbox의 동시 롤백, 재전송·eviction 중 중복 학습 방지, 로그인 귀속, 음수/큰 보상, 늦은 사건과 확정 보상 차이, CSR 인증 전환과 준비/노출 경합을 검사한다.
+`npm run check`는 빌드·타입·코어 및 workerd 테스트·생성 문서를 확인한다.
+가입 전 배정의 로그인 후 귀속, 큐 재시도, SQL 오류 시 마감 롤백, 음수 보상,
+객체 재시작과 동시 수집을 검증한다. `npm run test:engine`은 고정 시드에서
+A/A, A/B, 우세 전환과 독립 코호트 리듀서 결과를 비교한다.
+[로그 스트림 검증](ENGINE-VALIDATION.md)에 검증 범위가 있다.
 
-`npm run test:engine`은 고정 시드의 웹 로그를 생성하여 현재 선택·증분 학습·마감·정책 계산을 연결한다. 고정/적응형 A/A, 알려진 A/B, 우세 전환, 원본 리듀서와의 비교, 중복·청크 불변성, 보상 단위 변환을 검사한다. 입력·결과와 모사 범위는 [로그 스트림 검증](ENGINE-VALIDATION.md)을 따른다.
-
-상태 쓰기 결합·압축·사전 캐시·요약 추가 쓰기 측정은 [상태 최적화 검증](STATE-OPTIMIZATION.md)과 [benchmarks/compact-state/run.mjs](https://github.com/corca-ai/eye/blob/490eaabd193afcebef5eb69635f9197166142abd/benchmarks/compact-state/run.mjs)를 따른다. 상태 조회·알람·객체 생성 비교는 [증분 비용 최적화](INCREMENTAL-COST.md)와 [benchmarks/incremental-cost/run.mjs](https://github.com/corca-ai/eye/blob/490eaabd193afcebef5eb69635f9197166142abd/benchmarks/incremental-cost/run.mjs)를 따른다. 메모리 SQLite·고정 인공 입력의 결과이며 Basin 스캔량, 네트워크·디스크 영속화 비용이나 운영 처리량이 아니다. 원격 부하·실제 쓰기 비용은 별도 검증해야 한다. 하루 100만 사건은 설계 가정이지 검증된 처리량이 아니다.
-
-도입 전에는 신규 테스트 Worker에 설치하여 Stream fan-out, Basin 쿼리, alarm 마감, 이후 정책 반영을 실제로 확인하고, 기존 기본 화면 대비 지연·미참여율·arm별 수집 유실을 측정한다. 학습용 원본 조회는 제거했지만 사이트별 SQLite 쓰기·outbox 지연과 대량 활동 uid는 측정한다. 구체적인 한도와 설치 구조는 구현 구조 문서를 따른다.
-
-## 수집 파일과 운영 로그 기본값
-
-신규 설치의 sink 파일 생성 간격은 300초다. 설치 전 `resources.json`의 `sinkRollIntervalSeconds`를 60~300초 정수로 조정할 수 있다. 리소스 생성 이후 설정 파일을 편집하거나 코드만 배포해도 기존 sink가 변경되지는 않는다. provision 체크포인트는 기존 구성을 자동으로 재작성하지 않는다.
-
-300초는 파일 생성 간격이며 Queue·Stream·Catalog를 합친 분석 가시성 보장 시간이 아니다. 증분 학습은 Queue 수신 상태를 사용하므로 sink 파일 가시성을 기다리지 않는다. 관측 종료 후 수신 유예, 마감의 1분 경계 정렬, 파일 생성 간격은 각각 별개다. [Cloudflare sink 설정](https://developers.cloudflare.com/basin-pipelines/sinks/available-sinks/r2-data-catalog/)을 따른다.
-
-Eye Worker의 자동 invocation 로그는 끄고 명시적 진단 로그와 head sampling 1은 유지한다. RPC·Queue·alarm 호출마다 기본 로그 한 건을 보관하는 비용을 줄이며 원본 웹로그에는 영향을 주지 않는다. 호출별 진단이 필요할 때 `observability.logs.invocation_logs`를 켜고 재배포한다. [Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/)의 invocation 로그와 사용자 console 로그는 별도 설정이다.
-
-[원자적 학습](ATOMIC-LEARNING.md)은 단일 저장소의 마감·통계 갱신·출력 재시도와 동시 수집 검증을 설명한다.
-
-## 두 Sink 조회 검증
-
-현재 신규 설치는 `events`와 `projections` 두 테이블을 사용한다. 아래는 이 구성을 도입할 때의 비교 기록이며 기존 다섯 테이블 설치를 자동 이전했다는 뜻은 아니다.
-
-2026-10-26에 별도 원격 Stream·Sink·Catalog를 사용해 기존 다섯 테이블과
-원본/보조 분리 구성을 비교했다. 동일한 합성 레코드 24,014개에는 원본 20,000개,
-신원 연결 2,000개, 지연 학습 결과 2,000개, 정책 10개와 사전 4개가 포함된다.
-이벤트·골 일별 집계·마감 학습·트래픽·arm 조회를 각각 세 번 실행해 결과 행의
-완전 일치를 확인하고 원격 EXPLAIN과 스캔 지표를 수집했다.
-
-원본 테이블은 분리해 유지하므로 이벤트·골 집계·트래픽 스캔량은 동일했다.
-보조 테이블 통합으로 마감 학습 조회는 55,347→102,836바이트, arm 조회는
-47,635,480→48,520,876바이트로 늘었다. 이 구성은 Sink 수를 5→2로 줄이는
-선택이며 모든 조회 요금이 줄어든다는 뜻은 아니다. 반복 실행의 원격 캐시 상태가
-달라 지연 개선이나 운영 처리량으로 해석하지 않는다. 다른 데이터 분포와 파일
-누적·compaction 상태에서는 다시 측정해야 한다.
+`npm run check:package`는 외부 SDK 소비자, 브라우저 타입과 생성된 설치의
+Worker 번들을 검증한다. 실제 Cloudflare 부하, 지연 및 운영 처리량을
+측정하려면 별도의 설치에서 합성 노출과 골로 검증한다.

@@ -20,19 +20,9 @@
       {
         "name": "SITES",
         "class_name": "SiteControl"
-      },
-      {
-        "name": "REPORTS",
-        "class_name": "ReportObject"
       }
     ]
   },
-  "pipelines": [
-    {
-      "binding": "ANALYTICS",
-      "stream": "00000000000000000000000000000000"
-    }
-  ],
   "queues": {
     "producers": [
       {
@@ -50,18 +40,8 @@
       }
     ]
   },
-  "r2_buckets": [
-    {
-      "binding": "REPORT_RESULTS",
-      "bucket_name": "eye-analytics"
-    }
-  ],
   "exports": {
     "SiteControl": {
-      "type": "durable-object",
-      "storage": "sqlite"
-    },
-    "ReportObject": {
       "type": "durable-object",
       "storage": "sqlite"
     }

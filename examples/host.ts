@@ -41,7 +41,6 @@ export async function handlePage(request: Request, env: HostEnv, ctx: ExecutionC
     ? '<main>Compact checkout</main>' : '<main>Standard checkout</main>';
   const response = new Response(content, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
   selection.expose(); // This SSR response applies the selected variant. Fallback is a no-op.
-  eye.track({ name: 'page_view', attributes: { path: new URL(request.url).pathname } });
   return finish(response);
 }
 
@@ -53,7 +52,7 @@ export async function configure(env: HostEnv, ctx: ExecutionContext): Promise<vo
   await eye.experiments.create({ experimentId: checkout.experimentId, arms: Object.keys(checkout.variants), settings: { minHoldMs: 86_400_000 } });
 }
 
-export async function compareLocale(env: HostEnv, ctx: ExecutionContext) {
-  const eye = createEye({ service: env.EYE, ctx }), to = Date.now();
-  return eye.analytics.arms({ experimentId: 'checkout', from: to - 7 * 86_400_000, to, groupBy: [{ key: 'locale', type: 'string' }] });
+export async function compareArms(env: HostEnv, ctx: ExecutionContext) {
+  const eye = createEye({ service: env.EYE, ctx }), to = Math.floor(Date.now() / 60_000) * 60_000;
+  return eye.analytics.summaries.dashboard({ experimentId: 'checkout', boundaries: [to - 7 * 86_400_000, to] });
 }

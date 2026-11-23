@@ -1,16 +1,14 @@
 import { canonicalArm } from './core/arm-data.js';
 import type { ArmInput } from './core/types.js';
 import type { SummariesAPI } from './analytics/summaries.js';
-import type { AnalyticsJobsAPI, AnalyticsJobPage } from './analytics/jobs.js';
 import { decisionRuntime, validateDecisionOptions, type DecisionOptions } from './decisions.js';
 import { collectionLimits, type CollectionLimits } from './collection-limits.js';
 import { EyeError, invariant } from './core/errors.js';
 import type { ErrorCode } from './core/errors.js';
 import { parseCreateExperiment, parseEnvelope, validateEventAge } from './core/events.js';
 import { id, record, RETENTION_MS, subject as parseSubject } from './core/validation.js';
-import type { Attributes, CreateExperiment, EventEnvelope, ExperimentSettings, GoalEvent, IdentityEvent, Subject, TrackEvent } from './core/types.js';
+import type { Attributes, CreateExperiment, EventEnvelope, ExperimentSettings, GoalEvent, IdentityEvent, Subject } from './core/types.js';
 import type { AssignedDecision, EyeService } from './transport.js';
-import type { AnalyticsAPI } from './analytics/types.js';
 
 export const MAX_EVENT_BYTES = 100_000;
 export const MAX_BATCH_BYTES = 240_000;
@@ -120,10 +118,9 @@ export function createEye(options: EyeOptions) {
       return tokens && Object.keys(tokens).length ? decisions().state() : Promise.resolve({});
     },
     /** 일반 사건을 분석에 기록한다. name은 서비스가 정의한다. goal 학습을 직접 발생시키지 않는다. */
-    track: (input: EventInput<TrackEvent>): Submission => submit(() => ({ ...base(input), kind: 'track' })),
     /** 사이트가 확정한 골을 전달한다. goalId는 먼저 등록한다. value는 모든 골에서 같은 단위의 유한한 값이며 음수·0도 허용한다. */
     goal: (input: EventInput<GoalEvent>): Submission => submit(() => ({ ...base(input), kind: 'goal' })),
-    /** arm을 실제 적용한 뒤 assigned decision을 그대로 전달한다. userAttributes는 첫 노출 때 관측 속성으로 고정하고, attributes는 개별 노출 사건 속성으로 보관한다. */
+    /** arm을 실제 적용한 뒤 assigned decision을 그대로 전달한다. 기존 연동의 속성 입력은 수집 경계에서 제외한다. */
     expose: (input: { subject: Subject; decision: AssignedDecision; eventId?: string; occurredAt?: number; userAttributes?: Attributes; attributes?: Attributes; defaultReason?: import('./core/types.js').DefaultReason }): Submission => {
       let commit: (() => void) | undefined;
       return submit(() => {
@@ -152,64 +149,20 @@ export function createEye(options: EyeOptions) {
     flush,
     analytics: {
       summaries: {
-        /** Processing-order reward matrix, exposure and policy history without raw SQL. */
+        /** Read the durable reward matrix, exposure and policy history. */
         dashboard: query => service.experimentDashboard(query),
         /** Read automatic receipt-hour coverage and the immutable cutoff. */
         hours: () => service.hourlyGoalStatus(),
-        /** Read all accepted goals by finalized receipt hour without raw SQL. */
+        /** Read all accepted goals by finalized receipt hour. */
         series: query => service.hourlyGoals(query),
         /** 관리 경로에서 자주 쓰는 ID만 활성화한다. 설정 변경은 집계를 초기화한다. */
         configure: input => service.configureSummaries(input),
         /** 집계 시작 시각·상태를 확인한다. */
         status: () => service.summaryStatus(),
-        /** 원본 SQL 없이 선택적 요약의 전체 UTC 시간 구간 합계·평균을 조회한다. 늦은 골·관측 마감으로 과거 값도 바뀔 수 있다. */
+        /** 선택적 요약의 전체 UTC 시간 구간 합계·평균을 조회한다. 늦은 골·관측 마감으로 과거 값도 바뀔 수 있다. */
         query: input => service.querySummary(input),
       } satisfies SummariesAPI,
-      /** 원본 귀속을 다시 계산하지 않고 확정 학습 표본의 합계·평균을 조회한다. */
-      learning: query => service.analyticsLearning(query),
-      jobs: {
-        /** 기본 골·확정 학습 보고서를 1~24시간 간격으로 생성한다. */
-        schedule: input => service.analyticsJobSchedule(input),
-        /** 새 작업을 시작하지 않고 자동 보고서와 이전 완료 결과를 확인한다. */
-        scheduled: input => service.analyticsJobScheduled(input),
-        /** 이후 자동 실행을 중단한다. 이미 생성된 작업은 자체 만료까지 남는다. */
-        unschedule: input => service.analyticsJobUnschedule(input),
-        /** 동일 권한 범위·조건의 작업과 완료 결과를 재사용한다. 등록은 SQL 완료를 기다리지 않는다. */
-        create: input => service.analyticsJobCreate(input),
-        /** 작업 진행 상태·시각·만료·실패 이유를 조회한다. */
-        status: input => service.analyticsJobStatus(input),
-        /** R2에 고정된 결과의 페이지를 읽으며 원본 SQL을 다시 계산하지 않는다. */
-        page: async input => JSON.parse(await service.analyticsJobPage(input)) as AnalyticsJobPage,
-        /** 같은 scope에서 공유하는 미완료 작업을 취소한다. */
-        cancel: input => service.analyticsJobCancel(input),
-      } satisfies AnalyticsJobsAPI,
-      /** 기간에 걸친 UTC 날짜 전체의 속성 키·타입·출처 목록. coverage로 실제 조회 범위를 확인한다. */
-      attributeKeys: query => service.analyticsAttributeKeys(query),
-      /** 발행된 arm 선택 확률·평균·점수 이력. 모든 로컬 선택 순간의 기록은 아니다. */
-      policies: query => service.analyticsPolicies(query),
-      /** bucket·arm·세대별 신규 배정 수와 실제 노출 수 및 각각의 비율. */
-      traffic: query => service.analyticsTraffic(query),
-      /** goal 발생 시각별 원본 귀속 가치. 진행 중인 관측과 관측 창 이후의 유효한 귀속도 포함하며 완료 표본의 평균은 아니다. */
-      rewardSeries: query => service.analyticsRewardSeries(query),
-      /** 관측 시작 시각의 bucket별 arm 성과. arms와 동일한 분모·속성 필터를 사용한다. */
-      armSeries: query => service.analyticsArmSeries(query),
-      /** 관측 시작 시각 기준 arm·세대별 완료 보상 비교. groupBy/filter는 최초 노출의 userAttributes를 사용한다. */
-      arms: query => service.analyticsArms(query),
-      /** 한 cid 또는 uid의 사건·배정·관측·귀속·신원 연결 이력. nextCursor로 다음 페이지를 조회한다. */
-      timeline: query => service.analyticsTimeline(query),
-      /** 사이트 전체 원본 사건만 필터·커서로 조회한다. uid는 직접 기록된 계정만 찾는다. */
-      events: query => service.analyticsEvents(query),
-      /** 상세 payload와 실험 문맥을 제외한 원본 로그 목록. events와 같은 필터를 사용하며 cursor는 전용이다. */
-      eventList: query => service.analyticsEventList(query),
-      /** 로그와 같은 필터로 전체 기간의 사건 수를 UTC bucket별 집계한다. 동일 설치·조회는 최대 2분 공유한다. */
-      eventSeries: query => service.analyticsEventSeries(query),
-      /** 발생 시각 기준 accepted 원본 goal의 수와 가치 합. filter는 사건 attributes에 적용한다. */
-      goals: query => service.analyticsGoals(query),
-      /** goal 합계를 UTC bucket별로 반환한다. 사건 없는 bucket은 행을 만들지 않는다. */
-      series: query => service.analyticsSeries(query),
-      /** 원본 사건 attributes의 지정 키 값별 빈도. 관측 userAttributes의 분포와는 다르다. */
-      attributeValues: query => service.analyticsAttributeValues(query),
-    } satisfies AnalyticsAPI & { jobs: AnalyticsJobsAPI; summaries: SummariesAPI },
+    },
     /** 신뢰할 수 있는 관리 경로에서 사용한다. */
     experiments: {
       /** 최초 정의를 등록한다. 같은 최초 정의로 재호출하면 현재 정의를 반환하며, 다른 최초 정의는 conflict다. */

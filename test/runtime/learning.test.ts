@@ -2,9 +2,8 @@ import { env } from 'cloudflare:workers';
 import { evictDurableObject, runInDurableObject } from 'cloudflare:test';
 import { expect, it, vi } from 'vitest';
 import type { EyeEvent, ExposureEvent } from '../../src/core/types.js';
-import type { AnalyticsRecord } from '../../src/analytics/records.js';
 
-it('closes durable rewards, retries delivery after eviction and applies arm moments only once without Basin', async () => {
+it('closes durable rewards, survives eviction and applies arm moments only once', async () => {
   const siteId = crypto.randomUUID(), site = env.SITES.getByName(siteId);
   const config = await site.createExperiment(siteId, { experimentId: 'exp', arms: ['a', 'b'], settings: {
     minHoldMs: 0, observationWindowMs: 1000, } });
@@ -16,20 +15,15 @@ it('closes durable rewards, retries delivery after eviction and applies arm mome
     sample: { sampleId: 'sample', startAt: at }, attributionWindowMs: 1000 };
   // Goal creation precedes its event time; Date.now in user code is advanced only.
   const clock = vi.spyOn(Date, 'now').mockReturnValue(at + 10);
-  const rows: AnalyticsRecord[] = [];
-  const exportData = vi.spyOn(env.ANALYTICS, 'send').mockImplementation(async data => { rows.push(...data as AnalyticsRecord[]); });
-  const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('learning must not query Basin'));
+  const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('learning must not use network fetch'));
   try {
     const events: EyeEvent[] = [{ kind: 'goal', eventId: 'z-goal', occurredAt: at + 10,
       subject: { cid: 'c' }, goalId: 'pay', value: 100 }, exposure];
     expect(await site.consumeLearning(siteId, events)).toEqual([true, true]);
     expect(await site.consumeLearning(siteId, events)).toEqual([true, true]);
     clock.mockReturnValue(at + 61_200);
-    exportData.mockRejectedValueOnce(new Error('temporary stream failure'));
     await runInDurableObject(site, async (actor, state) => {
       await actor.alarm();
-      expect(state.storage.kv.get('alarmFailures')).toBe(1);
-      expect(state.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM learning_outbox').one().n).toBeGreaterThan(0);
       expect(state.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM learning_samples').one().n).toBe(0);
     });
     const before = await site.getExperimentPolicy(siteId, 'exp');
@@ -37,13 +31,10 @@ it('closes durable rewards, retries delivery after eviction and applies arm mome
     await evictDurableObject(site);
     await runInDurableObject(site, async (actor, state) => {
       state.storage.kv.delete('alarmRetryAt'); await actor.alarm();
-      expect(state.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM learning_outbox').one().n).toBe(0);
     });
     expect((await site.getExperimentPolicy(siteId, 'exp')).arms[0]!.weight).toBeCloseTo(before.arms[0]!.weight, 10);
-    expect(rows.filter(r => r.table_name === 'observations' && r.status === 'complete')).toHaveLength(1);
-    expect(rows.filter(r => r.table_name === 'credits')).toHaveLength(0);
     expect(fetchSpy).not.toHaveBeenCalled();
-  } finally { clock.mockRestore(); exportData.mockRestore(); fetchSpy.mockRestore(); }
+  } finally { clock.mockRestore(); fetchSpy.mockRestore(); }
 });
 
 it('does not poll or query an idle site just because an experiment exists', async () => {
@@ -57,7 +48,6 @@ it('reclaims at most one summary expiry page when cleanup and closure share an a
   const config = await site.createExperiment(siteId, { experimentId: 'exp', arms: ['a'], settings: { minHoldMs: 0, observationWindowMs: 1000, } });
   const now = Date.now(), at = now - 62_000;
   const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
-  const send = vi.spyOn(env.ANALYTICS, 'send').mockResolvedValue(undefined);
   try {
     await runInDurableObject(site, async (actor, state) => {
       const { IncrementalLearning } = await import('../../src/runtime/incremental.js');
@@ -76,7 +66,7 @@ it('reclaims at most one summary expiry page when cleanup and closure share an a
       expect(state.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM summary_buckets').one().n).toBe(49001);
       expect(engine.summaries.status(now).state).toBe('collecting');
     });
-  } finally { clock.mockRestore(); send.mockRestore(); }
+  } finally { clock.mockRestore(); }
 });
 
 it('reads each current goal once per transaction and preserves historical status and retry decisions', async () => {
@@ -104,7 +94,6 @@ it('reads each current goal once per transaction and preserves historical status
 it('rejects unknown exposure references without poisoning other experiments or their alarm', async () => {
   const siteId = crypto.randomUUID(), site = env.SITES.getByName(siteId), at = Date.now();
   const clock = vi.spyOn(Date, 'now').mockReturnValue(at);
-  const send = vi.spyOn(env.ANALYTICS, 'send').mockResolvedValue(undefined);
   try {
     const config = await site.createExperiment(siteId, { experimentId: 'exp', arms: ['a'], settings: { minHoldMs: 0, observationWindowMs: 1000 } });
     const make = (key: string, override: Partial<Extract<ExposureEvent['assignment'], { probability: number }>> = {}): ExposureEvent => ({ kind: 'exposure', eventId: key, occurredAt: at,
@@ -130,5 +119,5 @@ it('rejects unknown exposure references without poisoning other experiments or t
       const row = state.storage.sql.exec<{ data: string }>('SELECT data FROM local_arm_moments WHERE experiment_id=? AND generation=1', 'exp').one();
       expect(JSON.parse(row.data).weight).toBeGreaterThan(1);
     });
-  } finally { clock.mockRestore(); send.mockRestore(); }
+  } finally { clock.mockRestore(); }
 });

@@ -2,7 +2,7 @@ import { createEye, type EyeClient, type EyeOptions, type EventInput, type Submi
 import { selectionFallback, selectionValue, isDataDefinition, withinBudget, type SelectionDefinition } from './variant-definition.js';
 import { EyeError } from './core/errors.js';
 import { reportedInBackground } from './decisions.js';
-import type { Attributes, GoalEvent, Subject, TrackEvent } from './core/types.js';
+import type { Attributes, GoalEvent, Subject } from './core/types.js';
 
 /** 요청마다 생성하며 신원은 생성 당시 값으로 고정한다. 로그인 전환 뒤에는 새 인스턴스를 만든다. */
 export interface EyeRequestOptions extends EyeOptions {
@@ -10,7 +10,7 @@ export interface EyeRequestOptions extends EyeOptions {
   subject: Subject;
   /** 첫 실제 노출의 사용자군 속성. 개별 expose에서 덮어쓸 수 있다. */
   userAttributes?: Attributes;
-  /** false면 실험 선택·준비·노출을 생략한다. track/goal 수집은 유지한다. 기본 true. */
+  /** false면 실험 선택·준비·노출을 생략한다. 골 수집은 유지한다. 기본 true. */
   experimentsEnabled?: boolean;
 }
 export type { VariantDefinition, DataDefinition } from './browser-types.js';
@@ -48,7 +48,6 @@ export interface EyeRequest {
   /** Confirm an anonymous request before recording an exposure. Does not reset an existing anonymous segment. */
   anonymous(input?: {eventId?: string; occurredAt?: number}): Submission;
   /** 신원을 다시 전달하지 않는다. 접수 거절과 비동기 전송 실패 모두 onError로 보고한다. */
-  track(input: Omit<EventInput<TrackEvent>, 'subject'>): Submission;
   /** 사이트가 확정한 값. 재전송은 원래 eventId·occurredAt·subject·payload를 보존한다. */
   goal(input: Omit<EventInput<GoalEvent>, 'subject'>): Submission;
 }
@@ -80,7 +79,6 @@ export function createEyeRequest(options: EyeRequestOptions): EyeRequest {
     state: async () => eye ? eye.state() : {},
     defaultState: async () => eye ? eye.defaultState() : {},
     anonymous: (input = {}) => submit(client => client.anonymous({ ...input, subject })),
-    track: input => submit(client => client.track({ ...input, subject })),
     goal: input => submit(client => client.goal({ ...input, subject })),
     variant: (definition, wait) => select(definition, wait),
     data: (definition, wait) => select(definition, wait),

@@ -12,24 +12,30 @@ export interface EventBatch { version: 2; events: (EventEnvelope | CompactEnvelo
 const RAW_OVERHEAD = '{"version":2,"events":[]}'.length;
 const DICTIONARY_OVERHEAD = '{"version":2,"events":[],"settings":[]}'.length;
 const encoder = new TextEncoder();
-export function packEvents(events: readonly EventEnvelope[]): EventBatch[] { return pack(events, false); }
-/** Admission uses original envelope sizes, before any lossless transport encoding. */
-export function packIngestion(events: readonly EventEnvelope[]): EventBatch[] {
-  invariant(events.length <= 100, 'invalid_input', 'An ingestion batch must contain at most 100 events');
-  return pack(events, true);
-}
-type MeasuredEnvelope = { envelope: EventEnvelope; bytes: number };
-function pack(events: readonly EventEnvelope[], ingestion: boolean): EventBatch[] {
-  let ingestionBytes = 0;
-  const measured = events.map(envelope => {
+export function packEvents(events: readonly EventEnvelope[]): EventBatch[] {
+  return pack(events.map(envelope => {
     const bytes = encodedSize(envelope);
-    if (ingestion) {
-      ingestionBytes += bytes + 200;
-      invariant(bytes + 200 <= MAX_EVENT_BYTES && ingestionBytes <= MAX_BATCH_BYTES,
-        'invalid_input', 'Ingestion batch exceeds encoded size limits');
-    } else invariant(bytes <= MAX_EVENT_BYTES, 'invalid_input', 'Event exceeds ingestion size limit');
+    invariant(bytes <= MAX_EVENT_BYTES, 'invalid_input', 'Event exceeds ingestion size limit');
     return { envelope, bytes };
-  });
+  }));
+}
+
+/** Admission uses the full input size before retaining only learning fields. */
+export function packIngestion(events: readonly EventEnvelope[], minimize?: (event: EventEnvelope) => EventEnvelope): EventBatch[] {
+  invariant(events.length <= 100, 'invalid_input', 'An ingestion batch must contain at most 100 events');
+  let ingestionBytes = 0;
+  return pack(events.map(input => {
+    const bytes = encodedSize(input);
+    ingestionBytes += bytes + 200;
+    invariant(bytes + 200 <= MAX_EVENT_BYTES && ingestionBytes <= MAX_BATCH_BYTES,
+      'invalid_input', 'Ingestion batch exceeds encoded size limits');
+    const envelope = minimize?.(input) ?? input;
+    return { envelope, bytes: envelope === input ? bytes : encodedSize(envelope) };
+  }));
+}
+
+type MeasuredEnvelope = { envelope: EventEnvelope; bytes: number };
+function pack(measured: readonly MeasuredEnvelope[]): EventBatch[] {
   const ordinary: EventBatch[] = [];
   let packet: EventBatch = { version: 2, events: [] }, packetBytes = RAW_OVERHEAD;
   for (const { envelope, bytes } of measured) {
@@ -42,7 +48,7 @@ function pack(events: readonly EventEnvelope[], ingestion: boolean): EventBatch[
   if (packet.events.length) ordinary.push(packet);
   // Bytes alone do not reduce Queue operations. Avoid codec work on small batches
   // and retain ordinary packets unless the final message count actually falls.
-  if (ordinary.length < 2 || events.filter(e => e.event.kind === 'exposure').length < 2) return ordinary;
+  if (ordinary.length < 2 || measured.filter(({ envelope }) => envelope.event.kind === 'exposure').length < 2) return ordinary;
   const compact = packWithSettings(measured);
   return compact.length < ordinary.length ? compact : ordinary;
 }

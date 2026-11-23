@@ -47,7 +47,6 @@ it.each(Object.entries(changes))('classifies %s changes while preserving histori
 it('closes in-flight samples into their original compatible or isolated generation', async () => {
   const siteId = crypto.randomUUID(), site = env.SITES.getByName(siteId), at = Date.now();
   const clock = vi.spyOn(Date, 'now').mockReturnValue(at);
-  const send = vi.spyOn(env.ANALYTICS, 'send').mockResolvedValue(undefined);
   try {
     const first = await site.createExperiment(siteId, { experimentId: 'exp', arms: ['a'], settings: { minHoldMs: 0, observationWindowMs: 1000 } });
     const expose = (name: string, config: typeof first): ExposureEvent => ({ kind: 'exposure', eventId: name,
@@ -80,5 +79,5 @@ it('closes in-flight samples into their original compatible or isolated generati
       expect(actor.getExperimentPolicy(siteId, 'exp').arms[0]!.weight).toBeCloseTo(JSON.parse(rows[1]!.data).weight, 10);
       expect(actor.getExperimentPolicy(siteId, 'exp').statsAsOf).toBe(at + 63_000);
     });
-  } finally { clock.mockRestore(); send.mockRestore(); }
+  } finally { clock.mockRestore(); }
 });

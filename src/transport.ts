@@ -1,10 +1,8 @@
 import type { ArmInput } from './core/types.js';
 import type { SummariesAPI } from './analytics/summaries.js';
-import type { AnalyticsJobsAPI } from './analytics/jobs.js';
 import type { ArmStatus, Assignment, CreateExperiment, Decision, EventEnvelope, Experiment, ExperimentSettings, GoalStatus, Subject } from './core/types.js';
 import type { GoalDefinition } from './runtime/site.js';
 import type { UnreservedPolicyEvaluation } from './core/policy.js';
-import type { AnalyticsAPI } from './analytics/types.js';
 
 /** statsAsOf는 현재 generation에 마지막 적용한 마감 구간의 기준 시각이며 null은 해당 세대의 적용 이력 없음. 전체 데이터 수신 완료 watermark가 아니다. */
 export interface PolicySnapshot extends UnreservedPolicyEvaluation {
@@ -35,13 +33,6 @@ export interface EyeService {
   configureSummaries(input: Parameters<SummariesAPI['configure']>[0]): ReturnType<SummariesAPI['configure']>;
   summaryStatus(): ReturnType<SummariesAPI['status']>;
   querySummary(input: Parameters<SummariesAPI['query']>[0]): ReturnType<SummariesAPI['query']>;
-  analyticsJobSchedule(input: Parameters<AnalyticsJobsAPI['schedule']>[0]): ReturnType<AnalyticsJobsAPI['schedule']>;
-  analyticsJobScheduled(input: Parameters<AnalyticsJobsAPI['scheduled']>[0]): ReturnType<AnalyticsJobsAPI['scheduled']>;
-  analyticsJobUnschedule(input: Parameters<AnalyticsJobsAPI['unschedule']>[0]): ReturnType<AnalyticsJobsAPI['unschedule']>;
-  analyticsJobCreate(input: Parameters<AnalyticsJobsAPI['create']>[0]): ReturnType<AnalyticsJobsAPI['create']>;
-  analyticsJobStatus(input: Parameters<AnalyticsJobsAPI['status']>[0]): ReturnType<AnalyticsJobsAPI['status']>;
-  analyticsJobPage(input: Parameters<AnalyticsJobsAPI['page']>[0]): Promise<string>;
-  analyticsJobCancel(input: Parameters<AnalyticsJobsAPI['cancel']>[0]): ReturnType<AnalyticsJobsAPI['cancel']>;
 
   /** 등록되지 않은 실험은 오류가 아니라 null이다. 요청 경로가 등록 전의 ID를 조회할 수 있다. */
   getPublishedPolicy(experimentId: string, maxAgeMs?: number): Promise<PublishedPolicy | null>;
@@ -58,20 +49,6 @@ export interface EyeService {
   getGoal(goalId: string): Promise<GoalDefinition | null>;
   listGoals(after?: string, limit?: number): Promise<GoalDefinition[]>;
   setGoalStatus(goalId: string, status: GoalStatus): Promise<GoalDefinition>;
-  analyticsRewardSeries(query: Parameters<AnalyticsAPI['rewardSeries']>[0]): ReturnType<AnalyticsAPI['rewardSeries']>;
-  analyticsArmSeries(query: Parameters<AnalyticsAPI['armSeries']>[0]): ReturnType<AnalyticsAPI['armSeries']>;
-  analyticsTraffic(query: Parameters<AnalyticsAPI['traffic']>[0]): ReturnType<AnalyticsAPI['traffic']>;
-  analyticsPolicies(query: Parameters<AnalyticsAPI['policies']>[0]): ReturnType<AnalyticsAPI['policies']>;
-  analyticsAttributeKeys(query: Parameters<AnalyticsAPI['attributeKeys']>[0]): ReturnType<AnalyticsAPI['attributeKeys']>;
-  analyticsLearning(query: Parameters<AnalyticsAPI['learning']>[0]): ReturnType<AnalyticsAPI['learning']>;
-  analyticsArms(query: Parameters<AnalyticsAPI['arms']>[0]): ReturnType<AnalyticsAPI['arms']>;
-  analyticsTimeline(query: Parameters<AnalyticsAPI['timeline']>[0]): ReturnType<AnalyticsAPI['timeline']>;
-  analyticsEventSeries(query: Parameters<AnalyticsAPI['eventSeries']>[0]): ReturnType<AnalyticsAPI['eventSeries']>;
-  analyticsEventList(query: Parameters<AnalyticsAPI['eventList']>[0]): ReturnType<AnalyticsAPI['eventList']>;
-  analyticsEvents(query: Parameters<AnalyticsAPI['events']>[0]): ReturnType<AnalyticsAPI['events']>;
-  analyticsGoals(query: Parameters<AnalyticsAPI['goals']>[0]): ReturnType<AnalyticsAPI['goals']>;
-  analyticsSeries(query: Parameters<AnalyticsAPI['series']>[0]): ReturnType<AnalyticsAPI['series']>;
-  analyticsAttributeValues(query: Parameters<AnalyticsAPI['attributeValues']>[0]): ReturnType<AnalyticsAPI['attributeValues']>;
 }
 /** 실제 적용·노출 가능한 결정. decide/prepare의 status를 확인해 좁히고 원본 객체를 expose에 전달한다. */
 export type AssignedDecision = Extract<Decision, { status: 'assigned' }>;

@@ -1,24 +1,17 @@
 import type { ArmInput } from '../core/types.js';
-import { AnalyticsSQL } from '../analytics/sql.js';
 import type { SummariesAPI } from '../analytics/summaries.js';
-import type { AnalyticsJobsAPI } from '../analytics/jobs.js';
 import { compareEvents } from '../core/attribution.js';
 import { packIngestion, unpackEvents } from './queue-batch.js';
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { RuntimeEnv as Env } from './environment.generated.js';
 import { invariant } from '../core/errors.js';
+import { hasExposureContext } from '../core/sample-context.js';
 import { parseCreateExperiment, parseEnvelope, validateEventAge } from '../core/events.js';
 import { id } from '../core/validation.js';
 import type { ArmStatus, CreateExperiment, EventEnvelope, Experiment, ExperimentSettings, GoalStatus } from '../core/types.js';
 import type { EyeService, PublishedPolicy, PolicySnapshot } from '../transport.js';
-import { rawRecords, validateRawEnvelope } from '../analytics/raw.js';
-import { type AnalyticsRecord } from '../analytics/records.js';
-import { sendExportBatches } from '../analytics/export.js';
-import { BasinAnalytics } from '../analytics/query.js';
-import type { AnalyticsEnv } from '../analytics/query.js';
-import type { AnalyticsAPI } from '../analytics/types.js';
 
-export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements EyeService {
+export class EyeWorker extends WorkerEntrypoint<Env> implements EyeService {
   private get installationId(): string {
     const value = id(this.env.EYE_INSTALLATION_ID, 'installationId');
     invariant(/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value), 'invalid_input', 'EYE_INSTALLATION_ID must be a UUID');
@@ -30,69 +23,46 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
   async ingest(inputs: readonly Omit<EventEnvelope, 'siteId'>[]): Promise<void> {
     invariant(Array.isArray(inputs) && inputs.length <= 100, 'invalid_input', 'An ingestion batch must contain at most 100 events');
     const receivedAt = Date.now();
-    const envelopes = inputs.map(input => {
+    const envelopes = inputs.filter(input => !retiredEvent(input)).map(input => {
       const envelope = parseEnvelope({ ...input, receivedAt, siteId: this.installationId }, receivedAt);
       validateEventAge(envelope.event, receivedAt);
       return envelope;
     });
-    const batches = packIngestion(envelopes);
+    const batches = packIngestion(envelopes, learningEnvelope);
     if (batches.length > 0) await this.env.EVENTS.sendBatch(batches.map(body => ({ body, contentType: 'json' })));
   }
   override async queue(batch: MessageBatch<unknown>): Promise<void> {
     const work: { message: Message<unknown>; envelope: EventEnvelope }[] = [];
     const retries = new Set<Message<unknown>>();
+    const siteId = this.installationId;
     for (const message of batch.messages) {
       let inputs: unknown[];
       try { inputs = unpackEvents(message.body); }
-      catch { message.ack(); continue; }
+      catch { continue; }
       for (const input of inputs) {
-        try { const envelope = parseEnvelope(input, Date.now()); validateRawEnvelope(envelope); invariant(envelope.siteId === this.installationId, 'invalid_input', 'Queue installation mismatch'); work.push({ message, envelope }); }
-        catch (error) {
+        if (retiredEvent(input)) continue;
+        try {
+          const envelope = parseEnvelope(input, Date.now());
+          invariant(envelope.siteId === siteId, 'invalid_input', 'Queue installation mismatch');
+          work.push({ message, envelope: learningEnvelope(envelope) });
+        } catch (error) {
           const code = errorCode(error);
           console.warn(JSON.stringify({ component: 'eye', operation: 'consume', code: code ?? 'unavailable', messageId: message.id }));
           if (code !== 'invalid_input' && code !== 'outside_retention' && code !== 'conflict') retries.add(message);
         }
       }
     }
-    const statuses = new Map<EventEnvelope, boolean>();
-    const group = work.filter(w => w.envelope.event.kind !== 'track')
-      .sort((a, b) => compareEvents(a.envelope.event, b.envelope.event));
-    for (let offset = 0; offset < group.length; offset += 100) {
-      const chunk = group.slice(offset, offset + 100);
-      try {
-        const accepted = await this.site().consumeLearning(this.installationId, chunk.map(w => w.envelope.event), chunk.map(w => w.envelope.receivedAt));
-        chunk.forEach((item, i) => statuses.set(item.envelope, accepted[i] === true));
-      } catch { for (const item of chunk) retries.add(item.message); }
-    }
-    const items: { message: Message<unknown>; records: AnalyticsRecord[] }[] = [];
-    for (const { message, envelope } of work) {
-      if (envelope.event.kind !== 'track' && !statuses.has(envelope)) continue;
-      const accepted = envelope.event.kind === 'track' || statuses.get(envelope) === true;
-      // A conflicting exposure cannot feed raw-derived observations either.
-      if (envelope.event.kind === 'exposure' && !accepted) continue;
-      items.push({ message, records: rawRecords(envelope, accepted) });
-    }
-    // Retry-safe learning is separate from lazy, bounded raw projection delivery.
-    const remaining = new Map<Message<unknown>, number>();
-    const acknowledged = new Set<Message<unknown>>();
-    const rows = items.flatMap(({ message, records }) => {
-      remaining.set(message, (remaining.get(message) ?? 0) + records.length);
-      return records.map(record => ({ record, message }));
-    });
-    try {
-      await sendExportBatches(rows, group => this.env.ANALYTICS.send(group), undefined, completed => {
-        for (const { message } of completed) {
-          const count = remaining.get(message)! - 1;
-          remaining.set(message, count);
-          if (count === 0 && !retries.has(message)) { message.ack(); acknowledged.add(message); }
-        }
-      });
-    } catch (error) {
-      for (const message of batch.messages) if (!acknowledged.has(message)) message.retry();
-      throw error;
+    if (work.length) {
+      work.sort((a, b) => compareEvents(a.envelope.event, b.envelope.event));
+      let site: ReturnType<EyeWorker['site']> | undefined;
+      for (let offset = 0; offset < work.length; offset += 100) {
+        const chunk = work.slice(offset, offset + 100);
+        try {
+          await (site ??= this.site()).consumeLearning(siteId, chunk.map(w => w.envelope.event), chunk.map(w => w.envelope.receivedAt));
+        } catch { for (const item of chunk) retries.add(item.message); }
+      }
     }
     for (const message of batch.messages) {
-      if (acknowledged.has(message)) continue;
       if (retries.has(message)) message.retry(); else message.ack();
     }
   }
@@ -118,33 +88,28 @@ export class EyeWorker extends WorkerEntrypoint<Env & AnalyticsEnv> implements E
   async configureSummaries(input: Parameters<SummariesAPI['configure']>[0]) { return this.env.SITES.getByName(this.installationId).configureSummaries(this.installationId, input); }
   async summaryStatus() { return this.env.SITES.getByName(this.installationId).summaryStatus(); }
   async querySummary(input: Parameters<SummariesAPI['query']>[0]) { return this.env.SITES.getByName(this.installationId).querySummary(input); }
-  async analyticsJobSchedule(input: Parameters<AnalyticsJobsAPI['schedule']>[0]) { this.installationId; return this.env.REPORTS.getByName(this.installationId).schedule(this.installationId, input); }
-  async analyticsJobScheduled(input: Parameters<AnalyticsJobsAPI['scheduled']>[0]) { this.installationId; return this.env.REPORTS.getByName(this.installationId).getSchedule(input); }
-  async analyticsJobUnschedule(input: Parameters<AnalyticsJobsAPI['unschedule']>[0]) { this.installationId; return this.env.REPORTS.getByName(this.installationId).unschedule(input); }
-  async analyticsJobCreate(input: Parameters<AnalyticsJobsAPI['create']>[0]) { this.installationId; return this.env.REPORTS.getByName(this.installationId).create(this.installationId, input); }
-  async analyticsJobStatus(input: Parameters<AnalyticsJobsAPI['status']>[0]) { this.installationId; return this.env.REPORTS.getByName(this.installationId).status(input); }
-  async analyticsJobPage(input: Parameters<AnalyticsJobsAPI['page']>[0]) { this.installationId; return this.env.REPORTS.getByName(this.installationId).page(input); }
-  async analyticsJobCancel(input: Parameters<AnalyticsJobsAPI['cancel']>[0]) { this.installationId; return this.env.REPORTS.getByName(this.installationId).cancel(input); }
-  async analyticsRewardSeries(query: Parameters<AnalyticsAPI['rewardSeries']>[0]) { return new BasinAnalytics(this.env, this.installationId).rewardSeries(query); }
-  async analyticsArmSeries(query: Parameters<AnalyticsAPI['armSeries']>[0]) { return new BasinAnalytics(this.env, this.installationId).armSeries(query); }
-  async analyticsTraffic(query: Parameters<AnalyticsAPI['traffic']>[0]) { return new BasinAnalytics(this.env, this.installationId).traffic(query); }
-  async analyticsPolicies(query: Parameters<AnalyticsAPI['policies']>[0]) { return new BasinAnalytics(this.env, this.installationId).policies(query); }
-  async analyticsAttributeKeys(query: Parameters<AnalyticsAPI['attributeKeys']>[0]) { return new BasinAnalytics(this.env, this.installationId).attributeKeys(query); }
-  async analyticsLearning(query: Parameters<AnalyticsAPI['learning']>[0]) { return new BasinAnalytics(this.env, this.installationId).learning(query); }
-  async analyticsArms(query: Parameters<AnalyticsAPI['arms']>[0]) { return new BasinAnalytics(this.env, this.installationId).arms(query); }
-  async analyticsTimeline(query: Parameters<AnalyticsAPI['timeline']>[0]) { return new BasinAnalytics(this.env, this.installationId).timeline(query); }
-  async analyticsEventSeries(query: Parameters<AnalyticsAPI['eventSeries']>[0]): ReturnType<AnalyticsAPI['eventSeries']> {
-    new AnalyticsSQL(this.env.EYE_ANALYTICS_NAMESPACE ?? 'eye', this.installationId).eventSeries(query);
-    return await this.site().eventSeries(query);
-  }
-  async analyticsEventList(query: Parameters<AnalyticsAPI['eventList']>[0]) { return new BasinAnalytics(this.env, this.installationId).eventList(query); }
-  async analyticsEvents(query: Parameters<AnalyticsAPI['events']>[0]) { return new BasinAnalytics(this.env, this.installationId).events(query); }
-  async analyticsGoals(query: Parameters<AnalyticsAPI['goals']>[0]) { return new BasinAnalytics(this.env, this.installationId).goals(query); }
-  async analyticsSeries(query: Parameters<AnalyticsAPI['series']>[0]) { return new BasinAnalytics(this.env, this.installationId).series(query); }
-  async analyticsAttributeValues(query: Parameters<AnalyticsAPI['attributeValues']>[0]) { return new BasinAnalytics(this.env, this.installationId).attributeValues(query); }
   private site() { return this.env.SITES.getByName(this.installationId); }
+}
+function learningEnvelope(envelope: EventEnvelope): EventEnvelope {
+  const { event } = envelope;
+  if (event.kind === 'exposure') {
+    invariant(hasExposureContext(event), 'invalid_input', 'Exposure requires sample and attribution context');
+    if (event.attributes === undefined && event.userAttributes === undefined) return envelope;
+    const { attributes: _attributes, userAttributes: _userAttributes, ...exposure } = event;
+    return { ...envelope, event: exposure };
+  }
+  if (event.attributes === undefined) return envelope;
+  const { attributes: _attributes, ...learning } = event;
+  return { ...envelope, event: learning };
 }
 function errorCode(error: unknown): string | undefined {
   if (typeof error !== 'object' || error === null || !('code' in error)) return undefined;
   return typeof error.code === 'string' ? error.code : undefined;
+}
+
+// Ignore obsolete page events from an older host or already queued batches.
+function retiredEvent(input: unknown): boolean {
+  if (typeof input !== 'object' || input === null || !('event' in input)) return false;
+  const event = input.event;
+  return typeof event === 'object' && event !== null && 'kind' in event && event.kind === 'track';
 }
